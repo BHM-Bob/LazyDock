@@ -1,0 +1,2 @@
+include requirements.json
+include lazydock/storage/lazydock-cli-scripts-list.json
