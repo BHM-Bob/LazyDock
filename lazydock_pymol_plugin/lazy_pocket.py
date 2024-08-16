@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-15 19:54:22
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-16 11:36:01
+LastEditTime: 2024-08-16 15:25:49
 Description: print selected residue names and numbers as autodock flex receptor residue format
 '''
 import tkinter as tk
@@ -42,6 +42,7 @@ class LazyPocket:
                                  command = self._gui_withdraw)
         self.dialog.withdraw() # ???
         self.dialog.geometry('650x780')
+        self.dialog.bind('<Return>', self._gui_withdraw)
         
         # the title
         self.title_label = tk.Label(self.dialog.interior(),
@@ -81,6 +82,7 @@ class LazyPocket:
     
     def _gui_withdraw(self, result):
         self.dialog.deactivate(result)
+        self.dialog.withdraw()
         
     def print_sele_around_res(self):
         """output example: CB1:D:PHE108_PHE177_HIS178_LEU193_PHE379_SER383"""
