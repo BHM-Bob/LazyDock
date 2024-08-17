@@ -1,9 +1,10 @@
 '''
 Date: 2024-08-15 19:54:22
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-16 23:12:47
+LastEditTime: 2024-08-17 10:20:50
 Description: print selected residue names and numbers as autodock flex receptor residue format
 '''
+import os
 import tkinter as tk
 import uuid
 from typing import List
@@ -151,7 +152,7 @@ class LazyPocket:
             for chain in self.sele_chains[model]:
                 for _, resi in self.sele_chains[model][chain]:
                     tmp_sele_name = f'{tmp_model_name}_{chain}_{resi}'
-                    api.select(tmp_sele_name, f'chain {chain} and resi {resi}')
+                    api.select(tmp_sele_name, f'model {tmp_model_name} and (chain {chain} and resi {resi})')
                     cmd.remove(tmp_sele_name)
                     cmd.delete(tmp_sele_name)
             api.multisave(pdb_path, tmp_model_name, append = 0 if is_first else 1)
