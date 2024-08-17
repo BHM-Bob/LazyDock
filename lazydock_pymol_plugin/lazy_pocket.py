@@ -138,7 +138,8 @@ class LazyPocket:
     def save_rigid_receptor(self):
         if self.sele_chains is None:
             return put_err(f'Please run "Print sele (around pocket) in flex residue format" first.')
-        pdb_path = MyFileDialog(types = [('PDB file', '*.pdb')]).getsavefile()
+        pdb_path = MyFileDialog(types = [('PDB file', '*.pdb')],
+                                initialdir=os.getcwd()).getsavefile()
         if pdb_path is None:
             return put_err('Please choose a file to save.')
         if not pdb_path.endswith('.pdb'):
