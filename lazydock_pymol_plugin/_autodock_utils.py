@@ -268,9 +268,9 @@ class ADModel:
             self.from_list(lst)
 
     def from_list(self, lst):
+        self.info = '\n'.join(lst)
         self.lst = lst
         for line in lst:
-            self.info += line
             if line.startswith('ATOM') or \
                     line.startswith('HETATM'):
                 self.atomlines.append(line)
