@@ -1,7 +1,7 @@
 '''
 Date: 2024-05-06 17:18:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-05-06 17:31:20
+LastEditTime: 2024-08-19 18:11:15
 Description: 
 '''
 
@@ -69,7 +69,7 @@ setup(
     author = __author__,
     author_email = __author_email__,
     
-    packages = find_packages(exclude=["test", "test."]),
+    packages = find_packages(exclude=["lazydock_pymol_plugin", "test", "test."]),
     include_package_data = True, # define in MANIFEST.in file
     package_data = {"lazydock": dynlib},
     
