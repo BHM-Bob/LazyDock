@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-15 19:54:22
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-19 11:55:27
+LastEditTime: 2024-08-19 22:05:33
 Description: print selected residue names and numbers as autodock flex receptor residue format
 '''
 import os
@@ -14,13 +14,8 @@ from mbapy.base import put_err
 from pymol import api, cmd
 
 
-if __name__ in {"__main__", "__mp_main__"}:
-    import lazydock_pymol_plugin
-    from lazydock_pymol_plugin._autodock_utils import MyFileDialog
-    from lazydock_pymol_plugin._utils import uuid4
-else:
-    from ._autodock_utils import MyFileDialog
-    from ._utils import uuid4
+from _autodock_utils import MyFileDialog
+from _utils import uuid4
 
 
 def _get_res_info_from_sele(select: str, attrs: List[str] = None):
@@ -65,19 +60,31 @@ class LazyPocket:
     def __init__(self, app, _dev_mode: bool = False):
             
         self._app = app
+        self._app.ui_update_func.append(self.ui_update_ui)
+        
+        self.ui_molecule = None
+        self.ui_sele = None
+        self.ui_radius = None
+        
         self.sele = None
         self.sele_molecule = None
         self.sele_selection = None
         self.radius = None
         self.sele_chains = None
-
-    def build_gui(self):
+        
+    def ui_update_ui(self):
+        if self.sele_molecule:
+            self.ui_molecule.options = {k:k for k in self._app._now_molecule}
+        if self.sele_selection:
+            self.sele_selection.options = {k:k for k in self._app._now_selection}
+        
+    def build_flex_gui(self):
         # sele
         with ui.row().classes('w-full'):
-            self.ui_molecular = ui.select(cmd.get_names_of_type('object:molecule'),
+            self.ui_molecule = ui.select(self._app._now_molecule,
                                           label = 'select a molecule').bind_value_to(self, 'sele_molecule').classes('w-1/5')
             ui.label('OR')
-            self.ui_sele = ui.select(cmd.get_names_of_type('selection'),
+            self.ui_sele = ui.select(self._app._now_selection,
                                      label = 'select a selection').bind_value_to(self, 'sele_selection').classes('w-1/5')
         # radius
         self.ui_radius = ui.number(label = 'Radius (A)', min = 0, step=0.1, value = 0).bind_value_to(self, 'radius').classes('w-1/5')
@@ -86,7 +93,14 @@ class LazyPocket:
             self.ui_print_butt = ui.button(text = 'print', on_click=self.print_sele_around_res)
             self.ui_save_butt = ui.button(text ='save rigid', on_click=self.save_rigid_receptor)
         # logs
-        self.log = ui.log(max_lines=100).classes('w-full h-2/5')
+        self.log = ui.log(max_lines=20).classes('w-full h-2/5')
+        
+    def build_gui(self):
+        with ui.tabs().classes('w-full').props('align=left active-bg-color=blue') as tabs:
+            self.ui_flex_tab = ui.tab('AutoDock Flex Residue Helper').props('no-caps')
+        with ui.tab_panels(tabs, value=self.ui_flex_tab).classes('w-full'):
+            with ui.tab_panel(self.ui_flex_tab):
+                self.build_flex_gui()
         # return self
         return self
         
