@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-15 19:54:22
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-17 10:20:50
+LastEditTime: 2024-08-19 11:49:46
 Description: print selected residue names and numbers as autodock flex receptor residue format
 '''
 import os
@@ -9,15 +9,18 @@ import tkinter as tk
 import uuid
 from typing import List
 
-import Pmw
+from nicegui import ui
 from mbapy.base import put_err
 from pymol import api, cmd
 
-if __name__ == '__main__':
+
+if __name__ in {"__main__", "__mp_main__"}:
     import lazydock_pymol_plugin
     from lazydock_pymol_plugin._autodock_utils import MyFileDialog
+    from lazydock_pymol_plugin._utils import uuid4
 else:
     from ._autodock_utils import MyFileDialog
+    from ._utils import uuid4
 
 
 def _get_res_info_from_sele(select: str, attrs: List[str] = None):
@@ -60,78 +63,43 @@ def _get_res_info_from_sele(select: str, attrs: List[str] = None):
 
 class LazyPocket:
     def __init__(self, app, _dev_mode: bool = False):
-        if _dev_mode:
-            parent = app
-        else:
-            parent = app.root
             
+        self._app = app
         self.sele = None
+        self.sele_molecule = None
+        self.sele_selection = None
+        self.radius = None
         self.sele_chains = None
 
-        self.dialog = Pmw.Dialog(parent,
-                                 buttons=('Exit',),
-                                 title = 'LazyDock Pymol Plugin - Lazy Pocket',
-                                 command = self._gui_withdraw)
-        self.dialog.withdraw() # ???
-        self.dialog.geometry('650x780')
-        self.dialog.bind('<Return>', self._gui_withdraw)
-        
-        # the title
-        self.title_label = tk.Label(self.dialog.interior(),
-                                    text='LazyDock Pymol Plugin - Lazy Pocket\nBHM-Bob G\n<https://github.com/BHM-Bob/LazyDock/>',
-                                    background='blue', foreground='white')
-        self.title_label.pack(expand=0, fill='both', padx=4, pady=4)
-        
-        # main notebook
-        self.notebook = Pmw.NoteBook(self.dialog.interior())
-        self.notebook.pack(fill='both', expand=1, padx=3, pady=3)
-        
-        # build pages
-        self.lazy_pocket_page = self.notebook.add('Lazy Pocket')
-
-        ## Lazy-Pocket PAGE
-        ### print_sele_around_res GROUP
-        self.print_sele_around_res_group = Pmw.Group(self.lazy_pocket_page,
-                                                     tag_text='Print sele (around pocket) in flex residue format')
-        self.print_sele_around_res_group.pack(fill='both', padx=10, pady=5)
-        self.ui_print_sele_res_sele_label = Pmw.LabeledWidget(self.print_sele_around_res_group.interior(),
-                                                              labelpos = 'w', label_text = 'when radius is blank, only print sele')
-        self.ui_print_sele_res_sele_label.pack(fill='both', expand=1, padx=10, pady=5)
-        self.ui_print_sele_res_sele_input = Pmw.EntryField(self.print_sele_around_res_group.interior(),
-                                                           labelpos='w', label_text='sele=', value='sele')
-        self.ui_print_sele_res_sele_input.pack(fill='both', expand=1, padx=10, pady=5)
-        self.ui_print_sele_res_radius_input = Pmw.EntryField(self.print_sele_around_res_group.interior(),
-                                                             labelpos='w', label_text='radius=', value='')
-        self.ui_print_sele_res_radius_input.pack(fill='both', expand=1, padx=10, pady=5)
-        self.ui_print_sele_res_button = Pmw.ButtonBox(self.print_sele_around_res_group.interior(),
-                                                     labelpos='nw', label_text = 'Option:')
-        self.ui_print_sele_res_button.add('print', command = self.print_sele_around_res)
-        self.ui_print_sele_res_button.add('save rigid', command = self.save_rigid_receptor)
-        self.ui_print_sele_res_button.pack(fill='both', expand=1, padx=10, pady=5)
-        
-        # GUI 
-        self.dialog.show() # ???
-        
-    
-    def _gui_withdraw(self, result):
-        self.dialog.deactivate(result)
-        self.dialog.withdraw()
+    def build_gui(self):
+        # sele
+        with ui.row().classes('w-full'):
+            self.ui_molecular = ui.select(cmd.get_names_of_type('object:molecule'),
+                                          label = 'select a molecule').bind_value_to(self, 'sele_molecule').classes('w-1/5')
+            ui.label('OR')
+            self.ui_sele = ui.select(cmd.get_names_of_type('selection'),
+                                     label = 'select a selection').bind_value_to(self, 'sele_selection').classes('w-1/5')
+        # radius
+        self.ui_radius = ui.number(label = 'Radius (A)', min = 0, step=0.1, value = 0).bind_value_to(self, 'radius').classes('w-1/5')
+        # buttons
+        with ui.row().classes('w-full'):
+            self.ui_print_butt = ui.button(text = 'print', on_click=self.print_sele_around_res)
+            self.ui_save_butt = ui.button(text ='save rigid', on_click=self.save_rigid_receptor)
+        # return self
+        return self
         
     def print_sele_around_res(self):
         """output example: CB1:D:PHE108_PHE177_HIS178_LEU193_PHE379_SER383"""
-        sele = self.ui_print_sele_res_sele_input.getvalue()
-        radius = self.ui_print_sele_res_radius_input.getvalue()
-        if radius:
-            try:
-                radius = float(radius)
-            except Exception as e:
-                print(f'radius should be a float number, but got {radius}.\nException: {e}\n')
-                return
-            pocket = f'Pocket_{str(uuid.uuid4())[1:5]}'
-            cmd.select(pocket, f'byres {sele} around {radius}')
-            sele = pocket
-        self.sele = sele
-        chains, self.sele_chains = _get_res_info_from_sele(sele)
+        self.sele = self.sele_molecule or self.sele_selection
+        if self.radius:
+            pocket = f'Pocket_{uuid4()}'
+            if self.sele_molecule:
+                cmd.select(pocket, f'model {self.sele_molecule}')
+                cmd.select(pocket, f'byres {pocket} around {self.radius}')
+            else:
+                cmd.select(pocket, f'byres {self.sele} around {self.radius}')
+            self.sele = pocket
+        chains, self.sele_chains = _get_res_info_from_sele(self.sele)
         final_output = ",".join(f"{k}:{'_'.join(v.keys())}" for k,v in chains.items())
         print('\nResidue names and numbers as autodock flex receptor residue format:')
         print(final_output)
@@ -161,13 +129,11 @@ class LazyPocket:
             
         
 # dev mode
-if __name__ == '__main__':
-    root = tk.Tk()
-    Pmw.initialise(root)
-    root.title('LazyDock Pymol Plugin - Lazy Pocket - Dev Mode')
-
-    exitButton = tk.Button(root, text = 'Exit', command = root.destroy)
-    exitButton.pack(side = 'bottom')
-    widget = LazyPocket(root, _dev_mode=True)
-    root.mainloop()
+if __name__ in {"__main__", "__mp_main__"}:
+    cmd.reinitialize()
+    cmd.load('data_tmp/pdb/LIGAND.pdb', 'ligand')
+    cmd.load('data_tmp/pdb/RECEPTOR.pdb', 'receptor')
+    
+    LazyPocket(None, _dev_mode=True).build_gui()
+    ui.run(host = 'localhost', port = 8091)
     
