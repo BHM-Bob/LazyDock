@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-15 19:54:22
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-19 11:49:46
+LastEditTime: 2024-08-19 11:55:27
 Description: print selected residue names and numbers as autodock flex receptor residue format
 '''
 import os
@@ -85,6 +85,8 @@ class LazyPocket:
         with ui.row().classes('w-full'):
             self.ui_print_butt = ui.button(text = 'print', on_click=self.print_sele_around_res)
             self.ui_save_butt = ui.button(text ='save rigid', on_click=self.save_rigid_receptor)
+        # logs
+        self.log = ui.log(max_lines=100).classes('w-full h-2/5')
         # return self
         return self
         
@@ -101,8 +103,9 @@ class LazyPocket:
             self.sele = pocket
         chains, self.sele_chains = _get_res_info_from_sele(self.sele)
         final_output = ",".join(f"{k}:{'_'.join(v.keys())}" for k,v in chains.items())
-        print('\nResidue names and numbers as autodock flex receptor residue format:')
-        print(final_output)
+        log = f'Residue names and numbers as autodock flex receptor residue format:\n{final_output}'
+        print(log)
+        self.log.push(log)
         
     def save_rigid_receptor(self):
         if self.sele_chains is None:
@@ -125,7 +128,9 @@ class LazyPocket:
                     cmd.delete(tmp_sele_name)
             api.multisave(pdb_path, tmp_model_name, append = 0 if is_first else 1)
             is_first = False
-        print(f'Rigid receptor saved to {pdb_path}.')
+        log = f'Rigid receptor saved to {pdb_path}.'
+        print(log)
+        self.log.push(log)
             
         
 # dev mode
