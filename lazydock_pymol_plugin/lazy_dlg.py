@@ -28,12 +28,15 @@ class LazyPose:
         self.last_pose_name = None
         self.now_pose_name = None
         
+        self.sort_pdb_by_res = False
         self.show_best_per = 0
         
     def build_gui(self):
         """called by LazyDLG.__init__"""
-        ui.upload(label = 'Load DLG', multiple=True, auto_upload=True,
-                  on_upload=self.load_dlg_file, on_multi_upload=self.load_dlg_file).props('no-caps')
+        with ui.row().classes('w-full'):
+            ui.upload(label = 'Load DLG', multiple=True, auto_upload=True,
+                    on_upload=self.load_dlg_file, on_multi_upload=self.load_dlg_file).props('no-caps')
+            ui.checkbox('sort pdb by res', value=self.sort_pdb_by_res).bind_value_to(self, 'sort_pdb_by_res')
         self.ui_make_dlg_file_list()
         
     @ui.refreshable
@@ -101,12 +104,12 @@ class LazyPose:
         for file_name, content in zip(names, contents):
             dlg_name = Path(file_name).stem
             if dlg_name in self.dlg_pose:
-                continue # TODO: don't kown why, will load again on same file, cause read null at second time
+                continue # TODO: don't kown why, will load again on same file, cause read null at the second time
             dlg_content = decode_bits_to_str(content.read())
             dlg_pose_lst = []
             for model in re.findall('MODEL.+?ENDMDL', dlg_content, re.DOTALL):
                 model = model.replace('\nDOCKED: ', '\n')
-                dlg_pose_lst.append(ADModel(lst=model.split('\n')))
+                dlg_pose_lst.append(ADModel(model.split('\n'), self.sort_pdb_by_res))
             dlg_pose_lst.sort(key = lambda x: x.energy)
             self.dlg_pose[dlg_name] = {'pose':{}, 'is_show':{}, 'name_lst': [], 'pml_name': {}, 'ui_tab': {}}
             for i in range(len(dlg_pose_lst)):
