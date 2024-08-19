@@ -28,13 +28,15 @@ else:
 
 class PosePage:
     """load dlg to pose, show pose, save pose"""
-    def __init__(self, notebook):
+    def __init__(self, notebook, app: 'LazyDLG'):
+        self._app = app
         self.config = self._get_default_config()
         self.dlg_pose: Dict[str, List[ADModel]] = {}
         self.ui_dlg_pose: Dict[str, Dict[str, Union[List[ADModel], PmwComboBox, List[str]]]] = {}
         self.now_dlg_name = None
         
-        self.page = notebook.add('DLG Pose')
+        self.PAGE_NAME = 'DLG Pose'
+        self.page = notebook.add(self.PAGE_NAME)
         self.page.pack(fill='both', expand=1, padx=3, pady=3)
 
         # dlg file
@@ -105,6 +107,10 @@ class PosePage:
         self.ui_dlg_pose[self.now_dlg_name]['text'].pack()
         # update ui_pose_viewer_notebook now page
         self.ui_pose_viewer_notebook.selectpage(self.now_dlg_name)
+        # add dlg name to Interaction-Analysis page
+        dlgs = self._app.interaction_page.ui_ligand._list.get(0, 'end')
+        if self.now_dlg_name not in dlgs:
+            self._app.interaction_page.ui_ligand._list.insert(*(len(dlgs),) + tuple([self.now_dlg_name]))
         
     def load_dlg_file(self):
         dlg_path = self.dlg_file_path.getvalue()
@@ -174,6 +180,39 @@ class PosePage:
         how = self.score_table_radiobuttons.getvalue()
         self.update_score_table(how)
         
+        
+class InteractionPage:
+    def __init__(self, notebook, app: 'LazyDLG'):
+        self._app = app
+        self.PAGE_NAME = 'Interaction Analysis'
+        self.page = notebook.add(self.PAGE_NAME)
+        self.page.pack(fill='both', expand=1, padx=3, pady=3)
+
+        # receptor - ligand choose
+        self.ui_molecular_choose_group = Pmw.Group(self.page, tag_text='Choose molecular')
+        self.ui_molecular_choose_group.pack(fill='both', expand=1, padx=3, pady=3)
+        self.ui_receptor = Pmw.ComboBox(self.ui_molecular_choose_group.interior(),
+                                        scrolledlist_items=cmd.get_names_of_type('object:molecule'),
+                                        labelpos='nw',
+                                        label_text='Receptor',
+                                        listbox_height=10,
+                                        selectioncommand=self.ui_select_receptor,
+                                        dropdown=True)
+        self.ui_receptor.pack(side='left', padx=0, anchor='nw')
+        self.ui_ligand = Pmw.ComboBox(self.ui_molecular_choose_group.interior(),
+                                        scrolledlist_items=list(self._app.pose_page.dlg_pose.keys()),
+                                        labelpos='nw',
+                                        label_text='Ligand DLG',
+                                        listbox_height=10,
+                                        selectioncommand=self.ui_select_ligand,
+                                        dropdown=True)
+        self.ui_ligand.pack(side='left', padx=0, anchor='nw', fill = 'x', expand = True)
+        
+    def ui_select_receptor(self, receptor_name: str):
+        pass
+    
+    def ui_select_ligand(self, ligand_name: str):
+        pass
     
 
 class LazyDLG:
@@ -188,7 +227,7 @@ class LazyDLG:
                                  title = 'LazyDock Pymol Plugin - Lazy DLG',
                                  command = self._gui_withdraw)
         self.dialog.withdraw() # ???
-        self.dialog.geometry('650x780')
+        self.dialog.geometry('700x780')
         self.dialog.bind('<Return>', self._gui_withdraw)
         
         # the title
@@ -202,9 +241,11 @@ class LazyDLG:
         self.notebook.pack(fill='both', expand=1, padx=3, pady=3)
         
         # build pages
-        self.pose_page = PosePage(self.notebook)
+        self.pose_page = PosePage(self.notebook, self)
+        self.interaction_page = InteractionPage(self.notebook, self)
         
         # GUI 
+        self.notebook.selectpage(self.pose_page.PAGE_NAME)
         self.dialog.show() # ???
         
     
@@ -215,6 +256,8 @@ class LazyDLG:
         
 # dev mode
 if __name__ == '__main__':
+    cmd.reinitialize()
+    cmd.load('data_tmp/pdb/RECEPTOR.pdb', 'receptor')
     root = tk.Tk()
     Pmw.initialise(root)
     root.title('LazyDock Pymol Plugin - Lazy DLG - Dev Mode')
