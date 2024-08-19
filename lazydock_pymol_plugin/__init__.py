@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-16 09:36:38
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-18 19:02:02
+LastEditTime: 2024-08-19 10:47:29
 Description: LazyDock Pymol Plugin
 '''
 
@@ -11,14 +11,18 @@ os.environ['MBAPY_FAST_LOAD'] = 'True'
 os.environ['MBAPY_AUTO_IMPORT_TORCH'] = 'False'
 
 
-from . import _utils, _autodock_utils, _interaction_utils
+from . import _autodock_utils, _interaction_utils, _utils
 from .lazy_dlg import LazyDLG
 from .lazy_pocket import LazyPocket
+from .main import GUILauncher
 
 
 def __init__(self):
-	self.menuBar.addcascademenu('Plugin', 'LazyDockPymolPlugin', 'LazyDockPymolPlugin', label = 'LazyDockPymolPlugin')
-	self.menuBar.addmenuitem('LazyDockPymolPlugin', 'command', 'LazyPocket',
-                          label = 'LazyPocket', command = lambda s=self : LazyPocket(s))
-	self.menuBar.addmenuitem('LazyDockPymolPlugin', 'command', 'LazyDLG',
-                          label = 'LazyDLG', command = lambda s=self : LazyDLG(s))
+    try:
+        from pymol.plugins import addmenuitemqt
+        addmenuitemqt('LazyDock', GUILauncher)
+        return
+    except Exception as e:
+        print(e)
+    self.menuBar.addmenuitem('Plugin', 'command', 'lazydock',
+                             label = 'LazyDock', command = lambda s=self : GUILauncher(s)) 
