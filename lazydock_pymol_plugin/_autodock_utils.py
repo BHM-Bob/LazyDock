@@ -1,118 +1,23 @@
-# copied and fixed from Autodock Plugin
+# copied and fixed from Autodock Plugin: http://www.pymolwiki.org/index.php/autodock_plugin
 
-'''
-Is described at: http://www.pymolwiki.org/index.php/autodock_plugin
-
-
-# Autodock/Vina plugin  Copyright Notice
-# ============================
-#
-# The Autodock/Vina plugin source code is copyrighted, but you can freely use and
-# copy it as long as you don't change or remove any of the copyright
-# notices.
-#
-# ----------------------------------------------------------------------
-# Autodock/Vina plugin is Copyright (C) 2009 by Daniel Seeliger
-#
-#                        All Rights Reserved
-#
-# Permission to use, copy, modify, distribute, and distribute modified
-# version
-#
-# 
-# ----------------------------------------------------------------------
-
-#================================================================
-'''
 
 from __future__ import absolute_import, print_function
 
 import os
+import re
 import sys
 import tkinter.filedialog as tkFileDialog
 from tkinter import *
 
-#from commands import getstatusoutput
 
-USE_SYS_EXECUTABLE = False
-
-def touch(filename):
-    with open(filename, 'a'):
-        pass
-
-def getstatusoutput(command):
-    from subprocess import PIPE, STDOUT, Popen
-    env = dict(os.environ)
-    if 'PYMOL_GIT_MOD' in os.environ:
-        env['PYTHONPATH'] = os.path.join(os.environ['PYMOL_GIT_MOD'], "ADT")
-    args = command.split()
-    if args[0].endswith('.py') and USE_SYS_EXECUTABLE:
-        args.insert(0, sys.executable)
-    p = Popen(args, stdout=PIPE, stderr=STDOUT, stdin=PIPE, env=env)
-    output = p.communicate()[0]
-    return p.returncode, output
-
-
-#=============================================================================
-#
-#     SOME BASIC THINGIES
-#
-
-pdb_format = "%6s%5d %-4s%1s%3s%2s%4d %11.3f %7.3f %7.3f %5.2f %5.2f"
-
-# get a temporary file directory
-if not sys.platform.startswith('win'):
-    home = os.environ.get('HOME')
-else:
-    home = os.environ.get('PYMOL_PATH')
-
-tmp_dir = os.path.join(home, '.ADplugin')
-if not os.path.isdir(tmp_dir):
-    os.mkdir(tmp_dir)
-    print("Created temporary files directory:  %s" % tmp_dir)
-
-default_settings = {
-    "grid_spacing": '0.375',
-    "n_points_X": '60',
-    "n_points_Y": '60',
-    "n_points_Z": '60',
-    "grid_center_selection": '(all)',
-    "grid_center_X": '0',
-    "grid_center_Y": '0',
-    "grid_center_Z": '0',
-    "dx": '1.0',
-    "dy": '1.0',
-    "dz": '1.0',
-    "box_cylinder_size": '0.2',
-    "box_mesh_line_width": '1',
-    "box_mesh_grid_size": '1',
-    "box_file_name": 'box.dat',
-    "gpf_file_name": 'grid.gpf',
-    "config_file_name": 'config.txt',
-    "rank_dat_file_name": 'scores.dat',
-    "rank_csv_file_name": 'scores.csv',
-    "rank_pose_file_name": 'poses.pdb',
-    "dlg_input_file": 'docked.pdbqt',
-    "map_input_file": 'receptor.C.map',
-    "map_threshold": 5.
-}
-
-BOX_AS_BOX = 0
-BOX_AS_WIREBOX = 1
-GRID_CENTER_FROM_SELECTION = 0
-GRID_CENTER_FROM_COORDINATES = 1
-
-
-#==========================================================================
-#
-#    CLASSES FOR HANDLING AUTODOCK FILES
+# atom-type, atom-number, atom-name, residue-name, chain-name, residue-number, x, y, z, occupancy, temperature-factor
+# ATOM      1  CA  LYS     7     136.747 133.408 135.880 -0.06 +0.10
+PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+)"
 
 
 class ADModel:
-
     """ STORAGE CLASS FOR DOCKED LIGANDS """
-
-    def __init__(self, lst=None):
+    def __init__(self, lst=None, sort_atom_by_res: bool = False):
         self.atomlines = []
         self.energy = 0.
         self.name = ''
@@ -121,10 +26,26 @@ class ADModel:
         self.lst = []
         self.num = 0
         self.as_string = ''
+        self.pdb_lines = []
         if lst is not None:
-            self.from_list(lst)
+            self.from_list(lst, sort_atom_by_res)
+            
+    def sort_atom_by_res(self, pdb_string: str = None):
+        pdb_string = pdb_string or self.as_string
+        pdb_string_lines = pdb_string.strip().split('\n')
+        for idx, line in enumerate(pdb_string_lines):
+            matches = re.findall(PDB_PATTERN, line)
+            items = list(matches[0])
+            items[1], items[5] = int(items[1]), int(items[5])
+            self.pdb_lines.append(items+[idx]) # line items + line idx
+        # sort by chain name first, then by residue number, then by atom number
+        self.pdb_lines.sort(key=lambda x: (x[4], x[5], x[1]))
+        # apply sorted line idx to as_string
+        self.as_string = '\n'.join([pdb_string_lines[i[-1]] for i in self.pdb_lines])
+        return self.as_string
+            
 
-    def from_list(self, lst):
+    def from_list(self, lst, sort_atom_by_res: bool = False):
         self.info = '\n'.join(lst)
         self.lst = lst
         for line in lst:
@@ -140,9 +61,12 @@ class ADModel:
                 if 'VINA RESULT' in line:
                     entr = line.split(':')[1]
                     self.energy = float(entr.split()[0])
+        if sort_atom_by_res:
+            self.sort_atom_by_res()
 
     def as_pdb_string(self):
         return self.as_string
+        
 
     def info_string(self):
         return self.info
