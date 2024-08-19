@@ -324,18 +324,19 @@ class Ligand:
 
 class MyFileDialog:
 
-    def __init__(self, types=[("Executable", "*")]):
+    def __init__(self, types=[("Executable", "*")], initialdir: str = None):
+        self.initialdir = initialdir
         self.types = types
 
     def getopenfile(self):
-        result = tkFileDialog.askopenfilename(filetypes=self.types)
+        result = tkFileDialog.askopenfilename(initialdir = self.initialdir, filetypes=self.types)
         if result == "":
             return None
         else:
             return result
 
     def getsavefile(self):
-        result = tkFileDialog.asksaveasfilename(filetypes=self.types)
+        result = tkFileDialog.asksaveasfilename(initialdir = self.initialdir, filetypes=self.types)
         if result == "":
             return None
         else:
