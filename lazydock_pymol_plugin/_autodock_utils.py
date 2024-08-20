@@ -6,6 +6,7 @@ from __future__ import absolute_import, print_function
 import os
 import re
 import sys
+import tkinter as tk
 import tkinter.filedialog as tkFileDialog
 from tkinter import *
 
@@ -246,22 +247,34 @@ class Ligand:
         return s
 
 
-class MyFileDialog:
+def tk_file_dialog_wrapper(*args, **kwargs):
+    def ret_wrapper(tk_file_dialog_func):
+        def core_wrapper(*args, **kwargs):
+            parent = tk.Tk()
+            result = tk_file_dialog_func(*args, parent = parent, **kwargs)
+            parent.withdraw()
+            if result == "":
+                return None
+            else:
+                return result
+        return core_wrapper
+    return ret_wrapper
+            
 
+class MyFileDialog:
     def __init__(self, types=[("Executable", "*")], initialdir: str = None):
         self.initialdir = initialdir
         self.types = types
 
-    def getopenfile(self):
-        result = tkFileDialog.askopenfilename(initialdir = self.initialdir, filetypes=self.types)
-        if result == "":
-            return None
-        else:
-            return result
+    @tk_file_dialog_wrapper()
+    def get_open_file(self, parent):
+        return tkFileDialog.askopenfilename(parent=parent, initialdir = self.initialdir, filetypes=self.types)
 
-    def getsavefile(self):
-        result = tkFileDialog.asksaveasfilename(initialdir = self.initialdir, filetypes=self.types)
-        if result == "":
-            return None
-        else:
-            return result
+
+    @tk_file_dialog_wrapper()
+    def get_save_file(self, parent):
+        return tkFileDialog.asksaveasfilename(parent=parent, initialdir = self.initialdir, filetypes=self.types)
+        
+    @tk_file_dialog_wrapper()
+    def get_ask_dir(self, parent):
+        return tkFileDialog.askdirectory(parent=parent, initialdir = self.initialdir)
