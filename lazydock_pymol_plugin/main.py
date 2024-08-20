@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-19 10:41:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-19 20:30:15
+LastEditTime: 2024-08-20 09:32:16
 Description: 
 '''
 from threading import Thread
@@ -26,10 +26,10 @@ class GUILauncher:
         
         self.build_gui()
         
-        self.host_thread = Thread(name = 'GUI-Host', target=ui.run,
-                                  kwargs = dict(title='LazyDock', host = 'localhost', port=8090, reload = False),
-                                  daemon=False)
-        self.host_thread.run()
+        self.host = Thread(name = 'GUI-Host', target=ui.run,
+                            kwargs = dict(title='LazyDock', host = 'localhost', port=8090, reload = False),
+                            daemon=False)
+        self.host.start()
         
     def ui_update_content_from_pymol(self, ):
         self._now_molecule = cmd.get_names_of_type('object:molecule')
