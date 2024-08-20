@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-15 19:54:22
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-19 22:05:33
+LastEditTime: 2024-08-20 11:27:44
 Description: print selected residue names and numbers as autodock flex receptor residue format
 '''
 import os
@@ -11,11 +11,14 @@ from typing import List
 
 from nicegui import ui
 from mbapy.base import put_err
-from pymol import api, cmd
+from pymol import api, cmd, CmdException
 
 
 from _autodock_utils import MyFileDialog
 from _utils import uuid4
+
+
+NULL_CHAIN = "''"
 
 
 def _get_res_info_from_sele(select: str, attrs: List[str] = None):
@@ -76,7 +79,7 @@ class LazyPocket:
         if self.sele_molecule:
             self.ui_molecule.options = {k:k for k in self._app._now_molecule}
         if self.sele_selection:
-            self.sele_selection.options = {k:k for k in self._app._now_selection}
+            self.ui_sele.options = {k:k for k in self._app._now_selection}
         
     def build_flex_gui(self):
         # sele
@@ -125,7 +128,7 @@ class LazyPocket:
         if self.sele_chains is None:
             return put_err(f'Please run "Print sele (around pocket) in flex residue format" first.')
         pdb_path = MyFileDialog(types = [('PDB file', '*.pdb')],
-                                initialdir=os.getcwd()).getsavefile()
+                                initialdir=os.getcwd()).get_save_file()
         if pdb_path is None:
             return put_err('Please choose a file to save.')
         if not pdb_path.endswith('.pdb'):
@@ -137,7 +140,12 @@ class LazyPocket:
             for chain in self.sele_chains[model]:
                 for _, resi in self.sele_chains[model][chain]:
                     tmp_sele_name = f'{tmp_model_name}_{chain}_{resi}'
-                    api.select(tmp_sele_name, f'model {tmp_model_name} and (chain {chain} and resi {resi})')
+                    try:
+                        api.select(tmp_sele_name, f'model {tmp_model_name} and (chain {chain or NULL_CHAIN} and resi {resi})')
+                    except CmdException:
+                        # TODO: don't kown why, but copy again helps
+                        api.copy(tmp_model_name, model)
+                        api.select(tmp_sele_name, f'model {tmp_model_name} and (chain {chain or NULL_CHAIN} and resi {resi})')
                     cmd.remove(tmp_sele_name)
                     cmd.delete(tmp_sele_name)
             api.multisave(pdb_path, tmp_model_name, append = 0 if is_first else 1)
@@ -148,11 +156,11 @@ class LazyPocket:
             
         
 # dev mode
-if __name__ in {"__main__", "__mp_main__"}:
+if __name__ in {"__main__", "__mp_main__"}:    
     cmd.reinitialize()
     cmd.load('data_tmp/pdb/LIGAND.pdb', 'ligand')
     cmd.load('data_tmp/pdb/RECEPTOR.pdb', 'receptor')
     
-    LazyPocket(None, _dev_mode=True).build_gui()
-    ui.run(host = 'localhost', port = 8091)
+    from main import GUILauncher
+    GUILauncher()
     
