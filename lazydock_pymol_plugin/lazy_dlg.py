@@ -1,42 +1,63 @@
 
 import os
 import re
-import tkinter as tk
 import uuid
 from pathlib import Path
 from typing import Dict, List, Union
 
-from mbapy.base import put_err
-from mbapy.file import opts_file, decode_bits_to_str
-
-from nicegui import ui
-
-from pymol import cmd
-
-
-from _autodock_utils import ADModel
+from _autodock_utils import ADModel, MyFileDialog
 from _utils import uuid4
-    
+from mbapy.file import decode_bits_to_str, opts_file
+from nicegui import ui
+from pymol import api, cmd
+
 
 class LazyPose:
     """load dlg to pose, show pose, save pose"""
     def __init__(self, app):
         self._app = app
-        
+        self._app.ui_update_func.append(self.ui_update_ui)
+        # pose storage
         self.dlg_pose: Dict[str, Dict[str, Union[List[ADModel]]]] = {}
         self.now_dlg_name = None
         self.last_pose_name = None
         self.now_pose_name = None
-        
+        # show pose control
         self.sort_pdb_by_res = False
         self.show_best_per = 0
+        self.save_with_each_header = True
+        # select receptor
+        self.ui_molecule = None
+        self.ui_sele = None
+        self.sele_molecule = None
+        self.sele_selection = None
+        
+    def ui_update_ui(self):
+        if self.sele_molecule:
+            self.ui_molecule.options = {k:k for k in self._app._now_molecule}
+        if self.sele_selection:
+            self.ui_sele.options = {k:k for k in self._app._now_selection}
         
     def build_gui(self):
         """called by LazyDLG.__init__"""
         with ui.row().classes('w-full'):
             ui.upload(label = 'Load DLG', multiple=True, auto_upload=True,
                     on_upload=self.load_dlg_file, on_multi_upload=self.load_dlg_file).props('no-caps')
-            ui.checkbox('sort pdb by res', value=self.sort_pdb_by_res).bind_value_to(self, 'sort_pdb_by_res')
+            # load and save control
+            with ui.column():
+                ui.checkbox('sort pdb by res', value=self.sort_pdb_by_res).bind_value_to(self, 'sort_pdb_by_res')
+                ui.checkbox('save with each header', value=self.save_with_each_header).bind_value_to(self, 'save_with_each_header')
+            # sele receptor
+            with ui.card().classes('w-1/2'):
+                with ui.row().classes('w-full'):
+                    ui.label('select a receptor')
+                    ui.button('save showed complex', on_click=self.save_showed_complex).props('no-caps').bind_enabled_from(self, 'now_dlg_name')
+                with ui.row().classes('w-full'):
+                    self.ui_molecule = ui.select(self._app._now_molecule,
+                                                label = 'select a molecule').bind_value_to(self, 'sele_molecule').classes('w-2/5')
+                    # ui.label('OR').classes('w-1/5')
+                    self.ui_sele = ui.select(self._app._now_selection,
+                                            label = 'select a selection').bind_value_to(self, 'sele_selection').classes('w-2/5')
         self.ui_make_dlg_file_list()
         
     @ui.refreshable
@@ -58,7 +79,7 @@ class LazyPose:
                         ui.tab(n).classes(f'w-full {text_col} no-caps').tooltip(n).on('click', self.handle_pose_tab_click)
             pose_tabs.bind_value_to(self, 'now_pose_name')
             # pose info
-            with ui.column().classes('w-2/5'):
+            with ui.column().classes('w-3/5'):
                 ui.label().props('no-cap').bind_text_from(self, 'now_dlg_name', lambda x: f'DLG: {x}')
                 # pose control
                 with ui.row().classes('w-full'):
@@ -166,6 +187,28 @@ class LazyPose:
         cmd.delete(self.now_dlg_name + '_*')
         del self.dlg_pose[self.now_dlg_name]
         self.now_dlg_name = self.now_dlg_name[list(self.dlg_pose.keys())[0]] if self.now_dlg_name else None
+        
+    def save_showed_complex(self):
+        if self.sele_molecule is None and self.sele_selection is None:
+            ui.notify('Please select a receptor and a selection first')
+            return None
+        receptor = self.sele_molecule or self.sele_selection
+        save_dir = MyFileDialog().get_ask_dir()
+        if not save_dir:
+            ui.notify('Please select a directory to save')
+            return None
+        for name, pml_name in self.dlg_pose[self.now_dlg_name]['pml_name'].items():
+            if self.dlg_pose[self.now_dlg_name]['is_show'][name]:
+                pdb_path = os.path.join(save_dir, f'{receptor}_{pml_name}.pdb')
+                if self.save_with_each_header:
+                    api.multisave(pdb_path, receptor, append = 0)
+                    api.multisave(pdb_path, pml_name, append = 1)
+                else:
+                    tmp_sele = uuid4()
+                    cmd.select(tmp_sele, f'{receptor} or {pml_name}')
+                    cmd.save(pdb_path, tmp_sele)
+                    cmd.delete(tmp_sele)
+                print(f'{receptor} and {pml_name} saved to {pdb_path}')
         
         
 class InteractionPage:
