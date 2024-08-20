@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-19 10:41:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-20 09:32:16
+LastEditTime: 2024-08-20 09:57:40
 Description: 
 '''
 from threading import Thread
@@ -17,7 +17,7 @@ class GUILauncher:
     def __init__(self, app = None):
         
         self._now_molecule = cmd.get_names_of_type('object:molecule') or []
-        self._now_selection = cmd.get_names_of_type('selection') or []
+        self._now_selection = cmd.get_names_of_type('selection') + ['sele']
         self.ui_update_func = []
         ui.timer(1, self.ui_update_content_from_pymol)
         
@@ -33,7 +33,7 @@ class GUILauncher:
         
     def ui_update_content_from_pymol(self, ):
         self._now_molecule = cmd.get_names_of_type('object:molecule')
-        self._now_selection = cmd.get_names_of_type('selection')
+        self._now_selection = cmd.get_names_of_type('selection') + ['sele']
         
         for fn in self.ui_update_func:
             fn()
