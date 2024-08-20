@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-15 19:54:22
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-20 11:27:44
+LastEditTime: 2024-08-20 21:48:33
 Description: print selected residue names and numbers as autodock flex receptor residue format
 '''
 import os
@@ -124,11 +124,13 @@ class LazyPocket:
         
     def save_rigid_receptor(self):
         if self.sele_chains is None:
-            return put_err(f'Please run "Print sele (around pocket) in flex residue format" first.')
+            ui.notify('Please run "Print sele (around pocket) in flex residue format" first.')
+            return None
         pdb_path = MyFileDialog(types = [('PDB file', '*.pdb')],
                                 initialdir=os.getcwd()).get_save_file()
         if pdb_path is None:
-            return put_err('Please choose a file to save.')
+            ui.notify('Please choose a file to save.')
+            return None
         if not pdb_path.endswith('.pdb'):
             pdb_path += '.pdb'
         is_first = True
