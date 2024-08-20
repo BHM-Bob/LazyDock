@@ -76,19 +76,17 @@ class LazyPocket:
         self.sele_chains = None
         
     def ui_update_ui(self):
-        if self.sele_molecule:
-            self.ui_molecule.options = {k:k for k in self._app._now_molecule}
-        if self.sele_selection:
-            self.ui_sele.options = {k:k for k in self._app._now_selection}
+        self.ui_molecule.set_options(self._app._now_molecule)
+        self.ui_sele.set_options(self._app._now_selection)
         
     def build_flex_gui(self):
         # sele
         with ui.row().classes('w-full'):
             self.ui_molecule = ui.select(self._app._now_molecule,
-                                          label = 'select a molecule').bind_value_to(self, 'sele_molecule').classes('w-1/5')
+                                          label = 'select a molecule').bind_value_to(self, 'sele_molecule').classes('w-1/5').props('use-chips')
             ui.label('OR')
             self.ui_sele = ui.select(self._app._now_selection,
-                                     label = 'select a selection').bind_value_to(self, 'sele_selection').classes('w-1/5')
+                                     label = 'select a selection').bind_value_to(self, 'sele_selection').classes('w-1/5').props('use-chips')
         # radius
         self.ui_radius = ui.number(label = 'Radius (A)', min = 0, step=0.1, value = 0).bind_value_to(self, 'radius').classes('w-1/5')
         # buttons
