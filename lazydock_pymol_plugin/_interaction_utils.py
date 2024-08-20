@@ -1,18 +1,14 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-18 19:00:15
+LastEditTime: 2024-08-20 15:48:56
 Description: 
 '''
 from typing import Dict
 
+from _utils import uuid4
 from mbapy.base import put_err
 from pymol import CmdException, cmd
-
-if __name__ == '__main__':
-    import lazydock_pymol_plugin
-    from lazydock_pymol_plugin._utils import uuid4
-
 
 RES_SEPRATOR = '::'
 NULL_CHAIN = "''"
