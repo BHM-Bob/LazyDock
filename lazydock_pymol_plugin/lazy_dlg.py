@@ -1,13 +1,22 @@
 
+import gzip
 import os
+import pickle
 import re
 import uuid
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
+
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from matplotlib import pyplot as plt
 
 from _autodock_utils import ADModel, MyFileDialog
+from _interaction_utils import get_atom_level_interactions
 from _utils import uuid4
-from mbapy.file import decode_bits_to_str, opts_file
+from mbapy.file import decode_bits_to_str
+from mbapy.plot import save_show
 from nicegui import ui
 from pymol import api, cmd
 
@@ -33,16 +42,15 @@ class LazyPose:
         self.sele_selection = None
         
     def ui_update_ui(self):
-        if self.sele_molecule:
-            self.ui_molecule.options = {k:k for k in self._app._now_molecule}
-        if self.sele_selection:
-            self.ui_sele.options = {k:k for k in self._app._now_selection}
+        self.ui_molecule.set_options(self._app._now_molecule)
+        self.ui_sele.set_options(self._app._now_selection)
         
     def build_gui(self):
         """called by LazyDLG.__init__"""
         with ui.row().classes('w-full'):
             ui.upload(label = 'Load DLG', multiple=True, auto_upload=True,
                     on_upload=self.load_dlg_file, on_multi_upload=self.load_dlg_file).props('no-caps')
+            ui.button('refresh GUI', on_click=self.ui_make_dlg_file_list.refresh).props('no-caps')
             # load and save control
             with ui.column():
                 ui.checkbox('sort pdb by res', value=self.sort_pdb_by_res).bind_value_to(self, 'sort_pdb_by_res')
@@ -54,10 +62,10 @@ class LazyPose:
                     ui.button('save showed complex', on_click=self.save_showed_complex).props('no-caps').bind_enabled_from(self, 'now_dlg_name')
                 with ui.row().classes('w-full'):
                     self.ui_molecule = ui.select(self._app._now_molecule,
-                                                label = 'select a molecule').bind_value_to(self, 'sele_molecule').classes('w-2/5')
+                                                label = 'select a molecule').bind_value_to(self, 'sele_molecule').classes('w-2/5').props('use-chips')
                     # ui.label('OR').classes('w-1/5')
                     self.ui_sele = ui.select(self._app._now_selection,
-                                            label = 'select a selection').bind_value_to(self, 'sele_selection').classes('w-2/5')
+                                            label = 'select a selection').bind_value_to(self, 'sele_selection').classes('w-2/5').props('use-chips')
         self.ui_make_dlg_file_list()
         
     @ui.refreshable
@@ -214,15 +222,184 @@ class LazyPose:
 class InteractionPage:
     def __init__(self, app):
         self._app = app
+        self._app.ui_update_func.append(self.ui_update_ui)
+        # select receptor
+        self.ui_molecule = None
+        self.ui_sele = None
+        self.ui_dlg = None
+        self.sele_molecule = None
+        self.sele_selection = None
+        self.sele_dlg = None
+        # interaction
+        self.interactions = None
+        self.interaction_df = None
+        self.distance_reverse = 4
+        self.nagetive_factor = -0.5
+        # vitulazation control
+        self.fig = None
+        self.align_vlim = False
+        self.plot_cluster = False
+        self.use_one_letter = True
+        self.fig_w = 10
+        self.fig_h = 7
+        
+    def ui_update_ui(self):
+        self.ui_molecule.set_options(self._app._now_molecule)
+        self.ui_sele.set_options(self._app._now_selection)
+        if self._app.lazy_dlg.pose_page.dlg_pose:
+            self.ui_dlg.set_options(list(self._app.lazy_dlg.pose_page.dlg_pose.keys()))
+            
+    def merge_interaction_df(self, interaction: Dict[str, List[Tuple[Tuple[str, str, str, str, str, float],
+                                                                     Tuple[str, str, str, str, str, float], float]]],
+                             nagetive_factor: float):
+        # index format: CHAIN_ID:RESI:RESN
+        def set_points(ty: str, points: float, nagetive_factor: float):
+            points = self.distance_reverse - points
+            if ty in {'ad', 'da'}:
+                return points
+            return nagetive_factor * points
+        for interaction_type, values in interaction.items():
+            for single_inter in values:
+                # single_inter: (('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3.4605595828662383)
+                receptor_res = f'{single_inter[0][1]}:{single_inter[0][3]}:{single_inter[0][2]}'
+                ligand_res = f'{single_inter[1][1]}:{single_inter[1][3]}:{single_inter[1][2]}'
+                points = set_points(interaction_type, single_inter[2], nagetive_factor)
+                if ligand_res not in self.interaction_df.index or receptor_res not in self.interaction_df.columns:
+                    self.interaction_df.loc[ligand_res, receptor_res] = points
+                elif np.isnan(self.interaction_df.loc[ligand_res, receptor_res]):
+                    self.interaction_df.loc[ligand_res, receptor_res] = points
+                else:
+                    self.interaction_df.loc[ligand_res, receptor_res] += points
+        return self.interaction_df
+            
+    def calculate_interaction(self):
+        def sort_func(index: pd.Index):
+            index = index.str.split(':')
+            return list(map(lambda x: (x[0], int(x[1]), x[2]), index))
+        # get receptor
+        if self.sele_molecule is None and self.sele_selection is None:
+            ui.notify('Please select a receptor')
+            return None
+        sele_receptor = uuid4()
+        cmd.select(sele_receptor, self.sele_molecule or self.sele_selection)
+        # get ligand
+        if self.sele_dlg is None:
+            ui.notify('Please select a DLG')
+        ligands = []
+        for name, pml_name in self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]['pml_name'].items():
+            if self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]['is_show'][name]:
+                ligands.append(pml_name)
+        if not ligands:
+            ui.notify('Please select at least one ligand')
+            return None
+        # calculate interactions
+        self.interactions = {}
+        self.interaction_df = pd.DataFrame()
+        for ligand in ligands:
+            # calcu interaction
+            sele_ligand = uuid4()
+            cmd.select(sele_ligand, ligand)
+            _, xyz2atom, residues, interactions = get_atom_level_interactions(sele_receptor, sele_ligand)
+            # NOTE: do not save atoms, because pymol.editing._AtomProxy class can't be pickled
+            self.interactions[ligand] = [xyz2atom, residues, interactions]
+            cmd.delete(sele_ligand)
+            # merge interactions by res
+            self.merge_interaction_df(interactions, self.nagetive_factor)
+        self.interaction_df.sort_index(axis=0, inplace=True, key=sort_func)
+        self.interaction_df.sort_index(axis=1, inplace=True, key=sort_func)
+        self.interaction_df.fillna(0, inplace=True)
+        ui.notify(f'Interactions calculated for {len(ligands)} ligands')
+        return self.interactions
+            
+    @ui.refreshable
+    def plot_interaction(self):
+        plt.close(self.fig)
+        self.fig = None
+        if self.interactions:
+            with ui.pyplot(figsize=(self.fig_w, self.fig_h), close=False) as fig:
+                vmax, vmin = self.interaction_df.max().max(), self.interaction_df.min().min()
+                if self.align_vlim:
+                    vlim = max(abs(vmax), abs(vmin))
+                    vmax, vmin = -vlim, vlim
+                if self.plot_cluster:
+                    grid = sns.clustermap(self.interaction_df, cmap='coolwarm', figsize=(self.fig_w, self.fig_h),
+                                        annot=True, fmt='.2f', vmax=vmax, vmin=-vmin,
+                                        linewidths=0.5, linecolor='black', cbar_kws={"shrink": 0.5})
+                    self.fig = fig.fig = grid._figure
+                else:
+                    self.fig = fig.fig
+                    grid = sns.heatmap(self.interaction_df, cmap='coolwarm', ax = fig.fig.gca(),
+                                    annot=True, fmt='.2f', vmax=vmax, vmin=-vmin,
+                                    linewidths=0.5, linecolor='black', cbar_kws={"shrink": 0.5})
+                plt.tight_layout()
         
     def build_gui(self):
-        pass
+        with ui.splitter(value = 20).classes('w-full h-full') as splitter:
+            with splitter.before:
+                # choose receptor
+                with ui.card().classes('w-full'):
+                    with ui.column().classes('w-full'):
+                        ui.label('select a receptor')
+                        self.ui_molecule = ui.select(self._app._now_molecule,
+                                                    label = 'select a molecule').bind_value_to(self, 'sele_molecule').classes('w-full').props('use-chips')
+                        self.ui_sele = ui.select(self._app._now_selection,
+                                                label = 'select a selection').bind_value_to(self, 'sele_selection').classes('w-full').props('use-chips')
+                # choose ligand
+                with ui.card().classes('w-full'):
+                    with ui.column().classes('w-full'):
+                        ui.label('select a ligand').classes('w-full')
+                        self.ui_dlg = ui.select(self._app.lazy_dlg.pose_page.now_dlg_name or [],
+                                                label = 'select a dlg').bind_value_to(self, 'sele_dlg').classes('w-full').props('use-chips')
+                # interaction calculation config
+                with ui.card().classes('w-full'):
+                    with ui.column().classes('w-full'):
+                        ui.label('interaction calculation config').classes('w-full')
+                        ui.number('distance reverse', value=self.distance_reverse).bind_value_to(self, 'distance_reverse')
+                        ui.number('nagetive factor', value=self.nagetive_factor).bind_value_to(self, 'nagetive_factor')
+                # plot config
+                with ui.card().classes('w-full'):
+                    with ui.column().classes('w-full'):
+                        ui.label('plot config').classes('w-full')
+                        ui.checkbox('plot cluster', value=self.plot_cluster).bind_value_to(self, 'plot_cluster')
+                        ui.checkbox('align vlim', value=self.align_vlim).bind_value_to(self, 'align_vlim')
+                        ui.checkbox('use one letter', value=self.use_one_letter).bind_value_to(self, 'use_one_letter')
+                        ui.number('fig width', value=self.fig_w).bind_value_to(self, 'fig_w')
+                        ui.number('fig height', value=self.fig_h).bind_value_to(self, 'fig_h')
+            # interaction vitualization
+            with splitter.after:
+                with ui.row():
+                    ui.label('Interaction: ')
+                    ui.button('calculate', on_click=self.calculate_interaction).classes('flex flex-grow').props('no-caps')
+                    ui.button('save calcu result', on_click=self.save_calcu_result).classes('flex flex-grow').props('no-caps')
+                    ui.button('plot', on_click=self.plot_interaction.refresh).classes('flex flex-grow').props('no-caps')
+                    ui.button('save Plot', on_click=self.save_plot).classes('flex flex-grow').props('no-caps')
+                self.plot_interaction()
         
-    def ui_select_receptor(self, receptor_name: str):
-        pass
+    def save_calcu_result(self):
+        if self.interaction_df is None:
+            ui.notify('Please calculate the interaction first')
+            return None
+        data_path = MyFileDialog(types = [('LazyInteraction file', '*.pkl')],
+                                 initialdir=os.getcwd()).get_save_file()
+        if data_path is None:
+            ui.notify('Please select a file to save')
+            return None
+        if not data_path.endswith('.pkl'):
+            data_path += '.pkl'
+        with open(data_path, 'wb') as f:
+            f.write(gzip.compress(pickle.dumps(self.interactions)))            
+            self.interaction_df.to_pickle(f, compression={'method': 'gzip', 'compresslevel': 1, 'mtime': 1})
+        ui.notify(f'Interactions saved to {data_path}')
     
-    def ui_select_ligand(self, ligand_name: str):
-        pass
+    def save_plot(self):
+        if self.fig is None:
+            ui.notify('Please plot the interaction first')
+            return None
+        fig_path = MyFileDialog(initialdir=os.getcwd()).get_save_file()
+        if fig_path is None:
+            ui.notify('Please select a file to save')
+            return None
+        save_show(fig_path, dpi = 600, show = False)
     
 
 class LazyDLG:
