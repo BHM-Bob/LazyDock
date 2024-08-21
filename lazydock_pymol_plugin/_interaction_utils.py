@@ -1,10 +1,10 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-20 15:48:56
+LastEditTime: 2024-08-21 10:05:29
 Description: 
 '''
-from typing import Dict
+from typing import Dict, List, Tuple
 
 from _utils import uuid4
 from mbapy.base import put_err
@@ -29,14 +29,18 @@ def set_h_bond_cutoff(center: float, edge: float):
 def get_distance_info(dist_name: str, state = 1, selection = 'all', xyz2atom = None):
     '''
     Params:
-        - dist_name: str, name of distance object
-        - state: int, state of distance object
-        - selection: str, selection of atoms to compute distances for
-        - xyz2atom: dict, mapping of xyz coordinates to atom info: {(x,y,z): (model, chain, resn, resi, elem, index)}
+        - dist_name : str, name of distance object
+        - state : int, state of distance object
+        - selection : str, selection of atoms to compute distances for
+        - xyz2atom : dict, mapping of xyz coordinates to atom info: {(x,y,z): (model, chain, resn, resi, elem, index)}
         
     Returns:
         - list of tuples, each tuple contains two atom info and distance value, in the format of ((model, chain, resn, resi, elem, index), (model, chain, resn, resi, elem, index), distance)
     
+    Notes:
+    ------
+        - the order of two sele in the return is not guaranteed to be the same as the order in the input selection
+        
     modified from http://pymolwiki.org/index.php/get_raw_distances
     '''
     from chempy import cpv
@@ -138,6 +142,18 @@ def get_atom_level_interactions(sele1: str, sele2: str, mode = 0, cutoff=3.6, xy
     
     return atoms, xyz2atom, residues, interactions
 
+
+def sort_interactions(interactions: Dict[str, List[Tuple[Tuple[str, str, str, str, str, float],
+                                                         Tuple[str, str, str, str, str, float], float]]],
+                      model1: str, model2: str):
+    for ty in list(interactions.keys()):
+        values = interactions[ty]
+        for i in range(len(values)):
+            if values[i][0][0] == model2:
+                interactions[ty][i][0], interactions[ty][i][1] = interactions[ty][i][1], interactions[ty][i][0]
+            elif values[i][0][0] != model1:
+                return put_err(f'{values[i][0][0]} is not in {model1} and {model2}, abort sort', interactions)
+    return interactions
 
 if __name__ == '__main__':
     # dev code
