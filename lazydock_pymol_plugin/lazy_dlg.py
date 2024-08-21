@@ -3,7 +3,6 @@ import gzip
 import os
 import pickle
 import re
-import uuid
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
@@ -11,14 +10,15 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
-
-from _autodock_utils import ADModel, MyFileDialog
-from _interaction_utils import get_atom_level_interactions, sort_interactions
-from _utils import uuid4
 from mbapy.file import decode_bits_to_str
 from mbapy.plot import save_show
 from nicegui import ui
 from pymol import api, cmd
+
+from lazydock.pml.autodock_utils import ADModel, MyFileDialog
+from lazydock.pml.interaction_utils import (get_atom_level_interactions,
+                                            sort_interactions)
+from lazydock.utils import uuid4
 
 
 class LazyPose:

@@ -1,14 +1,18 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-21 10:05:29
+LastEditTime: 2024-08-21 15:22:12
 Description: 
 '''
 from typing import Dict, List, Tuple
 
-from _utils import uuid4
 from mbapy.base import put_err
 from pymol import CmdException, cmd
+
+if __name__ == '__main__':
+    from lazydock.utils import uuid4
+else:
+    from ..utils import uuid4
 
 RES_SEPRATOR = '::'
 NULL_CHAIN = "''"
@@ -139,6 +143,9 @@ def get_atom_level_interactions(sele1: str, sele2: str, mode = 0, cutoff=3.6, xy
     # delete atom selctions
     for atom_sele in atom_selections.values():
         cmd.delete(atom_sele)
+    # delete distance objects
+    for dist_name in dist_names.values():
+        cmd.delete(dist_name)
     
     return atoms, xyz2atom, residues, interactions
 

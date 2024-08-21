@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-15 19:54:22
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-20 21:48:33
+LastEditTime: 2024-08-21 15:25:15
 Description: print selected residue names and numbers as autodock flex receptor residue format
 '''
 import os
@@ -10,13 +10,10 @@ import uuid
 from typing import List
 
 from nicegui import ui
-from mbapy.base import put_err
-from pymol import api, cmd, CmdException
+from pymol import CmdException, api, cmd
 
-
-from _autodock_utils import MyFileDialog
-from _utils import uuid4
-
+from lazydock.pml.autodock_utils import MyFileDialog
+from lazydock.utils import uuid4
 
 NULL_CHAIN = "''"
 
