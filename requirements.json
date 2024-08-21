@@ -1,16 +1,9 @@
 {
     "std": 
     [
-        "mbapy>=0.7.3",
-        "ujson",
-        "Markdown",
-        "imageio",
-        "pillow_heif",
-        "wget",
+        "mbapy>=0.7.9",
         "pyteomics",
-        "opencv-python",
         "pygame",
-        "easyocr",
         "nicegui"
     ]
 }
