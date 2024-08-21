@@ -13,7 +13,7 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 
 from _autodock_utils import ADModel, MyFileDialog
-from _interaction_utils import get_atom_level_interactions
+from _interaction_utils import get_atom_level_interactions, sort_interactions
 from _utils import uuid4
 from mbapy.file import decode_bits_to_str
 from mbapy.plot import save_show
@@ -33,7 +33,7 @@ class LazyPose:
         self.now_pose_name = None
         # show pose control
         self.sort_pdb_by_res = False
-        self.show_best_per = 0
+        self.show_best_per = 10
         self.save_with_each_header = True
         # select receptor
         self.ui_molecule = None
@@ -92,7 +92,7 @@ class LazyPose:
                 # pose control
                 with ui.row().classes('w-full'):
                     ui.button('show best 10', on_click=self.show_best_10_poses).props('no-caps').classes('flex flex-grow')
-                    ui.number('best percentage', min=0, max=100, step=0.1, value=self.show_best_per).bind_value_to(self, 'show_best_per').classes('flex flex-grow')
+                    ui.number('best percentage', min=0, max=100, value=self.show_best_per).bind_value_to(self, 'show_best_per').classes('flex flex-grow')
                     ui.button('show percentage', on_click=self.show_percentage_poses).props('no-caps').classes('flex flex-grow')
                     ui.button('show all', on_click=self.show_all_poses).props('no-caps').classes('flex flex-grow')
                     ui.button('hide all', on_click=self.hide_all_poses).props('no-caps').classes('flex flex-grow')
@@ -233,13 +233,16 @@ class InteractionPage:
         # interaction
         self.interactions = None
         self.interaction_df = None
-        self.distance_reverse = 4
+        self.interaction_mode = 0
+        self.distance_cutoff = 4
         self.nagetive_factor = -0.5
         # vitulazation control
         self.fig = None
         self.align_vlim = False
         self.plot_cluster = False
         self.use_one_letter = True
+        self.min_ligand_interaction = 0 # abs
+        self.min_receptor_interaction = 0 # abs
         self.fig_w = 10
         self.fig_h = 7
         
@@ -254,7 +257,7 @@ class InteractionPage:
                              nagetive_factor: float):
         # index format: CHAIN_ID:RESI:RESN
         def set_points(ty: str, points: float, nagetive_factor: float):
-            points = self.distance_reverse - points
+            points = self.distance_cutoff - points
             if ty in {'ad', 'da'}:
                 return points
             return nagetive_factor * points
@@ -299,12 +302,18 @@ class InteractionPage:
             # calcu interaction
             sele_ligand = uuid4()
             cmd.select(sele_ligand, ligand)
-            _, xyz2atom, residues, interactions = get_atom_level_interactions(sele_receptor, sele_ligand)
+            _, xyz2atom, residues, interactions = get_atom_level_interactions(sele_receptor, sele_ligand,
+                                                                              self.interaction_mode, self.distance_cutoff)
+            interactions = sort_interactions(interactions,
+                                             self.sele_molecule or self.sele_selection,
+                                             ligand)
             # NOTE: do not save atoms, because pymol.editing._AtomProxy class can't be pickled
             self.interactions[ligand] = [xyz2atom, residues, interactions]
             cmd.delete(sele_ligand)
             # merge interactions by res
             self.merge_interaction_df(interactions, self.nagetive_factor)
+        cmd.delete(sele_receptor)
+        # sort res
         self.interaction_df.sort_index(axis=0, inplace=True, key=sort_func)
         self.interaction_df.sort_index(axis=1, inplace=True, key=sort_func)
         self.interaction_df.fillna(0, inplace=True)
@@ -315,20 +324,30 @@ class InteractionPage:
     def plot_interaction(self):
         plt.close(self.fig)
         self.fig = None
-        if self.interactions:
+        if (self.interaction_df is not None) and (not self.interaction_df.empty):
+            tmp_interaction_df = self.interaction_df.copy(deep = True)
+            # filter ligand
+            for ligand_res in tmp_interaction_df.index:
+                if tmp_interaction_df.loc[ligand_res].abs().max() < self.min_ligand_interaction:
+                    tmp_interaction_df.drop(ligand_res, inplace=True)
+            # filter receptor
+            for receptor_res in tmp_interaction_df.columns:
+                if tmp_interaction_df[receptor_res].abs().max() < self.min_receptor_interaction:
+                    tmp_interaction_df.drop(receptor_res, axis=1, inplace=True)
+            # plot
             with ui.pyplot(figsize=(self.fig_w, self.fig_h), close=False) as fig:
-                vmax, vmin = self.interaction_df.max().max(), self.interaction_df.min().min()
+                vmax, vmin = tmp_interaction_df.max().max(), tmp_interaction_df.min().min()
                 if self.align_vlim:
                     vlim = max(abs(vmax), abs(vmin))
                     vmax, vmin = -vlim, vlim
                 if self.plot_cluster:
-                    grid = sns.clustermap(self.interaction_df, cmap='coolwarm', figsize=(self.fig_w, self.fig_h),
+                    grid = sns.clustermap(tmp_interaction_df, cmap='coolwarm', figsize=(self.fig_w, self.fig_h),
                                         annot=True, fmt='.2f', vmax=vmax, vmin=-vmin,
                                         linewidths=0.5, linecolor='black', cbar_kws={"shrink": 0.5})
                     self.fig = fig.fig = grid._figure
                 else:
                     self.fig = fig.fig
-                    grid = sns.heatmap(self.interaction_df, cmap='coolwarm', ax = fig.fig.gca(),
+                    grid = sns.heatmap(tmp_interaction_df, cmap='coolwarm', ax = fig.fig.gca(),
                                     annot=True, fmt='.2f', vmax=vmax, vmin=-vmin,
                                     linewidths=0.5, linecolor='black', cbar_kws={"shrink": 0.5})
                 plt.tight_layout()
@@ -354,7 +373,8 @@ class InteractionPage:
                 with ui.card().classes('w-full'):
                     with ui.column().classes('w-full'):
                         ui.label('interaction calculation config').classes('w-full')
-                        ui.number('distance reverse', value=self.distance_reverse).bind_value_to(self, 'distance_reverse')
+                        ui.number('distance cutoff', value=self.distance_cutoff).bind_value_to(self, 'distance_cutoff')
+                        ui.select(options = list(range(9)), value = 0, with_input=True).bind_value_to(self, 'interaction_mode')
                         ui.number('nagetive factor', value=self.nagetive_factor).bind_value_to(self, 'nagetive_factor')
                 # plot config
                 with ui.card().classes('w-full'):
@@ -363,6 +383,8 @@ class InteractionPage:
                         ui.checkbox('plot cluster', value=self.plot_cluster).bind_value_to(self, 'plot_cluster')
                         ui.checkbox('align vlim', value=self.align_vlim).bind_value_to(self, 'align_vlim')
                         ui.checkbox('use one letter', value=self.use_one_letter).bind_value_to(self, 'use_one_letter')
+                        ui.number('min ligand interaction (abs)', value=self.min_ligand_interaction).bind_value_to(self,'min_ligand_interaction')
+                        ui.number('min receptor interaction (abs)', value=self.min_receptor_interaction).bind_value_to(self,'min_receptor_interaction')
                         ui.number('fig width', value=self.fig_w).bind_value_to(self, 'fig_w')
                         ui.number('fig height', value=self.fig_h).bind_value_to(self, 'fig_h')
             # interaction vitualization
