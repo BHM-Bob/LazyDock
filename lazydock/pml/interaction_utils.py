@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-21 15:22:12
+LastEditTime: 2024-08-23 10:33:44
 Description: 
 '''
 from typing import Dict, List, Tuple
@@ -87,7 +87,7 @@ def get_distance_info(dist_name: str, state = 1, selection = 'all', xyz2atom = N
             xyz1 = tuple(points[i:i + 3])
             xyz2 = tuple(points[i + 3:i + 6])
             try:
-                r.append((xyz2atom[xyz1], xyz2atom[xyz2], cpv.distance(xyz1, xyz2)))
+                r.append([xyz2atom[xyz1], xyz2atom[xyz2], cpv.distance(xyz1, xyz2)])
             except Exception as e:
                 put_err(f'Error processing distance object {obj[0]}: {e}')
     return r
