@@ -243,7 +243,7 @@ class InteractionPage:
         self.use_one_letter = True
         self.min_ligand_interaction = 0 # abs
         self.min_receptor_interaction = 0 # abs
-        self.fig_w = 10
+        self.fig_w = 12
         self.fig_h = 7
         
     def ui_update_ui(self):
@@ -339,16 +339,16 @@ class InteractionPage:
                 vmax, vmin = tmp_interaction_df.max().max(), tmp_interaction_df.min().min()
                 if self.align_vlim:
                     vlim = max(abs(vmax), abs(vmin))
-                    vmax, vmin = -vlim, vlim
+                    vmax, vmin = vlim, -vlim
                 if self.plot_cluster:
                     grid = sns.clustermap(tmp_interaction_df, cmap='coolwarm', figsize=(self.fig_w, self.fig_h),
-                                        annot=True, fmt='.2f', vmax=vmax, vmin=-vmin,
+                                        annot=True, fmt='.2f', vmax=vmax, vmin=vmin,
                                         linewidths=0.5, linecolor='black', cbar_kws={"shrink": 0.5})
                     self.fig = fig.fig = grid._figure
                 else:
                     self.fig = fig.fig
                     grid = sns.heatmap(tmp_interaction_df, cmap='coolwarm', ax = fig.fig.gca(),
-                                    annot=True, fmt='.2f', vmax=vmax, vmin=-vmin,
+                                    annot=True, fmt='.2f', vmax=vmax, vmin=vmin,
                                     linewidths=0.5, linecolor='black', cbar_kws={"shrink": 0.5})
                 plt.tight_layout()
         
@@ -374,7 +374,7 @@ class InteractionPage:
                     with ui.column().classes('w-full'):
                         ui.label('interaction calculation config').classes('w-full')
                         ui.number('distance cutoff', value=self.distance_cutoff).bind_value_to(self, 'distance_cutoff')
-                        ui.select(options = list(range(9)), value = 0, with_input=True).bind_value_to(self, 'interaction_mode')
+                        ui.select(options = list(range(9)), value = 0).bind_value_to(self, 'interaction_mode')
                         ui.number('nagetive factor', value=self.nagetive_factor).bind_value_to(self, 'nagetive_factor')
                 # plot config
                 with ui.card().classes('w-full'):
