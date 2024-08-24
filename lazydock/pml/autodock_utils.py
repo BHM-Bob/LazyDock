@@ -100,9 +100,8 @@ class DlgFile(BaseInfo):
             self.n2i[name] = i
         
     def asign_kw_prop(self, prop: str, value: List[Any]):
-        if value is None:
-            if len(value) == len(self.pose_lst):
-                setattr(self, prop, value)
+        if value is not None and len(value) == len(self.pose_lst):
+            setattr(self, prop, value)
                 
     def set_pose_kw_prop(self, prop: str, value: Any, pose_name: str = None, pose_idx: int = None):
         if pose_name is None and pose_idx is None:
