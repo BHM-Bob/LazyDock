@@ -15,7 +15,7 @@ from mbapy.plot import save_show
 from nicegui import ui
 from pymol import api, cmd
 
-from lazydock.pml.autodock_utils import ADModel, MyFileDialog
+from lazydock.pml.autodock_utils import ADModel, DlgFile, MyFileDialog
 from lazydock.pml.interaction_utils import (get_atom_level_interactions,
                                             sort_interactions)
 from lazydock.utils import uuid4
@@ -27,7 +27,7 @@ class LazyPose:
         self._app = app
         self._app.ui_update_func.append(self.ui_update_ui)
         # pose storage
-        self.dlg_pose: Dict[str, Dict[str, Union[List[ADModel]]]] = {}
+        self.dlg_pose: Dict[str, DlgFile] = {}
         self.now_dlg_name = None
         self.last_pose_name = None
         self.now_pose_name = None
@@ -79,12 +79,13 @@ class LazyPose:
             if not self.now_dlg_name:
                 return file_tabs
             # pose list
-            self.now_pose_name = self.dlg_pose[self.now_dlg_name]['name_lst'][0]
+            self.now_pose_name = list(self.dlg_pose[self.now_dlg_name].n2i.keys())[0]
             with ui.tabs(value = self.now_pose_name).props('vertical').classes('w-1/8 h-2/3') as pose_tabs:
-                for n in self.dlg_pose[self.now_dlg_name]['pose']:
-                    text_col = 'text-blue' if self.dlg_pose[self.now_dlg_name]['is_show'][n] else 'text-black'
-                    self.dlg_pose[self.now_dlg_name]['ui_tab'][n] = \
-                        ui.tab(n).classes(f'w-full {text_col} no-caps').tooltip(n).on('click', self.handle_pose_tab_click)
+                for n in self.dlg_pose[self.now_dlg_name].n2i:
+                    text_col = 'text-blue' if self.dlg_pose[self.now_dlg_name].get_pose_prop('is_show', n) else 'text-black'
+                    ui_tab = ui.tab(n).classes(f'w-full {text_col} no-caps').tooltip(n).on('click', self.handle_pose_tab_click)
+                    self.dlg_pose[self.now_dlg_name].set_pose_kw_prop('ui_tab', ui_tab, n)
+                        
             pose_tabs.bind_value_to(self, 'now_pose_name')
             # pose info
             with ui.column().classes('w-3/5'):
@@ -103,12 +104,12 @@ class LazyPose:
     def handle_dlg_tab_click(self, event):
         click_dlg = event.sender._props['model-value']
         self.now_dlg_name = click_dlg
-        self.now_pose_name = self.dlg_pose[click_dlg]['name_lst'][0]
+        self.now_pose_name = list(self.dlg_pose[click_dlg].n2i.keys())[0]
         self.ui_make_dlg_file_list.refresh()
                     
     def handle_pose_tab_click(self, event):
         click_pose = event.sender._props['name']
-        if self.dlg_pose[self.now_dlg_name]['is_show'][click_pose]:
+        if self.dlg_pose[self.now_dlg_name].get_pose_prop('is_show', click_pose):
             self.now_pose_name = None
             self.hide_pose(self.now_dlg_name, click_pose)
         else:
@@ -120,10 +121,10 @@ class LazyPose:
     def build_pose_info_gui(self):
         ui.label().props('no-cap').bind_text_from(self, 'now_pose_name', lambda x: f'Pose: {x}')
         if self.now_dlg_name and self.now_pose_name:
-            pml_name = self.dlg_pose[self.now_dlg_name]['pml_name'][self.now_pose_name]
-            energy = self.dlg_pose[self.now_dlg_name]['pose'][self.now_pose_name].energy
+            pml_name = self.dlg_pose[self.now_dlg_name].get_pose_prop('pml_name', self.now_pose_name)
+            energy = self.dlg_pose[self.now_dlg_name].get_pose(self.now_pose_name).energy
             ui.label(f'{pml_name} docked Energy: {energy:10.4f} kcal/mol')
-            ui.textarea().bind_value_from(self, 'now_dlg_name', lambda x: self.dlg_pose[x]['pose'][self.now_pose_name].info_string()).classes('w-full h-full flex flex-grow')
+            ui.textarea().bind_value_from(self, 'now_dlg_name', lambda x: self.dlg_pose[x].get_pose(self.now_pose_name).info_string()).classes('w-full h-full flex flex-grow')
         
     async def load_dlg_file(self, event):
         if hasattr(event, 'name'):
@@ -135,19 +136,13 @@ class LazyPose:
             if dlg_name in self.dlg_pose:
                 continue # TODO: don't kown why, will load again on same file, cause read null at the second time
             dlg_content = decode_bits_to_str(content.read())
-            dlg_pose_lst = []
-            for model in re.findall('MODEL.+?ENDMDL', dlg_content, re.DOTALL):
-                model = model.replace('\nDOCKED: ', '\n')
-                dlg_pose_lst.append(ADModel(model.split('\n'), self.sort_pdb_by_res))
-            dlg_pose_lst.sort(key = lambda x: x.energy)
-            self.dlg_pose[dlg_name] = {'pose':{}, 'is_show':{}, 'name_lst': [], 'pml_name': {}, 'ui_tab': {}}
-            for i in range(len(dlg_pose_lst)):
-                dlg_pose_lst[i].poseN = i + 1
-                pose_name = dlg_name + '::%d' % (i + 1)
-                self.dlg_pose[dlg_name]['pose'][pose_name] = dlg_pose_lst[i]
-                self.dlg_pose[dlg_name]['is_show'][pose_name] = False
-                self.dlg_pose[dlg_name]['name_lst'].append(pose_name)
-                self.dlg_pose[dlg_name]['pml_name'][pose_name] = pose_name.replace(' ', '_').replace('::', '_')
+            self.dlg_pose[dlg_name] = DlgFile(content=dlg_content, sort_pdb_line_by_res=self.sort_pdb_by_res)
+            self.dlg_pose[dlg_name].sort_pose()
+            self.dlg_pose[dlg_name].asign_pose_name(list(map(lambda x: f'{dlg_name}::{x+1}',
+                                                             range(len(self.dlg_pose[dlg_name].pose_lst)))))
+            self.dlg_pose[dlg_name].asign_kw_prop('is_show', [False] * len(self.dlg_pose[dlg_name].pose_lst))
+            self.dlg_pose[dlg_name].asign_kw_prop('pml_name', list(map(lambda x: x.replace(' ', '_').replace('::', '_'),
+                                                                       self.dlg_pose[dlg_name].n2i.keys())))
             self.now_dlg_name = dlg_name
         self.ui_make_dlg_file_list.refresh()
         
@@ -157,38 +152,38 @@ class LazyPose:
             - create pymol obj neamed pose_name.replace(' ', '_').replace('::', '_')
             - show the obj in pymol in sticks representation
         """
-        self.dlg_pose[dlg_name]['is_show'][pose_name] = True
-        ui_tab = self.dlg_pose[dlg_name]['ui_tab'][pose_name]
+        self.dlg_pose[dlg_name].set_pose_kw_prop('is_show', True, pose_name)
+        ui_tab = self.dlg_pose[dlg_name].get_pose_prop('ui_tab', pose_name)
         ui_tab.classes(add='text-blue', remove='text-black')
         view = cmd.get_view()
-        pose = self.dlg_pose[dlg_name]['pose'][pose_name]
+        pose = self.dlg_pose[dlg_name].get_pose(pose_name)
         cmd.read_pdbstr(pose.as_pdb_string(), pose_name)
-        pml_name = self.dlg_pose[dlg_name]['pml_name'][pose_name]
+        pml_name = self.dlg_pose[dlg_name].get_pose_prop('pml_name', pose_name)
         cmd.show('sticks', pml_name)
         cmd.set_view(view)
         cmd.zoom(pml_name)
 
     def show_all_poses(self):
-        for pose_name in self.dlg_pose[self.now_dlg_name]['name_lst']:
+        for pose_name in list(self.dlg_pose[self.now_dlg_name].n2i.keys()):
             self.show_pose(self.now_dlg_name, pose_name)
 
     def show_best_10_poses(self, n = 10):
-        for pose_name in self.dlg_pose[self.now_dlg_name]['name_lst'][:n]:
+        for pose_name in list(self.dlg_pose[self.now_dlg_name].n2i.keys())[:n]:
             self.show_pose(self.now_dlg_name, pose_name)
             
     def show_percentage_poses(self):
-        n = int(len(self.dlg_pose[self.now_dlg_name]['name_lst']) * self.show_best_per / 100)
+        n = int(len(self.dlg_pose[self.now_dlg_name].n2i) * self.show_best_per / 100)
         self.show_best_10_poses(n)
         
     def hide_pose(self, dlg_name: str, pose_name: str):
-        if self.dlg_pose[dlg_name]['is_show'][pose_name]:
-            ui_tab = self.dlg_pose[dlg_name]['ui_tab'][pose_name]
+        if self.dlg_pose[dlg_name].get_pose_prop('is_show', pose_name):
+            ui_tab = self.dlg_pose[dlg_name].get_pose_prop('ui_tab', pose_name)
             ui_tab.classes(add='text-black', remove='text-blue')
-            self.dlg_pose[dlg_name]['is_show'][pose_name] = False
-            cmd.delete(self.dlg_pose[dlg_name]['pml_name'][pose_name])
+            self.dlg_pose[dlg_name].set_pose_kw_prop('is_show', False, pose_name)
+            cmd.delete(self.dlg_pose[dlg_name].get_pose_prop('pml_name', pose_name))
 
     def hide_all_poses(self):
-        for pose_name in self.dlg_pose[self.now_dlg_name]['is_show']:
+        for pose_name in self.dlg_pose[self.now_dlg_name].n2i:
             self.hide_pose(self.now_dlg_name, pose_name)
 
     def delete_dlg(self):
@@ -205,8 +200,9 @@ class LazyPose:
         if not save_dir:
             ui.notify('Please select a directory to save')
             return None
-        for name, pml_name in self.dlg_pose[self.now_dlg_name]['pml_name'].items():
-            if self.dlg_pose[self.now_dlg_name]['is_show'][name]:
+        for name in self.dlg_pose[self.now_dlg_name].n2i:
+            if self.dlg_pose[self.now_dlg_name].get_pose_prop('is_show', name):
+                pml_name = self.dlg_pose[self.now_dlg_name].get_pose_prop('pml_name', name)
                 pdb_path = os.path.join(save_dir, f'{receptor}_{pml_name}.pdb')
                 if self.save_with_each_header:
                     api.multisave(pdb_path, receptor, append = 0)
@@ -289,9 +285,9 @@ class InteractionPage:
         if self.sele_dlg is None:
             ui.notify('Please select a DLG')
         ligands = []
-        for name, pml_name in self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]['pml_name'].items():
-            if self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]['is_show'][name]:
-                ligands.append(pml_name)
+        for name in self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg].n2i:
+            if self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg].get_pose_prop('is_show', name):
+                ligands.append(self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg].get_pose_prop('pml_name', name))
         if not ligands:
             ui.notify('Please select at least one ligand')
             return None
