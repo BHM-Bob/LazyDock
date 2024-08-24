@@ -99,10 +99,19 @@ class DlgFile(BaseInfo):
         for i, name in enumerate(pose_names):
             self.n2i[name] = i
         
-    def asign_kw_prop(self, key: str, value: List[Any]):
+    def asign_kw_prop(self, prop: str, value: List[Any]):
         if value is None:
             if len(value) == len(self.pose_lst):
-                setattr(self, key, value)
+                setattr(self, prop, value)
+                
+    def set_pose_kw_prop(self, prop: str, value: Any, pose_name: str = None, pose_idx: int = None):
+        if pose_name is None and pose_idx is None:
+            raise ValueError("Either pose_name or pose_idx must be provided")
+        if pose_name is not None:
+            pose_idx = self.n2i[pose_name]
+        if not hasattr(self, prop):
+            setattr(self, prop, [None]*len(self.pose_lst))
+        getattr(self, prop)[pose_idx] = value
             
     def get_pose(self, pose_name: str = None, pose_idx: int = None):
         if pose_name is None and pose_idx is None:
