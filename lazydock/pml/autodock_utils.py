@@ -119,12 +119,15 @@ class DlgFile(BaseInfo):
             pose_idx = self.n2i[pose_name]
         return self.pose_lst[pose_idx]
     
-    def get_pose_prop(self, prop: str, pose_name: str = None, pose_idx: int = None):
+    def get_pose_prop(self, prop: str, pose_name: str = None, pose_idx: int = None, default: Any = None):
         if pose_name is None and pose_idx is None:
             raise ValueError("Either pose_name or pose_idx must be provided")
         if pose_name is not None:
             pose_idx = self.n2i[pose_name]
-        return getattr(self, prop)[pose_idx]
+        if hasattr(self, prop):
+            return getattr(self, prop)[pose_idx]
+        else:
+            return default
 
 
 
