@@ -15,7 +15,6 @@ from mbapy.game import BaseInfo
 PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+)"
 
 
-
 class ADModel(BaseInfo):
     """STORAGE CLASS FOR DOCKED LIGAND"""
     def __init__(self, content: str = None, _sort_atom_by_res: bool = False):
@@ -26,9 +25,9 @@ class ADModel(BaseInfo):
         self.pdb_string = ''
         self.pdb_lines = []
         if content is not None:
-            self.decode_content(content, _sort_atom_by_res)
+            self.parse_content(content, _sort_atom_by_res)
             
-    def decode_content(self, content: str, _sort_atom_by_res: bool = False):
+    def parse_content(self, content: str, _sort_atom_by_res: bool = False):
         # parse pdb lines
         self.info = content
         self.pdb_lines = list(map(lambda x: x[0], re.findall(r'((ATOM|HETATM).+?\n)', self.info)))
@@ -99,11 +98,11 @@ class DlgFile(BaseInfo):
         for i, name in enumerate(pose_names):
             self.n2i[name] = i
         
-    def asign_kw_prop(self, prop: str, value: List[Any]):
+    def asign_prop(self, prop: str, value: List[Any]):
         if value is not None and len(value) == len(self.pose_lst):
             setattr(self, prop, value)
                 
-    def set_pose_kw_prop(self, prop: str, value: Any, pose_name: str = None, pose_idx: int = None):
+    def set_pose_prop(self, prop: str, value: Any, pose_name: str = None, pose_idx: int = None):
         if pose_name is None and pose_idx is None:
             raise ValueError("Either pose_name or pose_idx must be provided")
         if pose_name is not None:
