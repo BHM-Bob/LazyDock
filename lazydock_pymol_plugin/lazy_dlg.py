@@ -84,7 +84,7 @@ class LazyPose:
                 for n in self.dlg_pose[self.now_dlg_name].n2i:
                     text_col = 'text-blue' if self.dlg_pose[self.now_dlg_name].get_pose_prop('is_show', n) else 'text-black'
                     ui_tab = ui.tab(n).classes(f'w-full {text_col} no-caps').tooltip(n).on('click', self.handle_pose_tab_click)
-                    self.dlg_pose[self.now_dlg_name].set_pose_kw_prop('ui_tab', ui_tab, n)
+                    self.dlg_pose[self.now_dlg_name].set_pose_prop('ui_tab', ui_tab, n)
                         
             pose_tabs.bind_value_to(self, 'now_pose_name')
             # pose info
@@ -140,8 +140,8 @@ class LazyPose:
             self.dlg_pose[dlg_name].sort_pose()
             self.dlg_pose[dlg_name].asign_pose_name(list(map(lambda x: f'{dlg_name}::{x+1}',
                                                              range(len(self.dlg_pose[dlg_name].pose_lst)))))
-            self.dlg_pose[dlg_name].asign_kw_prop('is_show', [False] * len(self.dlg_pose[dlg_name].pose_lst))
-            self.dlg_pose[dlg_name].asign_kw_prop('pml_name', list(map(lambda x: x.replace(' ', '_').replace('::', '_'),
+            self.dlg_pose[dlg_name].asign_prop('is_show', [False] * len(self.dlg_pose[dlg_name].pose_lst))
+            self.dlg_pose[dlg_name].asign_prop('pml_name', list(map(lambda x: x.replace(' ', '_').replace('::', '_'),
                                                                        self.dlg_pose[dlg_name].n2i.keys())))
             self.now_dlg_name = dlg_name
         self.ui_make_dlg_file_list.refresh()
@@ -152,7 +152,7 @@ class LazyPose:
             - create pymol obj neamed pose_name.replace(' ', '_').replace('::', '_')
             - show the obj in pymol in sticks representation
         """
-        self.dlg_pose[dlg_name].set_pose_kw_prop('is_show', True, pose_name)
+        self.dlg_pose[dlg_name].set_pose_prop('is_show', True, pose_name)
         ui_tab = self.dlg_pose[dlg_name].get_pose_prop('ui_tab', pose_name)
         ui_tab.classes(add='text-blue', remove='text-black')
         view = cmd.get_view()
@@ -179,7 +179,7 @@ class LazyPose:
         if self.dlg_pose[dlg_name].get_pose_prop('is_show', pose_name):
             ui_tab = self.dlg_pose[dlg_name].get_pose_prop('ui_tab', pose_name)
             ui_tab.classes(add='text-black', remove='text-blue')
-            self.dlg_pose[dlg_name].set_pose_kw_prop('is_show', False, pose_name)
+            self.dlg_pose[dlg_name].set_pose_prop('is_show', False, pose_name)
             cmd.delete(self.dlg_pose[dlg_name].get_pose_prop('pml_name', pose_name))
 
     def hide_all_poses(self):
@@ -243,10 +243,14 @@ class InteractionPage:
         self.fig_h = 7
         
     def ui_update_ui(self):
-        self.ui_molecule.set_options(self._app._now_molecule)
         self.ui_sele.set_options(self._app._now_selection)
         if self._app.lazy_dlg.pose_page.dlg_pose:
-            self.ui_dlg.set_options(list(self._app.lazy_dlg.pose_page.dlg_pose.keys()))
+            dlg_pose: Dict[str, DlgFile] = self._app.lazy_dlg.pose_page.dlg_pose
+            self.ui_dlg.set_options(list(dlg_pose.keys()))
+            all_ligands = [dlg_pose[dlg].get_pose_prop('pml_name', lig) for dlg in dlg_pose for lig in dlg_pose[dlg].n2i if dlg_pose[dlg].get_pose_prop('is_show', lig, default = False)]
+            self.ui_molecule.set_options(list(set(self._app._now_molecule) - set(all_ligands)))
+        else:
+            self.ui_molecule.set_options(self._app._now_molecule)
             
     def merge_interaction_df(self, interaction: Dict[str, List[Tuple[Tuple[str, str, str, str, str, float],
                                                                      Tuple[str, str, str, str, str, float], float]]],
@@ -309,11 +313,14 @@ class InteractionPage:
             # merge interactions by res
             self.merge_interaction_df(interactions, self.nagetive_factor)
         cmd.delete(sele_receptor)
-        # sort res
-        self.interaction_df.sort_index(axis=0, inplace=True, key=sort_func)
-        self.interaction_df.sort_index(axis=1, inplace=True, key=sort_func)
-        self.interaction_df.fillna(0, inplace=True)
-        ui.notify(f'Interactions calculated for {len(ligands)} ligands')
+        if not self.interaction_df.empty:
+            # sort res
+            self.interaction_df.sort_index(axis=0, inplace=True, key=sort_func)
+            self.interaction_df.sort_index(axis=1, inplace=True, key=sort_func)
+            self.interaction_df.fillna(0, inplace=True)
+            ui.notify(f'Interactions calculated for {len(ligands)} ligands')
+        else:
+            ui.notify(f'No interactions found between {self.sele_molecule or self.sele_selection} and {ligands}')
         return self.interactions
             
     @ui.refreshable
