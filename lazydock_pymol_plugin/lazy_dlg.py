@@ -2,12 +2,9 @@
 import gzip
 import os
 import pickle
-import re
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-import numpy as np
-import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
 from mbapy.file import decode_bits_to_str
@@ -15,9 +12,8 @@ from mbapy.plot import save_show
 from nicegui import ui
 from pymol import api, cmd
 
-from lazydock.pml.autodock_utils import ADModel, DlgFile, MyFileDialog
-from lazydock.pml.interaction_utils import (get_atom_level_interactions,
-                                            sort_interactions)
+from lazydock.pml.autodock_utils import DlgFile, MyFileDialog
+from lazydock.pml.interaction_utils import calcu_receptor_poses_interaction
 from lazydock.utils import uuid4
 
 
@@ -252,39 +248,11 @@ class InteractionPage:
         else:
             self.ui_molecule.set_options(self._app._now_molecule)
             
-    def merge_interaction_df(self, interaction: Dict[str, List[Tuple[Tuple[str, str, str, str, str, float],
-                                                                     Tuple[str, str, str, str, str, float], float]]],
-                             nagetive_factor: float):
-        # index format: CHAIN_ID:RESI:RESN
-        def set_points(ty: str, points: float, nagetive_factor: float):
-            points = self.distance_cutoff - points
-            if ty in {'ad', 'da'}:
-                return points
-            return nagetive_factor * points
-        for interaction_type, values in interaction.items():
-            for single_inter in values:
-                # single_inter: (('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3.4605595828662383)
-                receptor_res = f'{single_inter[0][1]}:{single_inter[0][3]}:{single_inter[0][2]}'
-                ligand_res = f'{single_inter[1][1]}:{single_inter[1][3]}:{single_inter[1][2]}'
-                points = set_points(interaction_type, single_inter[2], nagetive_factor)
-                if ligand_res not in self.interaction_df.index or receptor_res not in self.interaction_df.columns:
-                    self.interaction_df.loc[ligand_res, receptor_res] = points
-                elif np.isnan(self.interaction_df.loc[ligand_res, receptor_res]):
-                    self.interaction_df.loc[ligand_res, receptor_res] = points
-                else:
-                    self.interaction_df.loc[ligand_res, receptor_res] += points
-        return self.interaction_df
-            
     def calculate_interaction(self):
-        def sort_func(index: pd.Index):
-            index = index.str.split(':')
-            return list(map(lambda x: (x[0], int(x[1]), x[2]), index))
         # get receptor
         if self.sele_molecule is None and self.sele_selection is None:
             ui.notify('Please select a receptor')
             return None
-        sele_receptor = uuid4()
-        cmd.select(sele_receptor, self.sele_molecule or self.sele_selection)
         # get ligand
         if self.sele_dlg is None:
             ui.notify('Please select a DLG')
@@ -296,31 +264,14 @@ class InteractionPage:
             ui.notify('Please select at least one ligand')
             return None
         # calculate interactions
-        self.interactions = {}
-        self.interaction_df = pd.DataFrame()
-        for ligand in ligands:
-            # calcu interaction
-            sele_ligand = uuid4()
-            cmd.select(sele_ligand, ligand)
-            _, xyz2atom, residues, interactions = get_atom_level_interactions(sele_receptor, sele_ligand,
-                                                                              self.interaction_mode, self.distance_cutoff)
-            interactions = sort_interactions(interactions,
-                                             self.sele_molecule or self.sele_selection,
-                                             ligand)
-            # NOTE: do not save atoms, because pymol.editing._AtomProxy class can't be pickled
-            self.interactions[ligand] = [xyz2atom, residues, interactions]
-            cmd.delete(sele_ligand)
-            # merge interactions by res
-            self.merge_interaction_df(interactions, self.nagetive_factor)
-        cmd.delete(sele_receptor)
-        if not self.interaction_df.empty:
-            # sort res
-            self.interaction_df.sort_index(axis=0, inplace=True, key=sort_func)
-            self.interaction_df.sort_index(axis=1, inplace=True, key=sort_func)
-            self.interaction_df.fillna(0, inplace=True)
+        self.interactions, self.interaction_df = calcu_receptor_poses_interaction(
+                                                self.sele_molecule or self.sele_selection, ligands,
+                                                self.interaction_mode, self.distance_cutoff,
+                                                self.nagetive_factor)
+        if self.interactions is not None:
             ui.notify(f'Interactions calculated for {len(ligands)} ligands')
         else:
-            ui.notify(f'No interactions found between {self.sele_molecule or self.sele_selection} and {ligands}')
+            ui.notify(f'No interactions found between {self.sele_molecule or self.sele_selection} and {len(ligands)} ligands')
         return self.interactions
             
     @ui.refreshable
