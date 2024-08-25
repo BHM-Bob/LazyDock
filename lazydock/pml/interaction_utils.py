@@ -1,11 +1,13 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-23 10:33:44
+LastEditTime: 2024-08-25 11:01:12
 Description: 
 '''
 from typing import Dict, List, Tuple
 
+import numpy as np
+import pandas as pd
 from mbapy.base import put_err
 from pymol import CmdException, cmd
 
@@ -42,7 +44,6 @@ def get_distance_info(dist_name: str, state = 1, selection = 'all', xyz2atom = N
         - list of tuples, each tuple contains two atom info and distance value, in the format of ((model, chain, resn, resi, elem, index), (model, chain, resn, resi, elem, index), distance)
     
     Notes:
-    ------
         - the order of two sele in the return is not guaranteed to be the same as the order in the input selection
         
     modified from http://pymolwiki.org/index.php/get_raw_distances
@@ -93,8 +94,22 @@ def get_distance_info(dist_name: str, state = 1, selection = 'all', xyz2atom = N
     return r
 
 
-def get_atom_level_interactions(sele1: str, sele2: str, mode = 0, cutoff=3.6, xyz2atom: Dict = None):
+def calcu_atom_level_interactions(sele1: str, sele2: str, mode = 0, cutoff=3.6, xyz2atom: Dict = None):
     """
+    calcu distances between atoms set sele1 and sele2 using cmd.distance, and get the distances and atom info.
+    
+    Parameters:
+        - sele1: str, selection 1 of atoms
+        - sele2: str, selection 2 of atoms
+        - mode: int, mode of cmd.distance
+        - cutoff: float, cutoff of cmd.distance
+        - xyz2atom: dict, mapping of xyz coordinates to atom info: {(x,y,z): (model, chain, resn, resi, elem, index)}
+        
+    Returns:
+        - atoms: dict, atom info for each selection, in the format of {'s1_a': [(model, chain, resn, resi, elem, index),...],'s1_d': [(model, chain, resn, resi, elem, index),...],'s2_a': [(model, chain, resn, resi, elem, index),...],'s2_d': [(model, chain, resn, resi, elem, index),...]}
+        - xyz2atom: dict, mapping of xyz coordinates to atom info: {(x,y,z): (model, chain, resn, resi, elem, index)}
+        - residues: dict, residue info for each selection, in the format of {'s1_a': {model: {chain: {resn-resi: elem}}...},'s1_d': {model: {chain: {resn-resi: elem}}...},'s2_a': {model: {chain: {resn-resi: elem}}...},'s2_d': {model: {chain: {resn-resi: elem}}...}}
+        - interactions: dict, interactions between atoms in each selection, in the format of {'aa': [(('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3.4605595828662383),...], 'ad': [(('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3.4605595828662383),...], 'da': [(('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N',
     """
     interactions = {}
     rand_id = uuid4()
@@ -150,9 +165,10 @@ def get_atom_level_interactions(sele1: str, sele2: str, mode = 0, cutoff=3.6, xy
     return atoms, xyz2atom, residues, interactions
 
 
-def sort_interactions(interactions: Dict[str, List[Tuple[Tuple[str, str, str, str, str, float],
+def sort_atom_level_interactions(interactions: Dict[str, List[Tuple[Tuple[str, str, str, str, str, float],
                                                          Tuple[str, str, str, str, str, float], float]]],
-                      model1: str, model2: str):
+                                model1: str, model2: str):
+    """sort the interactions returned by calcu_atom_level_interactions, sort the order in tuple by model1 and model2."""
     for ty in list(interactions.keys()):
         values = interactions[ty]
         for i in range(len(values)):
@@ -162,6 +178,82 @@ def sort_interactions(interactions: Dict[str, List[Tuple[Tuple[str, str, str, st
                 return put_err(f'{values[i][0][0]} is not in {model1} and {model2}, abort sort', interactions)
     return interactions
 
+
+
+def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[str, str, str, str, str, float],
+                                                            Tuple[str, str, str, str, str, float], float]]],
+                         interaction_df: pd.DataFrame,
+                         distance_cutoff: float, nagetive_factor: float):
+    """merge the interactions returned by calcu_atom_level_interactions to interaction_df."""
+    # index format: CHAIN_ID:RESI:RESN
+    def set_points(ty: str, points: float, nagetive_factor: float):
+        points = distance_cutoff - points
+        if ty in {'ad', 'da'}:
+            return points
+        return nagetive_factor * points
+    for interaction_type, values in interaction.items():
+        for single_inter in values:
+            # single_inter: (('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3.4605595828662383)
+            receptor_res = f'{single_inter[0][1]}:{single_inter[0][3]}:{single_inter[0][2]}'
+            ligand_res = f'{single_inter[1][1]}:{single_inter[1][3]}:{single_inter[1][2]}'
+            points = set_points(interaction_type, single_inter[2], nagetive_factor)
+            if ligand_res not in interaction_df.index or receptor_res not in interaction_df.columns:
+                interaction_df.loc[ligand_res, receptor_res] = points
+            elif np.isnan(interaction_df.loc[ligand_res, receptor_res]):
+                interaction_df.loc[ligand_res, receptor_res] = points
+            else:
+                interaction_df.loc[ligand_res, receptor_res] += points
+    return interaction_df
+
+
+def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: int = 0,
+                                     cutoff: float = 4., nagetive_factor: float = -1.):
+    """
+    calcu interactions between one receptor and one ligand with many poses.
+    
+    Parameters:
+        - receptor: str, receptor pymol name
+        - poses: list of str, ligand pymol names
+        - mode: int, mode of cmd.distance
+        - cutoff: float, cutoff of cmd.distance
+        - nagetive_factor: float, factor to multiply the distance value for interations between acceptor and acceptor, and donor and donor.
+        
+    Returns:
+        - interactions: dict, interactions between receptor and ligand, in the format of {'ligand': [xyz2atom, residues, interactions]}, where xyz2atom is a dict, residues is a dict, interactions is a dict.
+        - interaction_df: pd.DataFrame, interactions between receptor and ligand, in the format of ligand-residue-residue matrix, with the value of each cell is the distance between two atoms.
+    """
+    def sort_func(index: pd.Index):
+        index = index.str.split(':')
+        return list(map(lambda x: (x[0], int(x[1]), x[2]), index))
+    # prepare interactions
+    all_interactions, interaction_df = {}, pd.DataFrame()
+    # select receptor
+    sele_receptor = uuid4()
+    cmd.select(sele_receptor, receptor)
+    # calcu for each ligand
+    for ligand in poses:
+        # calcu interaction
+        sele_ligand = uuid4()
+        cmd.select(sele_ligand, ligand)
+        _, xyz2atom, residues, interactions = calcu_atom_level_interactions(sele_receptor, sele_ligand,
+                                                                            mode, cutoff)
+        interactions = sort_atom_level_interactions(interactions, receptor, ligand)
+        # NOTE: do not save atoms, because pymol.editing._AtomProxy class can't be pickled
+        all_interactions[ligand] = [xyz2atom, residues, interactions]
+        cmd.delete(sele_ligand)
+        # merge interactions by res
+        merge_interaction_df(interactions, interaction_df, cutoff, nagetive_factor)
+    cmd.delete(sele_receptor)
+    if not interaction_df.empty:
+        # sort res
+        interaction_df.sort_index(axis=0, inplace=True, key=sort_func)
+        interaction_df.sort_index(axis=1, inplace=True, key=sort_func)
+        interaction_df.fillna(0, inplace=True)
+    else:
+        return None, None
+    return interactions, interaction_df
+
+
 if __name__ == '__main__':
     # dev code
     cmd.reinitialize()
@@ -169,5 +261,5 @@ if __name__ == '__main__':
     cmd.load('data_tmp/pdb/LIGAND.pdb', 'LIGAND')
     cmd.select('sele1', 'RECEPTOR')
     cmd.select('sele2', 'LIGAND')
-    atoms, xyz2atom, residues, interactions = get_atom_level_interactions('sele1', 'sele2')
-    pass
+    atoms, xyz2atom, residues, interactions = calcu_atom_level_interactions('sele1', 'sele2')
+    calcu_receptor_poses_interaction('RECEPTOR', ['LIGAND'])
