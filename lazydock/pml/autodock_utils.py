@@ -74,6 +74,9 @@ class DlgFile(BaseInfo):
             self.pose_lst: List[ADModel] = []
         self.n2i = {}
         
+    def __len__(self):
+        return len(self.pose_lst)
+        
     def sort_pose(self, key: Callable[[ADModel], Any] = None,
                   inplace: bool = True, reverse: bool = False) -> None:
         if key is None:
