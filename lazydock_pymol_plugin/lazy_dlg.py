@@ -13,7 +13,7 @@ from nicegui import ui
 from pymol import api, cmd
 
 from lazydock.pml.autodock_utils import DlgFile, MyFileDialog
-from lazydock.pml.interaction_utils import calcu_receptor_poses_interaction
+from lazydock.pml.interaction_utils import calcu_receptor_poses_interaction, filter_interaction_df
 from lazydock.utils import uuid4
 
 
@@ -279,15 +279,9 @@ class InteractionPage:
         plt.close(self.fig)
         self.fig = None
         if (self.interaction_df is not None) and (not self.interaction_df.empty):
-            tmp_interaction_df = self.interaction_df.copy(deep = True)
-            # filter ligand
-            for ligand_res in tmp_interaction_df.index:
-                if tmp_interaction_df.loc[ligand_res].abs().max() < self.min_ligand_interaction:
-                    tmp_interaction_df.drop(ligand_res, inplace=True)
-            # filter receptor
-            for receptor_res in tmp_interaction_df.columns:
-                if tmp_interaction_df[receptor_res].abs().max() < self.min_receptor_interaction:
-                    tmp_interaction_df.drop(receptor_res, axis=1, inplace=True)
+            
+            tmp_interaction_df = filter_interaction_df(self.interaction_df, self.min_receptor_interaction,
+                                                       self.min_ligand_interaction, inplace=False)
             # plot
             with ui.pyplot(figsize=(self.fig_w, self.fig_h), close=False) as fig:
                 vmax, vmin = tmp_interaction_df.max().max(), tmp_interaction_df.min().min()
