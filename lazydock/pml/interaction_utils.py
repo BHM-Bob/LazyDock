@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-25 11:01:12
+LastEditTime: 2024-08-25 21:29:04
 Description: 
 '''
 from typing import Dict, List, Tuple
@@ -106,7 +106,11 @@ def calcu_atom_level_interactions(sele1: str, sele2: str, mode = 0, cutoff=3.6, 
         - xyz2atom: dict, mapping of xyz coordinates to atom info: {(x,y,z): (model, chain, resn, resi, elem, index)}
         
     Returns:
-        - atoms: dict, atom info for each selection, in the format of {'s1_a': [(model, chain, resn, resi, elem, index),...],'s1_d': [(model, chain, resn, resi, elem, index),...],'s2_a': [(model, chain, resn, resi, elem, index),...],'s2_d': [(model, chain, resn, resi, elem, index),...]}
+        - atoms: dict, atom info for each selection, in the format of 
+            {'s1_a': [(model, chain, resn, resi, elem, index),...],
+             's1_d': [(model, chain, resn, resi, elem, index),...],
+             's2_a': [(model, chain, resn, resi, elem, index),...],
+             's2_d': [(model, chain, resn, resi, elem, index),...]}
         - xyz2atom: dict, mapping of xyz coordinates to atom info: {(x,y,z): (model, chain, resn, resi, elem, index)}
         - residues: dict, residue info for each selection, in the format of {'s1_a': {model: {chain: {resn-resi: elem}}...},'s1_d': {model: {chain: {resn-resi: elem}}...},'s2_a': {model: {chain: {resn-resi: elem}}...},'s2_d': {model: {chain: {resn-resi: elem}}...}}
         - interactions: dict, interactions between atoms in each selection, in the format of {'aa': [(('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3.4605595828662383),...], 'ad': [(('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3.4605595828662383),...], 'da': [(('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N',
@@ -252,6 +256,40 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: int 
     else:
         return None, None
     return interactions, interaction_df
+
+
+def filter_interaction_df(interaction_df: pd.DataFrame, colum_axis_min: float = None,
+                          row_axis_min: float = None, inplace: bool = False):
+    """
+    filter the interaction_df by the minimum value of each axis.
+    
+    Parameters:
+        - interaction_df : pd.DataFrame, interactions between receptor and ligand, in the format of ligand-residue-residue matrix, with the value of each cell is the distance between two atoms.
+        - colum_axis_min : float, minimum value of each column axis, None means no filter.
+        - row_axis_min : float, minimum value of each row axis, None means no filter.
+        - inplace : bool, whether to filter the original interaction_df or return a deep copy.
+        
+    Returns:
+        - interaction_df : pd.DataFrame, filtered interactions between receptor and ligand,
+                    in the format of ligand-residue-residue matrix,
+                    with the value of each cell is the distance between two atoms.
+    """
+    if inplace:
+        tmp_interaction_df = interaction_df
+    else:
+        tmp_interaction_df = interaction_df.copy(deep = True)
+    # filter ligand
+    if row_axis_min is not None:
+        for ligand_res in tmp_interaction_df.index:
+            if tmp_interaction_df.loc[ligand_res].abs().max() < row_axis_min:
+                tmp_interaction_df.drop(ligand_res, inplace=True)
+    # filter receptor
+    if colum_axis_min is not None:
+        for receptor_res in tmp_interaction_df.columns:
+            if tmp_interaction_df[receptor_res].abs().max() < colum_axis_min:
+                tmp_interaction_df.drop(receptor_res, axis=1, inplace=True)
+    return tmp_interaction_df
+
 
 
 if __name__ == '__main__':
