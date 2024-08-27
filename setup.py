@@ -1,7 +1,7 @@
 '''
 Date: 2024-05-06 17:18:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-19 18:11:15
+LastEditTime: 2024-08-27 10:32:04
 Description: 
 '''
 
@@ -55,6 +55,7 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         # "Programming Language :: Python :: 3 :: Only",
     ],
         
@@ -62,7 +63,7 @@ setup(
     description = "A Python package for molecular docking",
     long_description = long_description,
     long_description_content_type='text/markdown',
-    python_requires=">=3.7, <3.12",
+    python_requires=">=3.7, <3.13",
     license = "MIT Licence",
 
     url = __url__,
@@ -87,4 +88,4 @@ setup(
 # pip install .
 
 # python setup.py sdist
-# twine upload dist/lazydock-0.0.1.tar.gz
+# twine upload dist/lazydock-0.1.0.tar.gz
