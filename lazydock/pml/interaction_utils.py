@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-25 21:29:04
+LastEditTime: 2024-08-31 21:49:34
 Description: 
 '''
 from typing import Dict, List, Tuple
@@ -216,15 +216,17 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: int 
     calcu interactions between one receptor and one ligand with many poses.
     
     Parameters:
-        - receptor: str, receptor pymol name
-        - poses: list of str, ligand pymol names
-        - mode: int, mode of cmd.distance
-        - cutoff: float, cutoff of cmd.distance
-        - nagetive_factor: float, factor to multiply the distance value for interations between acceptor and acceptor, and donor and donor.
+        receptor: str, receptor pymol name
+        poses: list of str, ligand pymol names
+        mode: int, mode of cmd.distance
+        cutoff: float, cutoff of cmd.distance
+        nagetive_factor: float, factor to multiply the distance value for interations between acceptor and acceptor, and donor and donor.
         
     Returns:
-        - interactions: dict, interactions between receptor and ligand, in the format of {'ligand': [xyz2atom, residues, interactions]}, where xyz2atom is a dict, residues is a dict, interactions is a dict.
-        - interaction_df: pd.DataFrame, interactions between receptor and ligand, in the format of ligand-residue-residue matrix, with the value of each cell is the distance between two atoms.
+        interactions (dict): interactions between receptor and ligand, in the format of {'ligand': [xyz2atom, residues, interactions]}, where xyz2atom is a dict, residues is a dict, interactions is a dict.
+        
+        interaction_df (pd.DataFrame): , interactions between receptor and ligand, in the format of ligand-residue-residue matrix, with the value of each cell is the interaction score between two atoms.
+            interaction_df.loc[ligand_res, receptor_res] = score
     """
     def sort_func(index: pd.Index):
         index = index.str.split(':')
@@ -264,13 +266,13 @@ def filter_interaction_df(interaction_df: pd.DataFrame, colum_axis_min: float = 
     filter the interaction_df by the minimum value of each axis.
     
     Parameters:
-        - interaction_df : pd.DataFrame, interactions between receptor and ligand, in the format of ligand-residue-residue matrix, with the value of each cell is the distance between two atoms.
-        - colum_axis_min : float, minimum value of each column axis, None means no filter.
-        - row_axis_min : float, minimum value of each row axis, None means no filter.
-        - inplace : bool, whether to filter the original interaction_df or return a deep copy.
+        interaction_df(pd.DataFrame) : interactions between receptor and ligand, in the format of ligand-residue-residue matrix, with the value of each cell is the distance between two atoms.
+        colum_axis_min(float) : minimum value of each column axis, None means no filter.
+        row_axis_min(float) : minimum value of each row axis, None means no filter.
+        inplace(bool) : , whether to filter the original interaction_df or return a deep copy.
         
     Returns:
-        - interaction_df : pd.DataFrame, filtered interactions between receptor and ligand,
+        interaction_df(pd.DataFrame) : filtered interactions between receptor and ligand,
                     in the format of ligand-residue-residue matrix,
                     with the value of each cell is the distance between two atoms.
     """
@@ -290,6 +292,17 @@ def filter_interaction_df(interaction_df: pd.DataFrame, colum_axis_min: float = 
                 tmp_interaction_df.drop(receptor_res, axis=1, inplace=True)
     return tmp_interaction_df
 
+
+__all__ = [
+    'get_h_bond_cutoff',
+    'set_h_bond_cutoff',
+    'get_distance_info',
+    'calcu_atom_level_interactions',
+    'sort_atom_level_interactions',
+    'merge_interaction_df',
+    'calcu_receptor_poses_interaction',
+    'filter_interaction_df',
+    ]
 
 
 if __name__ == '__main__':
