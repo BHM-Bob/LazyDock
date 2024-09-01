@@ -1,12 +1,13 @@
 '''
 Date: 2024-08-19 10:41:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-20 09:57:40
+LastEditTime: 2024-08-31 20:10:11
 Description: 
 '''
 from threading import Thread
 
 from lazy_dlg import LazyDLG
+from lazy_plot import LazyPlot
 from lazy_pocket import LazyPocket
 # from mbapy.web import TaskPool
 from nicegui import app, ui
@@ -23,6 +24,7 @@ class GUILauncher:
         
         self.lazy_pocket = LazyPocket(self)
         self.lazy_dlg = LazyDLG(self)
+        self.lazy_plot = LazyPlot(self)
         
         self.build_gui()
         
@@ -48,6 +50,7 @@ class GUILauncher:
                 with ui.tabs().props('vertical').classes('w-full') as tabs:
                     lazy_pocket_tab = ui.tab('Pocket')
                     lazy_dlg_tab = ui.tab('DLG')
+                    lazy_plot_tab = ui.tab('Plot')
             with splitter.after:
                 with ui.tab_panels(tabs, value=lazy_pocket_tab) \
                         .props('vertical').classes('w-full h-full'):
@@ -55,6 +58,8 @@ class GUILauncher:
                         self.lazy_pocket.build_gui()
                     with ui.tab_panel(lazy_dlg_tab):
                         self.lazy_dlg.build_gui()
+                    with ui.tab_panel(lazy_plot_tab):
+                        self.lazy_plot.build_gui()
 
     
 if __name__ in {"__main__", "__mp_main__"}:
