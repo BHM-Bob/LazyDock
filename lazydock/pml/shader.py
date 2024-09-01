@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-31 21:40:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-01 16:13:02
+LastEditTime: 2024-09-01 16:49:21
 Description: 
 '''
 from dataclasses import dataclass
@@ -175,7 +175,8 @@ class Shader:
                 if alpha_mode is not None:
                     cmd.set(alpha_mode, alpha, sele_exp)
                     
-        
+    def __repr__(self):
+        return f'{self.cmap.name}({self.norm.vmin:.2f},{self.norm.vcenter:.2f},{self.norm.vmax:.2f}){self.COL_NAME_PREFIX}'
     
     
 __all__ = [
@@ -193,3 +194,8 @@ if __name__ == '__main__':
     shader = Shader()
     shader.create_colors_in_pml(values)
     shader.apply_shader_values(values, alpha_mode='cartoon_transparency')
+    print(shader)
+    cmd.clip('near', -10)
+    cmd.clip('slab', 100)
+    cmd.zoom('model receptor')
+    cmd.png('data_tmp/shader.png', 1200, 1200, 300)
