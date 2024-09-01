@@ -71,8 +71,25 @@ class ShaderValues:
         else:
             return [(atom.model, atom.chain, atom.resi, atom.index, atom.c_value) for chain in self.chains for res in self.chains[chain] for atom in res.atoms]
           
-    def from_interaction_df(self, df: pd.DataFrame, sum_axis: int = 1):
-        pass
+    def from_interaction_df(self, df: Union[str, pd.DataFrame], model: str, sum_axis: int = 0):
+        """
+        load values from interaction_df calculated by lazudock.interaction_utils.calcu_receptor_poses_interaction
+        
+        Parameters:
+            df (Union[str, pd.DataFrame]): interaction_df or path to interaction_df.
+            model (str): model name.
+            sum_axis (int): 0 or 1, pass to df.sum, 0 means sum each rows and get a colum, 1 means sum each colums and get a row.
+            
+        Returns:
+            ShaderValues: self.
+        """
+        if isinstance(df, str):
+            df = pd.read_excel(df, index_col = 0)
+        df = df.sum(axis=sum_axis)
+        for res, v in zip(df.index, df.values):
+            chain, resi, _ = res.split(':')
+            self.chains.setdefault(chain, []).append(ShaderRes(model, chain, int(resi), c_value=v))
+        return self
 
 
 class Shader:
