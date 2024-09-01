@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-31 21:40:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-01 10:20:05
+LastEditTime: 2024-09-01 10:31:07
 Description: 
 '''
 from dataclasses import dataclass, field
@@ -23,6 +23,7 @@ class ShaderAtom:
     elem: str
     index: int
     c_value: float = None
+    alpha: float = 1.0
     
 @dataclass
 class ShaderRes:
@@ -31,6 +32,7 @@ class ShaderRes:
     resi: int
     atoms: List[ShaderAtom] = None
     c_value: float = None
+    alpha: float = 1.0
     
     def get_c_value(self):
         """
@@ -115,18 +117,33 @@ class Shader:
             if name not in self.name2col:
                 self._get_rgba_col_name(c, name)
                 
-    def apply_shader_values(self, values: ShaderValues, level: str = 'res'):
+    def apply_shader_values(self, values: ShaderValues, level: str = 'res',
+                            alpha_mode: str = None):
+        """
+        apply shader values to pymol.
+        
+        Parameters:
+            values (ShaderValues): values to apply.
+            level (str): 'atom' or'res', level to apply values for.
+            alpha_mode (str): pymol transparency mode, such as `cartoon_transparency`.
+        """
         if level not in {'res', 'atom'}:
             raise ValueError(f'Level must be "res" or "atom", got {level}.')
         # loop through residues or atoms and apply color
         for res in [res for chain in values.chains.values() for res in chain]:
             if level =='res' or (level == 'atom' and res.atoms is None):
                 _, col_name = self._get_rgba_col_name(res.get_c_value())
-                cmd.color(col_name, f'model {res.model} and (chain {res.chain} and resi {res.resi})')
+                sele_exp = f'model {res.model} and (chain {res.chain} and resi {res.resi})'
+                cmd.color(col_name, sele_exp)
+                if alpha_mode is not None:
+                    cmd.set(alpha_mode, res.alpha, sele_exp)
             else: # level == 'atom' and res.atoms is not None
                 for atom in res.atoms:
                     _, col_name = self._get_rgba_col_name(atom.c_value)
-                    cmd.color(col_name, f'(model {atom.model} and chain {atom.chain}) and (resi {atom.resi} and index {atom.elem})')
+                    sele_exp = f'(model {atom.model} and chain {atom.chain}) and (resi {atom.resi} and index {atom.elem})'
+                    cmd.color(col_name, sele_exp)
+                    if alpha_mode is not None:
+                        cmd.set(alpha_mode, res.alpha, sele_exp)
     
     
 __all__ = [
@@ -144,5 +161,5 @@ if __name__ == '__main__':
     value1 = ShaderValues({'A': [res1]})
     shader = Shader()
     shader.create_colors_in_pml(value1)
-    shader.apply_shader_values(value1)
+    shader.apply_shader_values(value1, alpha_mode='cartoon_transparency')
     shader.apply_shader_values(value1, 'atom')
