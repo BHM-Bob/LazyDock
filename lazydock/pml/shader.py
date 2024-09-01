@@ -1,17 +1,18 @@
 '''
 Date: 2024-08-31 21:40:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-01 10:31:07
+LastEditTime: 2024-09-01 16:13:02
 Description: 
 '''
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from threading import Lock
 from typing import Dict, List, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import Colormap
-from mbapy.plot import rgb2hex, rgbs2hexs
+from matplotlib.colors import Colormap, TwoSlopeNorm
+from mbapy.plot import rgb2hex
 from pymol import cmd
 
 
@@ -24,7 +25,8 @@ class ShaderAtom:
     index: int
     c_value: float = None
     alpha: float = 1.0
-    
+
+
 @dataclass
 class ShaderRes:
     model: str
@@ -33,7 +35,7 @@ class ShaderRes:
     atoms: List[ShaderAtom] = None
     c_value: float = None
     alpha: float = 1.0
-    
+
     def get_c_value(self):
         """
         Returns:
@@ -46,10 +48,11 @@ class ShaderRes:
             self.c_value = sum(map(lambda x: x.c_value, filter(lambda x: x.c_value, self.atoms)))
         return self.c_value
 
+
 class ShaderValues:
     def __init__(self, chains: Dict[str, List[ShaderRes]] = None) -> None:
         self.chains: Dict[str, List[ShaderRes]] = chains or {}
-        
+
     def get_c_value(self, chain: str, resi: int, atom_index: int = None):
         if chain not in self.chains:
             raise ValueError(f'Chain {chain} not found in shader values.')
@@ -67,9 +70,9 @@ class ShaderValues:
         if level not in {'res', 'atom'}:
             raise ValueError(f'Level must be "res" or "atom", got {level}.')
         if level == 'res':
-            return [(res.model, res.chain, res.resi, res.get_c_value()) for chain in self.chains for res in self.chains[chain]]
+            return [(res.model, res.chain, res.resi, res.alpha, res.get_c_value()) for chain in self.chains for res in self.chains[chain]]
         else:
-            return [(atom.model, atom.chain, atom.resi, atom.index, atom.c_value) for chain in self.chains for res in self.chains[chain] for atom in res.atoms]
+            return [(atom.model, atom.chain, atom.resi, atom.index, res.alpha, atom.c_value) for chain in self.chains for res in self.chains[chain] for atom in res.atoms]
           
     def from_interaction_df(self, df: Union[str, pd.DataFrame], model: str, sum_axis: int = 0):
         """
@@ -93,25 +96,30 @@ class ShaderValues:
 
 
 class Shader:
-    def __init__(self, cmap: Union[str, Colormap] = 'coolwarm', col_name_prefix: str = 'COL_') -> None:
+    global_locker = Lock()
+    global_name2col = {}
+    def __init__(self, cmap: Union[str, Colormap] = 'coolwarm',
+                 norm: TwoSlopeNorm = None,
+                 col_name_prefix: str = 'COL_') -> None:
         self.cmap = plt.get_cmap(cmap) if isinstance(cmap, str) else cmap
+        self.norm = norm or TwoSlopeNorm(vmin=-1, vcenter=0, vmax=1)
         self.COL_NAME_PREFIX = col_name_prefix
-        self.name2col = {}
         
     def get_col_from_c_value(self, c_value: float):
         """return rgba and color name with prefix for given c_value."""
-        rgba = self.cmap(c_value)
+        rgba = self.cmap(self.norm(c_value))
         name = rgb2hex(*[int(rgba[i]*255) for i in range(3)])
         return rgba, f'{self.COL_NAME_PREFIX}{name[1:]}'
                 
     def _get_rgba_col_name(self, c_value: float, _col_name: str = None):
         """get rgba and color name with prefix for given c_value, 
-        store name in self.name2col if not exist."""
+        store name in self.global_name2col if not exist."""
         rgba, col_name = self.get_col_from_c_value(c_value)
         col_name = _col_name or col_name
-        if col_name not in self.name2col:
+        if col_name not in self.global_name2col:
             cmd.set_color(col_name, list(rgba[:-1]))
-            self.name2col[col_name] = rgba
+            with self.global_locker: # NOTE: only lock-unlock when adding new color to avoid ReLock
+                self.global_name2col[col_name] = rgba
         return rgba, col_name
         
     def create_colors_in_pml(self, values: ShaderValues, level: str = 'res', names: List[str] = None):
@@ -131,36 +139,43 @@ class Shader:
             raise ValueError(f'If names is given, names must be equal to length of c_values, got {len(names)} and {len(c_values)}.')
         for i, c in enumerate(c_values):
             name = names[i] if names is not None else None
-            if name not in self.name2col:
+            if name not in self.global_name2col:
                 self._get_rgba_col_name(c, name)
                 
     def apply_shader_values(self, values: ShaderValues, level: str = 'res',
-                            alpha_mode: str = None):
+                            auto_detect_vlim: bool = True, alpha_mode: str = None):
         """
         apply shader values to pymol.
         
         Parameters:
             values (ShaderValues): values to apply.
             level (str): 'atom' or'res', level to apply values for.
+            auto_detect_vlim (bool): if True, will set vmin and vmax for colormap based on min and max c_values.
             alpha_mode (str): pymol transparency mode, such as `cartoon_transparency`.
         """
         if level not in {'res', 'atom'}:
             raise ValueError(f'Level must be "res" or "atom", got {level}.')
+        c_values = values.get_all_c_values(level)
+        if auto_detect_vlim:
+            self.norm.autoscale(list(map(lambda x: x[-1], c_values)))
         # loop through residues or atoms and apply color
-        for res in [res for chain in values.chains.values() for res in chain]:
-            if level =='res' or (level == 'atom' and res.atoms is None):
-                _, col_name = self._get_rgba_col_name(res.get_c_value())
-                sele_exp = f'model {res.model} and (chain {res.chain} and resi {res.resi})'
+        for c_value in c_values:
+            if level =='res':
+                model, chain, resi, alpha, c = c_value
+                _, col_name = self._get_rgba_col_name(c)
+                sele_exp = f'model {model} and (chain {chain} and resi {resi})'
                 cmd.color(col_name, sele_exp)
                 if alpha_mode is not None:
-                    cmd.set(alpha_mode, res.alpha, sele_exp)
+                    cmd.set(alpha_mode, alpha, sele_exp)
             else: # level == 'atom' and res.atoms is not None
-                for atom in res.atoms:
-                    _, col_name = self._get_rgba_col_name(atom.c_value)
-                    sele_exp = f'(model {atom.model} and chain {atom.chain}) and (resi {atom.resi} and index {atom.elem})'
-                    cmd.color(col_name, sele_exp)
-                    if alpha_mode is not None:
-                        cmd.set(alpha_mode, res.alpha, sele_exp)
+                model, chain, resi, atom_index, alpha, c = c_value
+                _, col_name = self._get_rgba_col_name(c)
+                sele_exp = f'(model {model} and chain {chain}) and (resi {resi} and index {atom_index})'
+                cmd.color(col_name, sele_exp)
+                if alpha_mode is not None:
+                    cmd.set(alpha_mode, alpha, sele_exp)
+                    
+        
     
     
 __all__ = [
@@ -174,9 +189,7 @@ __all__ = [
 if __name__ == '__main__':
     cmd.reinitialize()
     cmd.load('data_tmp/pdb/RECEPTOR.pdb', 'receptor')
-    res1 = ShaderRes('receptor', 'A', 46, None, 0.5)
-    value1 = ShaderValues({'A': [res1]})
+    values = ShaderValues().from_interaction_df('data_tmp/interaction_df.xlsx', 'receptor')
     shader = Shader()
-    shader.create_colors_in_pml(value1)
-    shader.apply_shader_values(value1, alpha_mode='cartoon_transparency')
-    shader.apply_shader_values(value1, 'atom')
+    shader.create_colors_in_pml(values)
+    shader.apply_shader_values(values, alpha_mode='cartoon_transparency')
