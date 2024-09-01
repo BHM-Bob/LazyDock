@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-31 21:40:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-01 16:49:21
+LastEditTime: 2024-09-01 22:45:08
 Description: 
 '''
 from dataclasses import dataclass
@@ -111,18 +111,20 @@ class Shader:
         name = rgb2hex(*[int(rgba[i]*255) for i in range(3)])
         return rgba, f'{self.COL_NAME_PREFIX}{name[1:]}'
                 
-    def _get_rgba_col_name(self, c_value: float, _col_name: str = None):
+    def _get_rgba_col_name(self, c_value: float, _col_name: str = None, _cmd = None):
         """get rgba and color name with prefix for given c_value, 
         store name in self.global_name2col if not exist."""
+        _cmd = cmd or _cmd or cmd
         rgba, col_name = self.get_col_from_c_value(c_value)
         col_name = _col_name or col_name
         if col_name not in self.global_name2col:
-            cmd.set_color(col_name, list(rgba[:-1]))
+            _cmd.set_color(col_name, list(rgba[:-1]))
             with self.global_locker: # NOTE: only lock-unlock when adding new color to avoid ReLock
                 self.global_name2col[col_name] = rgba
         return rgba, col_name
         
-    def create_colors_in_pml(self, values: ShaderValues, level: str = 'res', names: List[str] = None):
+    def create_colors_in_pml(self, values: ShaderValues, level: str = 'res',
+                             names: List[str] = None, _cmd = None):
         """
         set color and it's name in pymol for each c_value in values.
         
@@ -130,7 +132,7 @@ class Shader:
             values (ShaderValues): values to create colors for.
             level (str): 'atom' or'res', level to create colors for.
             names (List[str]): list of color names to use. If None, will generate names from c_values.
-            
+            cmd: pymol cmd module, can be pymol.cmd or lazudock.pml.server.PymolAPI
         Notes:
             If name is given, the color name prefix will not be added.
         """
@@ -140,10 +142,11 @@ class Shader:
         for i, c in enumerate(c_values):
             name = names[i] if names is not None else None
             if name not in self.global_name2col:
-                self._get_rgba_col_name(c, name)
+                self._get_rgba_col_name(c, name, _cmd)
                 
     def apply_shader_values(self, values: ShaderValues, level: str = 'res',
-                            auto_detect_vlim: bool = True, alpha_mode: str = None):
+                            auto_detect_vlim: bool = True, alpha_mode: str = None,
+                            _cmd = None):
         """
         apply shader values to pymol.
         
@@ -152,7 +155,9 @@ class Shader:
             level (str): 'atom' or'res', level to apply values for.
             auto_detect_vlim (bool): if True, will set vmin and vmax for colormap based on min and max c_values.
             alpha_mode (str): pymol transparency mode, such as `cartoon_transparency`.
+            _cmd: pymol cmd module, can be pymol.cmd or lazudock.pml.server.PymolAPI
         """
+        _cmd = cmd or None
         if level not in {'res', 'atom'}:
             raise ValueError(f'Level must be "res" or "atom", got {level}.')
         c_values = values.get_all_c_values(level)
@@ -162,18 +167,18 @@ class Shader:
         for c_value in c_values:
             if level =='res':
                 model, chain, resi, alpha, c = c_value
-                _, col_name = self._get_rgba_col_name(c)
+                _, col_name = self._get_rgba_col_name(c, _cmd=cmd)
                 sele_exp = f'model {model} and (chain {chain} and resi {resi})'
-                cmd.color(col_name, sele_exp)
+                _cmd.color(col_name, sele_exp)
                 if alpha_mode is not None:
-                    cmd.set(alpha_mode, alpha, sele_exp)
+                    _cmd.set(alpha_mode, alpha, sele_exp)
             else: # level == 'atom' and res.atoms is not None
                 model, chain, resi, atom_index, alpha, c = c_value
-                _, col_name = self._get_rgba_col_name(c)
+                _, col_name = self._get_rgba_col_name(c, _cmd=cmd)
                 sele_exp = f'(model {model} and chain {chain}) and (resi {resi} and index {atom_index})'
-                cmd.color(col_name, sele_exp)
+                _cmd.color(col_name, sele_exp)
                 if alpha_mode is not None:
-                    cmd.set(alpha_mode, alpha, sele_exp)
+                    _cmd.set(alpha_mode, alpha, sele_exp)
                     
     def __repr__(self):
         return f'{self.cmap.name}({self.norm.vmin:.2f},{self.norm.vcenter:.2f},{self.norm.vmax:.2f}){self.COL_NAME_PREFIX}'
