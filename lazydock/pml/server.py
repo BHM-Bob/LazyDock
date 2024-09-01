@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-01 20:33:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-01 22:09:38
+LastEditTime: 2024-09-01 22:40:03
 Description: 
 '''
 import pickle
@@ -55,15 +55,30 @@ class VServer:
             self._logs.append(f'[{get_fmt_time()}] {log}')
             if self._verbose:
                 print(f'[{get_fmt_time()}] {log}')
+
+    def _recvall(self, sock: socket.socket, count: int):
+        buf = b''
+        while count:
+            newbuf = sock.recv(count)
+            if not newbuf: return None
+            buf += newbuf
+            count -= len(newbuf)
+        return buf
         
     def _run_server(self) -> None:
         """main loop run in a thread"""
         self.socket.listen(1)
         conn, addr = self.socket.accept()
+        self._add_log(f'Connected by {addr}')
         while True:
             # get and un-pickle data from client
-            recv_data = conn.recv(4096)
+            recv_data = conn.recv(4)
             if not recv_data:
+                continue
+            data_length = int.from_bytes(recv_data, 'big')
+            recv_data = self._recvall(conn, data_length)
+            if not recv_data:
+                self._add_log(f'Failed to receive data from client for length {data_length}')
                 continue
             api, fn, args, kwargs = pickle.loads(recv_data)
             # execute action
@@ -88,7 +103,9 @@ class VClient:
         self.socket.connect((ip, port))
     
     def send_action(self, api: str, fn: str, *args, **kwargs) -> Any:
-        self.socket.sendall(pickle.dumps((api, fn, args, kwargs)))
+        data = pickle.dumps((api, fn, args, kwargs))
+        self.socket.sendall(len(data).to_bytes(4, 'big'))
+        self.socket.sendall(data)
         
 
 def _test_server():
