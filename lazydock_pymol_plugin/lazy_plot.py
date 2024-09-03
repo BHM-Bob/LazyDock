@@ -1,14 +1,13 @@
 '''
 Date: 2024-08-31 20:08:07
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-01 17:23:54
+LastEditTime: 2024-09-01 22:46:04
 Description: 
 '''
 
 from typing import Dict, List
 
 from nicegui import ui
-from pymol import CmdException, api, cmd
 
 from lazydock.pml.shader import Shader, ShaderValues
 
@@ -80,7 +79,8 @@ class LazyPlot:
             
         
 # dev mode
-if __name__ in {"__main__", "__mp_main__"}:    
+if __name__ in {"__main__", "__mp_main__"}: 
+    from pymol import CmdException, api, cmd   
     cmd.reinitialize()
     cmd.load('data_tmp/pdb/LIGAND.pdb', 'ligand')
     cmd.load('data_tmp/pdb/RECEPTOR.pdb', 'receptor')
