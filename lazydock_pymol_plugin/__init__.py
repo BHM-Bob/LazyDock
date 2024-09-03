@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-16 09:36:38
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-01 22:04:36
+LastEditTime: 2024-09-03 16:14:07
 Description: LazyDock Pymol Plugin
 '''
 
@@ -33,6 +33,7 @@ def __init__(self):
 
 
 def start_lazydock_server(host: str = 'localhost', port: int = 8085, quiet: int = 1):
+    print(f'Starting LazyDock server on {host}:{port}, quiet={quiet}')
     VServer(host, port, not bool(quiet))
     
     
