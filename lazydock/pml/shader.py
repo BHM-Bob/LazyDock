@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-31 21:40:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-01 22:45:08
+LastEditTime: 2024-09-03 15:52:34
 Description: 
 '''
 from dataclasses import dataclass
@@ -114,7 +114,7 @@ class Shader:
     def _get_rgba_col_name(self, c_value: float, _col_name: str = None, _cmd = None):
         """get rgba and color name with prefix for given c_value, 
         store name in self.global_name2col if not exist."""
-        _cmd = cmd or _cmd or cmd
+        _cmd = _cmd or cmd
         rgba, col_name = self.get_col_from_c_value(c_value)
         col_name = _col_name or col_name
         if col_name not in self.global_name2col:
@@ -157,7 +157,7 @@ class Shader:
             alpha_mode (str): pymol transparency mode, such as `cartoon_transparency`.
             _cmd: pymol cmd module, can be pymol.cmd or lazudock.pml.server.PymolAPI
         """
-        _cmd = cmd or None
+        _cmd = _cmd or cmd
         if level not in {'res', 'atom'}:
             raise ValueError(f'Level must be "res" or "atom", got {level}.')
         c_values = values.get_all_c_values(level)
@@ -167,14 +167,14 @@ class Shader:
         for c_value in c_values:
             if level =='res':
                 model, chain, resi, alpha, c = c_value
-                _, col_name = self._get_rgba_col_name(c, _cmd=cmd)
+                _, col_name = self._get_rgba_col_name(c, _cmd=_cmd)
                 sele_exp = f'model {model} and (chain {chain} and resi {resi})'
                 _cmd.color(col_name, sele_exp)
                 if alpha_mode is not None:
                     _cmd.set(alpha_mode, alpha, sele_exp)
             else: # level == 'atom' and res.atoms is not None
                 model, chain, resi, atom_index, alpha, c = c_value
-                _, col_name = self._get_rgba_col_name(c, _cmd=cmd)
+                _, col_name = self._get_rgba_col_name(c, _cmd=_cmd)
                 sele_exp = f'(model {model} and chain {chain}) and (resi {resi} and index {atom_index})'
                 _cmd.color(col_name, sele_exp)
                 if alpha_mode is not None:
