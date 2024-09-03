@@ -88,7 +88,7 @@ class ShaderValues:
         """
         if isinstance(df, str):
             df = pd.read_excel(df, index_col = 0)
-        df = df.sum(axis=sum_axis)
+        df = df.sum(axis=sum_axis)[1:] # first row is index and colum names
         for res, v in zip(df.index, df.values):
             chain, resi, _ = res.split(':')
             self.chains.setdefault(chain, []).append(ShaderRes(model, chain, int(resi), c_value=v))
