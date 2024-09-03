@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-01 20:33:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-01 22:40:03
+LastEditTime: 2024-09-03 15:46:33
 Description: 
 '''
 import pickle
@@ -13,8 +13,8 @@ from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 from mbapy.base import get_fmt_time
-from pymol import api as _api_
-from pymol import cmd as _cmd_
+from pymol import api as pml_api
+from pymol import cmd as pml_cmd
 
 
 class PymolAPI(object):
@@ -31,8 +31,10 @@ class PymolAPI(object):
 class VServer:
     """run by pymol"""
     def __init__(self, ip: str = 'localhost', port: int = 8085, verbose: bool = False) -> None:
+        self.ip = ip
+        self.port = int(port)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.bind((ip, port))
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 * 1024 * 1024) # set socket recv buffer size to 1MB
         self.server = Thread(target=self._run_server, daemon=True)
         self.server.start()
         self.lock = Lock()
@@ -50,10 +52,10 @@ class VServer:
             self._copied_log_len = len(self._logs)
             return new_logs
         
-    def _add_log(self, log: str) -> None:
+    def _add_log(self, log: str, verbose: bool = False) -> None:
         with self.lock:
             self._logs.append(f'[{get_fmt_time()}] {log}')
-            if self._verbose:
+            if self._verbose or verbose:
                 print(f'[{get_fmt_time()}] {log}')
 
     def _recvall(self, sock: socket.socket, count: int):
@@ -64,52 +66,78 @@ class VServer:
             buf += newbuf
             count -= len(newbuf)
         return buf
+    
+    def _sendall(self, scok: socket.socket, data: bytes) -> None:
+        length = len(data)
+        scok.sendall(length.to_bytes(4, 'big'))
+        scok.sendall(data)
         
     def _run_server(self) -> None:
         """main loop run in a thread"""
+        self.socket.bind((self.ip, self.port))
         self.socket.listen(1)
-        conn, addr = self.socket.accept()
-        self._add_log(f'Connected by {addr}')
         while True:
-            # get and un-pickle data from client
-            recv_data = conn.recv(4)
-            if not recv_data:
-                continue
-            data_length = int.from_bytes(recv_data, 'big')
-            recv_data = self._recvall(conn, data_length)
-            if not recv_data:
-                self._add_log(f'Failed to receive data from client for length {data_length}')
-                continue
-            api, fn, args, kwargs = pickle.loads(recv_data)
-            # execute action
-            if api not in {'cmd', 'api'}:
-                self._add_log(f'Error in executing {api}.{fn}: api not found')
-            try:
-                if api == 'cmd':
-                    getattr(_cmd_, fn)(*args, **kwargs)
-                elif api == 'api':
-                    getattr(_api_, fn)(*args, **kwargs)
-                self._add_log(f'{api}.{fn} executed successfully')
-            except Exception as e:
-                self._add_log(f'Error in executing {api}.{fn}: {e}')
-            # sleep to avoid busy loop
-            time.sleep(0.05)
+            conn, addr = self.socket.accept()
+            self._add_log(f'Connected by {addr}', verbose=True)
+            while True:
+                # get and un-pickle data from client
+                recv_data = conn.recv(4)
+                if not recv_data:
+                    continue
+                data_length = int.from_bytes(recv_data, 'big')
+                recv_data = self._recvall(conn, data_length)
+                if not recv_data:
+                    self._add_log(f'VServer: Failed to receive data from client for length {data_length}')
+                    continue
+                if recv_data == b'quit':
+                    self._add_log('VServer: Client quit')
+                    break
+                api, fn, args, kwargs = pickle.loads(recv_data)
+                # execute action
+                if api not in {'cmd', 'api'}:
+                    self._add_log(f'VServer: Error in executing {api}.{fn}: api not found')
+                try:
+                    if api == 'cmd':
+                        ret = getattr(pml_cmd, fn)(*args, **kwargs)
+                    elif api == 'api':
+                        ret = getattr(pml_api, fn)(*args, **kwargs)
+                    self._sendall(conn, pickle.dumps(ret))
+                    self._add_log(f'VServer: {api}.{fn} executed successfully')
+                except Exception as e:
+                    self._add_log(f'VServer: Error in executing {api}.{fn}: {e}')
+                # sleep to avoid busy loop
+                time.sleep(0.05)
+            # close connection
+            conn.close()
+            self._add_log(f'Connect closed by {addr}', verbose=True)
         
         
-class VClient:
+class VClient(VServer):
     """run by user in anthor python script"""
     def __init__(self, ip: str = 'localhost', port: int = 8085) -> None:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 * 1024 * 1024) # set socket send buffer size to 1MB
         self.socket.connect((ip, port))
     
     def send_action(self, api: str, fn: str, *args, **kwargs) -> Any:
         data = pickle.dumps((api, fn, args, kwargs))
-        self.socket.sendall(len(data).to_bytes(4, 'big'))
-        self.socket.sendall(data)
+        self._sendall(self.socket, data)
+        try:
+            ret_len = int.from_bytes(self.socket.recv(4), 'big')
+            ret = self._recvall(self.socket, ret_len)
+            return pickle.loads(ret)
+        except Exception as e:
+            print(f'Error in receiving data: {e}')
+            return None
+        
+    def sen_quit(self) -> None:
+        data = b'quit'
+        self._sendall(self.socket, data)
+        self.socket.close()
         
 
 def _test_server():
-    _cmd_.reinitialize()
+    pml_cmd.reinitialize()
     server = VServer()
     while True:
         time.sleep(0.1)
@@ -119,7 +147,7 @@ def _test_server():
 def _test_client():
     client = VClient()
     vcmd = PymolAPI(client, 'cmd')
-    vcmd.load('data_tmp/pdb/LIGAND.pdb', 'ligand')
+    print(vcmd.load('data_tmp/pdb/LIGAND.pdb', 'ligand'))
     
 
 if __name__ == '__main__':
