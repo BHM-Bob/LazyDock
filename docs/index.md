@@ -41,3 +41,19 @@ Now, lazydock only support pypi install:
 ```
 pip install lazydock
 ```
+
+
+## Contains
+
+### pymol utils - pml
+- [autodock](pml/autodock_utils.md): parse autodock results to pdb pose.  
+- [interaction](pml/interaction_utils.md): calculate interactions between receptor and poses.  
+- [server](pml/server.md): provide a server-client interface to communicate with pymol.  
+- [shader](pml/shader.md): provide a shader for pymol.  
+
+### pyroseeta utils - pyrt
+- [pose](pyrt/pose.md): provide a wrapper pose class to opt pose.  
+
+
+## release note
+- [0.2.0](release_note/0.2.0.md)
