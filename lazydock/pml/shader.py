@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-31 21:40:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-03 15:52:34
+LastEditTime: 2024-09-03 16:52:25
 Description: 
 '''
 from dataclasses import dataclass
@@ -14,6 +14,8 @@ import pandas as pd
 from matplotlib.colors import Colormap, TwoSlopeNorm
 from mbapy.plot import rgb2hex
 from pymol import cmd
+
+from lazydock.utils import uuid4
 
 
 @dataclass
@@ -144,6 +146,10 @@ class Shader:
             if name not in self.global_name2col:
                 self._get_rgba_col_name(c, name, _cmd)
                 
+    def auto_scale_norm(self, c_values):
+        self.norm.autoscale(list(map(lambda x: x[-1], c_values)))
+        
+                
     def apply_shader_values(self, values: ShaderValues, level: str = 'res',
                             auto_detect_vlim: bool = True, alpha_mode: str = None,
                             _cmd = None):
@@ -162,7 +168,7 @@ class Shader:
             raise ValueError(f'Level must be "res" or "atom", got {level}.')
         c_values = values.get_all_c_values(level)
         if auto_detect_vlim:
-            self.norm.autoscale(list(map(lambda x: x[-1], c_values)))
+            self.auto_scale_norm(c_values)
         # loop through residues or atoms and apply color
         for c_value in c_values:
             if level =='res':
@@ -179,6 +185,25 @@ class Shader:
                 _cmd.color(col_name, sele_exp)
                 if alpha_mode is not None:
                     _cmd.set(alpha_mode, alpha, sele_exp)
+                    
+    def apply_shader_values_to_selection(self, selection, c_value: float = None,
+                                         alpha: float = 1.0, alpha_mode: str = None,
+                                         _cmd = None):
+        _cmd = _cmd or cmd
+        if c_value is not None:
+            _, col_name = self._get_rgba_col_name(c_value, _cmd=_cmd) # NOTE: do not use alpha from cmap
+            _cmd.color(col_name, selection)
+        if alpha_mode is not None:
+            _cmd.set(alpha_mode, alpha, selection)
+                    
+    def apply_shader_values_to_sele(self, select_expression: str, c_value: float = None,
+                                    alpha: float = 1.0, alpha_mode: str = None,
+                                    _cmd = None):
+        _cmd = _cmd or cmd
+        selection = uuid4()
+        _cmd.select(selection, select_expression)
+        self.apply_shader_values_to_selection(selection, c_value, alpha, alpha_mode, _cmd)
+        _cmd.delete(selection)
                     
     def __repr__(self):
         return f'{self.cmap.name}({self.norm.vmin:.2f},{self.norm.vcenter:.2f},{self.norm.vmax:.2f}){self.COL_NAME_PREFIX}'
