@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-01 20:33:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-03 15:46:33
+LastEditTime: 2024-09-04 21:26:46
 Description: 
 '''
 import pickle
@@ -118,6 +118,9 @@ class VClient(VServer):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 * 1024 * 1024) # set socket send buffer size to 1MB
         self.socket.connect((ip, port))
+        
+    def _run_server(self) -> None:
+        raise NotImplementedError('VClient cannot run as a server now')
     
     def send_action(self, api: str, fn: str, *args, **kwargs) -> Any:
         data = pickle.dumps((api, fn, args, kwargs))
