@@ -135,6 +135,13 @@ class VClient(VServer):
         self._sendall(self.socket, data)
         self.socket.close()
         
+        
+__all__ = [
+    'PymolAPI',
+    'VServer',
+    'VClient',
+]
+        
 
 def _test_server():
     pml_cmd.reinitialize()
