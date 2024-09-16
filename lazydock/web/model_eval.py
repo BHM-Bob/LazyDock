@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-15 22:05:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-16 10:29:48
+LastEditTime: 2024-09-16 11:16:32
 Description: 
 '''
 import re
@@ -131,6 +131,35 @@ def get_score_from_ProQ3(pdb_path: str, browser: Browser = None, **kwargs) -> Di
     lines = z_score_text.split('\n')
     return {k:float(v) if re.findall('[0-9.]+', v) else v \
             for k,v in zip(lines[0].split(' '), lines[1].split(' '))}
+
+
+def get_score_from_SAVES(pdb_path: str, browser: Browser = None, **kwargs) -> Dict[str, Union[float, str]]:
+    """return ProQ2D, ProQRosCenD, ProQRosCenD, ProQ3D in dict"""
+    pdb_path = str(Path(pdb_path).resolve())
+    b = browser or Browser()
+    b.get('https://saves.mbi.ucla.edu/')
+    btn = b.find_elements('//input[@type="file" and @name="pdbfile"]')[0]
+    btn.send_keys(pdb_path)
+    b.click(element='//input[@type="submit" and @value="Run programs"]')
+    while not b.find_elements('/html/body/h2[1]/a[1]'):
+        random_sleep(3)
+    # start check progress
+    b.click(element='//*[@id="errat"]')
+    b.click(element='//*[@id="whatcheck"]')
+    b.click(element='//*[@id="procheck"]')
+    # wait for result
+    while (not b.find_elements('//*[@id="werrat"]/div/center/center/h1')) or (not b.find_elements('//*[@id="wwhatcheck"]/div/center')) or (not b.find_elements('//*[@id="wprocheck"]/div/center')):
+        random_sleep(3)
+    errat_text = float(b.find_elements('//*[@id="werrat"]/div/center/center/h1')[0].text.strip())
+    whatcheck_bad = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem bad"]'))
+    whatcheck_mid = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem mid"]'))
+    whatcheck_good = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem good"]'))
+    procheck_errors = int(b.find_elements('//*[@id="wprocheck"]/div/center/ul/li[1]/span')[0].text.split(':')[-1])
+    procheck_warnings = int(b.find_elements('//*[@id="wprocheck"]/div/center/ul/li[2]/span')[0].text.split(':')[-1])
+    procheck_pass = int(b.find_elements('//*[@id="wprocheck"]/div/center/ul/li[3]/span')[0].text.split(':')[-1])
+    # parse whatcheck result
+    return {'errat': errat_text, 'whatcheck_bad': whatcheck_bad, 'whatcheck_mid': whatcheck_mid, 'whatcheck_good': whatcheck_good,
+            'procheck_errors': procheck_errors, 'procheck_warnings': procheck_warnings, 'procheck_pass': procheck_pass}
     
     
 _name2server = {
@@ -140,6 +169,7 @@ _name2server = {
     'ModEval': get_score_from_ModEval,
     'MolProbity': get_score_from_MolProbity,
     'ProQ3': get_score_from_ProQ3,
+    'SAVES': get_score_from_SAVES,
 }
     
     
@@ -170,6 +200,11 @@ __all__ = [
     'get_score_from_ModEval',
     'get_score_from_MolProbity',
     'get_score_from_ProQ3',
+    'get_score_from_SAVES',
     '_name2server',
     'get_eval_info_from_web',
 ]
+
+
+if __name__ == '__main__':
+    get_score_from_SAVES('data_tmp/pdb/RECEPTOR.pdb')
