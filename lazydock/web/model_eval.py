@@ -1,22 +1,22 @@
 '''
 Date: 2024-09-15 22:05:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-15 23:10:24
+LastEditTime: 2024-09-16 10:29:48
 Description: 
 '''
 import re
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Union
 
 import requests
 from lxml import etree
 from mbapy.base import put_err
 from mbapy.file import opts_file
-from mbapy.web import BROWSER_HEAD, Browser, TaskPool, random_sleep
+from mbapy.web import BROWSER_HEAD, Browser, random_sleep
 
 
-def get_score_from_proq(pdb_path: str, **kwargs):
-    """return LGscore and MaxSub in float"""
+def get_score_from_proq(pdb_path: str, **kwargs) -> Dict[str, float]:
+    """return LGscore and MaxSub in dict"""
     session = requests.Session()
     session.headers.update({'User-Agent': BROWSER_HEAD})
     response = session.post('https://proq.bioinfo.se/cgi-bin/ProQ/ProQ.cgi',
@@ -27,8 +27,8 @@ def get_score_from_proq(pdb_path: str, **kwargs):
     return {'LGscore': LGscore, 'MaxSub': MaxSub}
 
 
-def get_score_from_VoroMQA(pdb_path: str, browser: Browser = None, **kwargs):
-    """return LGscore and MaxSub in float"""
+def get_score_from_VoroMQA(pdb_path: str, browser: Browser = None, **kwargs) -> Dict[str, float]:
+    """return Score in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
     b.get('https://bioinformatics.lt/wtsam/voromqa/submit')
@@ -43,8 +43,8 @@ def get_score_from_VoroMQA(pdb_path: str, browser: Browser = None, **kwargs):
     return {'Score': score}
 
 
-def get_score_from_ProSA(pdb_path: str, browser: Browser = None, **kwargs):
-    """return LGscore and MaxSub in float"""
+def get_score_from_ProSA(pdb_path: str, browser: Browser = None, **kwargs) -> Dict[str, Union[float, bytes]]:
+    """return Z-Score, model_quality_img_res, res_score_img_res in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
     b.get('https://prosa.services.came.sbg.ac.at/prosa.php')
@@ -65,8 +65,8 @@ def get_score_from_ProSA(pdb_path: str, browser: Browser = None, **kwargs):
 
 
 def get_score_from_ModEval(modkey: str, pdb_path: str, align_file_path: str,
-                           browser: Browser = None, **kwargs):
-    """return LGscore and MaxSub in float"""
+                           browser: Browser = None, **kwargs) -> Dict[str, Union[float, str]]:
+    """return RMSD, overlap, identity, Z-DOPE in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     align_file_path = str(Path(align_file_path).resolve())
     b = browser or Browser()
@@ -91,8 +91,8 @@ def get_score_from_ModEval(modkey: str, pdb_path: str, align_file_path: str,
             'identity': identity, 'Z-DOPE': z_dope}
 
 
-def get_score_from_MolProbity(pdb_path: str, browser: Browser = None, **kwargs):
-    """return LGscore and MaxSub in float"""
+def get_score_from_MolProbity(pdb_path: str, browser: Browser = None, **kwargs) -> Dict[str, Union[float, str]]:
+    """return Z-Score, Ramachandran Favorability, Ramachandran Outerness in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
     b.get('http://molprobity.biochem.duke.edu/index.php')
@@ -116,8 +116,8 @@ def get_score_from_MolProbity(pdb_path: str, browser: Browser = None, **kwargs):
             'Ramachandran Outerness': rama_outer_text}
 
 
-def get_score_from_ProQ3(pdb_path: str, browser: Browser = None, **kwargs):
-    """return LGscore and MaxSub in float"""
+def get_score_from_ProQ3(pdb_path: str, browser: Browser = None, **kwargs) -> Dict[str, Union[float, str]]:
+    """return ProQ2D, ProQRosCenD, ProQRosCenD, ProQ3D in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
     b.get('https://proq3.bioinfo.se/pred/')
@@ -145,7 +145,7 @@ _name2server = {
     
 def get_eval_info_from_servers(pdb_path: str, align_file_path: str = None,
                                 modkey: str = None, browser: Browser = None,
-                                servers: List[str] = None):
+                                servers: List[str] = None) -> Dict[str, Dict[str, Union[float, str, bytes]]]:
     """return a dict of evaluation results"""
     servers = servers or _name2server.keys()
     if not servers:
