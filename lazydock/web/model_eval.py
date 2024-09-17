@@ -1,10 +1,11 @@
 '''
 Date: 2024-09-15 22:05:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-16 11:16:32
+LastEditTime: 2024-09-17 21:27:48
 Description: 
 '''
 import re
+import time
 from pathlib import Path
 from typing import Dict, List, Union
 
@@ -13,7 +14,7 @@ from lxml import etree
 from mbapy.base import put_err
 from mbapy.file import opts_file
 from mbapy.web import BROWSER_HEAD, Browser, random_sleep
-
+    
 
 def get_score_from_proq(pdb_path: str, **kwargs) -> Dict[str, float]:
     """return LGscore and MaxSub in dict"""
@@ -27,7 +28,7 @@ def get_score_from_proq(pdb_path: str, **kwargs) -> Dict[str, float]:
     return {'LGscore': LGscore, 'MaxSub': MaxSub}
 
 
-def get_score_from_VoroMQA(pdb_path: str, browser: Browser = None, **kwargs) -> Dict[str, float]:
+def get_score_from_VoroMQA(pdb_path: str, browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, float]:
     """return Score in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
@@ -36,14 +37,14 @@ def get_score_from_VoroMQA(pdb_path: str, browser: Browser = None, **kwargs) -> 
     btn.send_keys(pdb_path)
     b.click(element='//button[text()="Submit"]')
     xpath_result_line = '//div[text()="Results:"]/..//div[2]'
-    while not b.find_elements(xpath_result_line):
-        random_sleep(3)
+    if not b.wait_element(xpath_result_line, timeout=timeout):
+        return put_err('Timeout', {})
     score_text = b.find_elements(xpath_result_line)[0].text
     score = float(re.findall(r'Score: ([-\d.]+)', score_text)[0])
     return {'Score': score}
 
 
-def get_score_from_ProSA(pdb_path: str, browser: Browser = None, **kwargs) -> Dict[str, Union[float, bytes]]:
+def get_score_from_ProSA(pdb_path: str, browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, Union[float, bytes]]:
     """return Z-Score, model_quality_img_res, res_score_img_res in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
@@ -52,8 +53,8 @@ def get_score_from_ProSA(pdb_path: str, browser: Browser = None, **kwargs) -> Di
     btn.send_keys(pdb_path)
     b.click(element='//input[@type="submit"]')
     xpath_result_line = '/html/body/div[2]/span[2]'
-    while not b.find_elements(xpath_result_line):
-        random_sleep(3)
+    if not b.wait_element(xpath_result_line, timeout=timeout):
+        return put_err('Timeout', {})
     score = float(b.find_elements(xpath_result_line)[0].text)
     model_quality_img_link = b.find_elements('/html/body/div[2]/p/a')[0].get_attribute('href')
     model_quality_img_res = requests.get(model_quality_img_link)
@@ -65,7 +66,7 @@ def get_score_from_ProSA(pdb_path: str, browser: Browser = None, **kwargs) -> Di
 
 
 def get_score_from_ModEval(modkey: str, pdb_path: str, align_file_path: str,
-                           browser: Browser = None, **kwargs) -> Dict[str, Union[float, str]]:
+                           browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, Union[float, str]]:
     """return RMSD, overlap, identity, Z-DOPE in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     align_file_path = str(Path(align_file_path).resolve())
@@ -77,8 +78,8 @@ def get_score_from_ModEval(modkey: str, pdb_path: str, align_file_path: str,
     btn = b.find_elements('//input[@type="file" and @name="alignment_file"]')[0]
     btn.send_keys(align_file_path)
     b.click(element='//input[@type="submit"]')
-    while not b.find_elements('//*[@id="resulttable"]/table/tbody/tr[7]/td[2]'):
-        random_sleep(3)
+    if not b.wait_element('//*[@id="resulttable"]/table/tbody/tr[7]/td[2]', timeout=timeout):
+        return put_err('Timeout', {})
     rmsd_text = b.find_elements('//*[@id="resulttable"]/table/tbody/tr[7]/td[2]')[0].text.strip()
     rmsd = float(re.findall(r'[0-9.]+', rmsd_text)[0])
     overlap_text = b.find_elements('//*[@id="resulttable"]/table/tbody/tr[8]/td[2]')[0].text.strip()
@@ -91,7 +92,7 @@ def get_score_from_ModEval(modkey: str, pdb_path: str, align_file_path: str,
             'identity': identity, 'Z-DOPE': z_dope}
 
 
-def get_score_from_MolProbity(pdb_path: str, browser: Browser = None, **kwargs) -> Dict[str, Union[float, str]]:
+def get_score_from_MolProbity(pdb_path: str, browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, Union[float, str]]:
     """return Z-Score, Ramachandran Favorability, Ramachandran Outerness in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
@@ -99,15 +100,15 @@ def get_score_from_MolProbity(pdb_path: str, browser: Browser = None, **kwargs) 
     btn = b.find_elements('//input[@type="file" and @name="uploadFile"]')[0]
     btn.send_keys(pdb_path)
     b.click(element='//input[@type="submit" and @value="Upload >"]')
-    while not b.find_elements('//input[@type="submit" and @value="Continue >"]'):
-        random_sleep(3)
+    if not b.wait_element('//input[@type="submit" and @value="Continue >"]', timeout=timeout):
+        return put_err('Timeout', {})
     b.click(element='//input[@type="submit" and @value="Continue >"]')
     result_link = b.find_elements('/html/body/table/tbody/tr[2]/td[2]/div[1]/div/table/tbody/tr/td[2]/table/tbody/tr[4]/td[2]/a')[0].get_attribute('href')
     b.get(result_link)
     b.click(element='//input[@type="submit" and @value="Run programs to perform these analyses >"]')
     xpath_z_score = '/html/body/table/tbody/tr[2]/td/div/p[1]/table/tbody/tr[5]/td[2]'
-    while not b.find_elements(xpath_z_score):
-        random_sleep(3)
+    if not b.wait_element(xpath_z_score, timeout=timeout):
+        return put_err('Timeout', {})
     z_score_text = b.find_elements(xpath_z_score)[0].text
     rama_favor_text = b.find_elements('/html/body/table/tbody/tr[2]/td/div/p[1]/table/tbody/tr[4]/td[3]')[0].text
     rama_outer_text = b.find_elements('/html/body/table/tbody/tr[2]/td/div/p[1]/table/tbody/tr[3]/td[3]')[0].text
@@ -116,7 +117,7 @@ def get_score_from_MolProbity(pdb_path: str, browser: Browser = None, **kwargs) 
             'Ramachandran Outerness': rama_outer_text}
 
 
-def get_score_from_ProQ3(pdb_path: str, browser: Browser = None, **kwargs) -> Dict[str, Union[float, str]]:
+def get_score_from_ProQ3(pdb_path: str, browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, Union[float, str]]:
     """return ProQ2D, ProQRosCenD, ProQRosCenD, ProQ3D in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
@@ -125,15 +126,15 @@ def get_score_from_ProQ3(pdb_path: str, browser: Browser = None, **kwargs) -> Di
     btn.send_keys(pdb_path)
     b.click(element='//input[@type="submit" and @value="Submit"]')
     xpath_result_line = '//*[@id="jobtable"]/tbody'
-    while not b.find_elements(xpath_result_line):
-        random_sleep(3)
+    if not b.wait_element(xpath_result_line, timeout=timeout):
+        return put_err('Timeout', {})
     z_score_text = b.find_elements(xpath_result_line)[0].text
     lines = z_score_text.split('\n')
     return {k:float(v) if re.findall('[0-9.]+', v) else v \
-            for k,v in zip(lines[0].split(' '), lines[1].split(' '))}
+            for k,v in zip(lines[0].split(' ')[-4:], lines[1].split(' ')[-4:])}
 
 
-def get_score_from_SAVES(pdb_path: str, browser: Browser = None, **kwargs) -> Dict[str, Union[float, str]]:
+def get_score_from_SAVES(pdb_path: str, browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, Union[float, str]]:
     """return ProQ2D, ProQRosCenD, ProQRosCenD, ProQ3D in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
@@ -141,15 +142,17 @@ def get_score_from_SAVES(pdb_path: str, browser: Browser = None, **kwargs) -> Di
     btn = b.find_elements('//input[@type="file" and @name="pdbfile"]')[0]
     btn.send_keys(pdb_path)
     b.click(element='//input[@type="submit" and @value="Run programs"]')
-    while not b.find_elements('/html/body/h2[1]/a[1]'):
-        random_sleep(3)
+    if not b.wait_element('/html/body/h2[1]/a[1]', timeout=timeout):
+        return put_err('Timeout', {})
     # start check progress
     b.click(element='//*[@id="errat"]')
     b.click(element='//*[@id="whatcheck"]')
     b.click(element='//*[@id="procheck"]')
     # wait for result
-    while (not b.find_elements('//*[@id="werrat"]/div/center/center/h1')) or (not b.find_elements('//*[@id="wwhatcheck"]/div/center')) or (not b.find_elements('//*[@id="wprocheck"]/div/center')):
-        random_sleep(3)
+    if not b.wait_element(['//*[@id="werrat"]/div/center/center/h1',
+                           '//*[@id="wwhatcheck"]/div/center',
+                           '//*[@id="wprocheck"]/div/center'], timeout=timeout):
+        return put_err('Timeout', {})
     errat_text = float(b.find_elements('//*[@id="werrat"]/div/center/center/h1')[0].text.strip())
     whatcheck_bad = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem bad"]'))
     whatcheck_mid = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem mid"]'))
@@ -207,4 +210,10 @@ __all__ = [
 
 
 if __name__ == '__main__':
-    get_score_from_SAVES('data_tmp/pdb/RECEPTOR.pdb')
+    print(get_score_from_proq('data_tmp/pdb/RECEPTOR.pdb'))
+    print(get_score_from_VoroMQA('data_tmp/pdb/RECEPTOR.pdb'))
+    print(get_score_from_ProSA('data_tmp/pdb/RECEPTOR.pdb'))
+    # print(get_score_from_ModEval('data_tmp/pdb/RECEPTOR.pdb'))
+    print(get_score_from_MolProbity('data_tmp/pdb/RECEPTOR.pdb'))
+    print(get_score_from_ProQ3('data_tmp/pdb/RECEPTOR.pdb'))
+    print(get_score_from_SAVES('data_tmp/pdb/RECEPTOR.pdb'))
