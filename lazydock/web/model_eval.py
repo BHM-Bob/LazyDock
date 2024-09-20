@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-15 22:05:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-17 21:27:48
+LastEditTime: 2024-09-20 10:23:22
 Description: 
 '''
 import re
@@ -28,7 +28,7 @@ def get_score_from_proq(pdb_path: str, **kwargs) -> Dict[str, float]:
     return {'LGscore': LGscore, 'MaxSub': MaxSub}
 
 
-def get_score_from_VoroMQA(pdb_path: str, browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, float]:
+def get_score_from_VoroMQA(pdb_path: str, browser: Browser = None, timeout: int = 1200, **kwargs) -> Dict[str, float]:
     """return Score in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
@@ -44,7 +44,7 @@ def get_score_from_VoroMQA(pdb_path: str, browser: Browser = None, timeout: int 
     return {'Score': score}
 
 
-def get_score_from_ProSA(pdb_path: str, browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, Union[float, bytes]]:
+def get_score_from_ProSA(pdb_path: str, browser: Browser = None, timeout: int = 1200, **kwargs) -> Dict[str, Union[float, bytes]]:
     """return Z-Score, model_quality_img_res, res_score_img_res in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
@@ -66,7 +66,7 @@ def get_score_from_ProSA(pdb_path: str, browser: Browser = None, timeout: int = 
 
 
 def get_score_from_ModEval(modkey: str, pdb_path: str, align_file_path: str,
-                           browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, Union[float, str]]:
+                           browser: Browser = None, timeout: int = 1800, **kwargs) -> Dict[str, Union[float, str]]:
     """return RMSD, overlap, identity, Z-DOPE in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     align_file_path = str(Path(align_file_path).resolve())
@@ -92,7 +92,7 @@ def get_score_from_ModEval(modkey: str, pdb_path: str, align_file_path: str,
             'identity': identity, 'Z-DOPE': z_dope}
 
 
-def get_score_from_MolProbity(pdb_path: str, browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, Union[float, str]]:
+def get_score_from_MolProbity(pdb_path: str, browser: Browser = None, timeout: int = 1800, **kwargs) -> Dict[str, Union[float, str]]:
     """return Z-Score, Ramachandran Favorability, Ramachandran Outerness in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
@@ -117,7 +117,7 @@ def get_score_from_MolProbity(pdb_path: str, browser: Browser = None, timeout: i
             'Ramachandran Outerness': rama_outer_text}
 
 
-def get_score_from_ProQ3(pdb_path: str, browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, Union[float, str]]:
+def get_score_from_ProQ3(pdb_path: str, browser: Browser = None, timeout: int = 1200, **kwargs) -> Dict[str, Union[float, str]]:
     """return ProQ2D, ProQRosCenD, ProQRosCenD, ProQ3D in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
@@ -134,7 +134,7 @@ def get_score_from_ProQ3(pdb_path: str, browser: Browser = None, timeout: int = 
             for k,v in zip(lines[0].split(' ')[-4:], lines[1].split(' ')[-4:])}
 
 
-def get_score_from_SAVES(pdb_path: str, browser: Browser = None, timeout: int = 600, **kwargs) -> Dict[str, Union[float, str]]:
+def get_score_from_SAVES(pdb_path: str, browser: Browser = None, timeout: int = 1200, **kwargs) -> Dict[str, Union[float, str]]:
     """return ProQ2D, ProQRosCenD, ProQRosCenD, ProQ3D in dict"""
     pdb_path = str(Path(pdb_path).resolve())
     b = browser or Browser()
