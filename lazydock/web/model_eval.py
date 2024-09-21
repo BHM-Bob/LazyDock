@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-15 22:05:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-21 20:25:17
+LastEditTime: 2024-09-21 21:04:30
 Description: 
 '''
 import re
@@ -179,7 +179,25 @@ def get_score_from_QMEANDisCo(pdb_path: str, browser: Browser = None, timeout: i
     if not b.wait_element('//*[@id="main"]/div[2]/div[1]/div/span', timeout=timeout):
         return put_err('Timeout', {})
     score_text = b.find_elements('//*[@id="main"]/div[2]/div[1]/div/span')[0].text.strip()
-    return {'Global': score_text.split(':')[-1]}
+    return {'QMEANDisCo Global': score_text.split(':')[-1]}
+    
+    
+def get_score_from_QMEAN(pdb_path: str, browser: Browser = None, timeout: int = 1200, **kwargs):
+    """return swissmodel score in dict"""
+    b = browser or Browser()
+    b.get('https://swissmodel.expasy.org/qmean/')
+    btn = b.find_elements('//input[@id="structureFile" and @name="structureFile"]')[0]
+    btn.send_keys(pdb_path)
+    # wait upload and click submit
+    if not b.wait_element('//*[@id="files"]/div', timeout=timeout):
+        return put_err('Timeout', {})
+    b.click(element='//*[@id="qmean_radio"]')
+    b.click(element='//*[@id="submitButton"]')
+    # wait for result
+    if not b.wait_element('//*[@id="main"]/div[2]/div[1]/div/span', timeout=timeout):
+        return put_err('Timeout', {})
+    score_text = b.find_elements('//*[@id="main"]/div[2]/div[1]/div/span')[0].text.strip()
+    return {'QMEAN4': score_text.split(':')[-1]}
     
     
 _name2server = {
@@ -191,6 +209,7 @@ _name2server = {
     'ProQ3': get_score_from_ProQ3,
     'SAVES': get_score_from_SAVES,
     'QMEANDisCo': get_score_from_QMEANDisCo,
+    'QMEAN': get_score_from_QMEAN,
 }
     
     
@@ -223,6 +242,7 @@ __all__ = [
     'get_score_from_ProQ3',
     'get_score_from_SAVES',
     'get_score_from_QMEANDisCo',
+    'get_score_from_QMEAN',
     '_name2server',
     'get_eval_info_from_web',
 ]
