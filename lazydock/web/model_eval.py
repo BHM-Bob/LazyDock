@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-15 22:05:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-20 10:23:22
+LastEditTime: 2024-09-21 20:25:17
 Description: 
 '''
 import re
@@ -165,6 +165,23 @@ def get_score_from_SAVES(pdb_path: str, browser: Browser = None, timeout: int = 
             'procheck_errors': procheck_errors, 'procheck_warnings': procheck_warnings, 'procheck_pass': procheck_pass}
     
     
+def get_score_from_QMEANDisCo(pdb_path: str, browser: Browser = None, timeout: int = 1200, **kwargs):
+    """return swissmodel score in dict"""
+    b = browser or Browser()
+    b.get('https://swissmodel.expasy.org/qmean/')
+    btn = b.find_elements('//input[@id="structureFile" and @name="structureFile"]')[0]
+    btn.send_keys(pdb_path)
+    # wait upload and click submit
+    if not b.wait_element('//*[@id="files"]/div', timeout=timeout):
+        return put_err('Timeout', {})
+    b.click(element='//*[@id="submitButton"]')
+    # wait for result
+    if not b.wait_element('//*[@id="main"]/div[2]/div[1]/div/span', timeout=timeout):
+        return put_err('Timeout', {})
+    score_text = b.find_elements('//*[@id="main"]/div[2]/div[1]/div/span')[0].text.strip()
+    return {'Global': score_text.split(':')[-1]}
+    
+    
 _name2server = {
     'ProQ': get_score_from_proq,
     'VoroMQA': get_score_from_VoroMQA,
@@ -173,6 +190,7 @@ _name2server = {
     'MolProbity': get_score_from_MolProbity,
     'ProQ3': get_score_from_ProQ3,
     'SAVES': get_score_from_SAVES,
+    'QMEANDisCo': get_score_from_QMEANDisCo,
 }
     
     
@@ -204,6 +222,7 @@ __all__ = [
     'get_score_from_MolProbity',
     'get_score_from_ProQ3',
     'get_score_from_SAVES',
+    'get_score_from_QMEANDisCo',
     '_name2server',
     'get_eval_info_from_web',
 ]
