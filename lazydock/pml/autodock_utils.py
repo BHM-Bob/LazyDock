@@ -17,7 +17,8 @@ PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +
 
 class ADModel(BaseInfo):
     """STORAGE CLASS FOR DOCKED LIGAND"""
-    def __init__(self, content: str = None, _sort_atom_by_res: bool = False):
+    def __init__(self, content: str = None, _sort_atom_by_res: bool = False,
+                 _parse2std: bool = False):
         self.energy = 0.
         self.name = ''
         self.poseN = 0
@@ -25,17 +26,21 @@ class ADModel(BaseInfo):
         self.pdb_string = ''
         self.pdb_lines = []
         if content is not None:
-            self.parse_content(content, _sort_atom_by_res)
-            
-    def parse_content(self, content: str, _sort_atom_by_res: bool = False):
+            self.parse_content(content, _sort_atom_by_res, _parse2std)
+
+    def parse_content(self, content: str, _sort_atom_by_res: bool = False,
+                      _parse2std: bool = False):
         # parse pdb lines
         self.info = content
         self.pdb_lines = list(map(lambda x: x[0], re.findall(r'((ATOM|HETATM).+?\n)', self.info)))
         self.pdb_atoms = re.findall(PDB_PATTERN, self.info)
-        if _sort_atom_by_res:
+        if _sort_atom_by_res or _parse2std:
             pack = sorted(zip(self.pdb_lines, self.pdb_atoms), key = lambda x : (x[1][4], int(x[1][5]), int(x[1][1])))
             self.pdb_lines, self.pdb_atoms = zip(*pack)
-        self.pdb_string = ''.join(self.pdb_lines)
+        if _parse2std:
+            self.pdb_string = '\n'.join([' '.join(line) for line in self.pdb_atoms])
+        else:
+            self.pdb_string = ''.join(self.pdb_lines)
         # parse energy could be str.find?
         energy_line = re.findall(r'USER.+?Free Energy of Binding.+?\n', self.info)
         if energy_line:
@@ -51,17 +56,19 @@ class ADModel(BaseInfo):
 
     def as_pdb_string(self):
         return self.pdb_string
-        
+
     def info_string(self):
         return self.info
-    
+
 
 class DlgFile(BaseInfo):
     def __init__(self, path: str = None, content: str = None,
-                 sort_pdb_line_by_res: bool = False):
+                 sort_pdb_line_by_res: bool = False,
+                 parse2std: bool = False):
         # load content from file if path is provided
         self.path = path
         self.sort_pdb_line_by_res = sort_pdb_line_by_res
+        self.parse2std = parse2std
         if path is not None:
             self.content = decode_bits_to_str(opts_file(path, 'rb'))
         elif content is not None:
@@ -92,7 +99,7 @@ class DlgFile(BaseInfo):
         dlg_pose_lst = []
         for model in re.findall('MODEL.+?ENDMDL', self.content, re.DOTALL):
             model = model.replace('\nDOCKED: ', '\n')
-            dlg_pose_lst.append(ADModel(model, self.sort_pdb_line_by_res))
+            dlg_pose_lst.append(ADModel(model, self.sort_pdb_line_by_res, self.parse2std))
         return dlg_pose_lst
     
     def asign_pose_name(self, pose_names: List[str]):
@@ -172,4 +179,6 @@ if __name__ == '__main__':
     # def load_test(idx):
     #     DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True)
     # load_test()
-    DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True)
+    normal = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=False)
+    std = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=True)
+    pass
