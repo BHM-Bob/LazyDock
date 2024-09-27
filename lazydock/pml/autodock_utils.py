@@ -33,11 +33,14 @@ class ADModel(BaseInfo):
         # parse pdb lines
         self.info = content
         self.pdb_lines = list(map(lambda x: x[0], re.findall(r'((ATOM|HETATM).+?\n)', self.info)))
-        self.pdb_atoms = re.findall(PDB_PATTERN, self.info)
+        self.pdb_atoms = list(map(list, re.findall(PDB_PATTERN, self.info)))
         if _sort_atom_by_res or _parse2std:
             pack = sorted(zip(self.pdb_lines, self.pdb_atoms), key = lambda x : (x[1][4], int(x[1][5]), int(x[1][1])))
             self.pdb_lines, self.pdb_atoms = zip(*pack)
         if _parse2std:
+            for atom in self.pdb_atoms:
+                if not atom[4]:
+                    atom[4] = 'A'
             self.pdb_string = '\n'.join([' '.join(line) for line in self.pdb_atoms])
         else:
             self.pdb_string = ''.join(self.pdb_lines)
