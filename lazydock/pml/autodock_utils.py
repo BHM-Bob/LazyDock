@@ -12,8 +12,9 @@ from mbapy.game import BaseInfo
 
 # atom-type, atom-number, atom-name, residue-name, chain-name, residue-number, x, y, z, occupancy, temperature-factor
 # ATOM      1  CA  LYS     7     136.747 133.408 135.880 -0.06 +0.10
-PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+)"
-
+PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+) [ -+\d.]+? ([A-Z]+?)"
+PDB_FORMAT = "{:6s}  {:>4s}  {:<3s} {:>3s} {:1s} {:>3s}     {:>7s} {:>7s} {:>7s} {:>5s} {:>5s}    {:<2s}"
+PDB_FORMAT2= "{:6s}  {:>4s} {:<4s} {:>3s} {:1s} {:>3s}     {:>7s} {:>7s} {:>7s} {:>5s} {:>5s}    {:<2s}"
 
 class ADModel(BaseInfo):
     """STORAGE CLASS FOR DOCKED LIGAND"""
@@ -41,7 +42,7 @@ class ADModel(BaseInfo):
             for atom in self.pdb_atoms:
                 if not atom[4]:
                     atom[4] = 'A'
-            self.pdb_string = '\n'.join([' '.join(line) for line in self.pdb_atoms])
+            self.pdb_string = '\n'.join([PDB_FORMAT2.format(*line) if len(line[2])==4 else PDB_FORMAT.format(*line) for line in self.pdb_atoms])
         else:
             self.pdb_string = ''.join(self.pdb_lines)
         # parse energy could be str.find?
@@ -184,4 +185,11 @@ if __name__ == '__main__':
     # load_test()
     normal = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=False)
     std = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=True)
+    from pymol import cmd
+    from rdkit import Chem
+    cmd.reinitialize()
+    cmd.read_pdbstr(std.pose_lst[0].as_pdb_string(), 'std')
+    print(std.pose_lst[0].as_pdb_string(), '\n\n')
+    print(cmd.get_pdbstr('std'))
+    Chem.MolFromPDBBlock(cmd.get_pdbstr('std'), removeHs=True, sanitize=False)
     pass
