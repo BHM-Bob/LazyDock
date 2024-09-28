@@ -1,7 +1,7 @@
 '''
 Date: 2024-05-06 17:18:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-04 21:42:46
+LastEditTime: 2024-09-28 12:52:19
 Description: 
 '''
 
@@ -88,4 +88,4 @@ setup(
 # pip install .
 
 # python setup.py sdist
-# twine upload dist/lazydock-0.2.0.tar.gz
+# twine upload dist/lazydock-0.3.0.tar.gz

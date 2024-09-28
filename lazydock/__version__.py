@@ -1,9 +1,15 @@
+'''
+Date: 2024-05-06 17:19:43
+LastEditors: BHM-Bob 2262029386@qq.com
+LastEditTime: 2024-09-28 12:51:58
+Description: 
+'''
 
 __title__ = "lazydock"
 __description__ = "Lazy Dock"
 __url__ = "https://github.com/BHM-Bob/LazyDock"
-__version__ = "0.2.0"
-__build__ = "20240904_0"
+__version__ = "0.3.0"
+__build__ = "20240928_0"
 __author__ = "BHM-Bob G"
 __author_email__ = "bhmfly@foxmail.com"
 __license__ = "MIT"

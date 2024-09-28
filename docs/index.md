@@ -1,3 +1,9 @@
+<!--
+ * @Date: 2024-08-24 22:24:36
+ * @LastEditors: BHM-Bob 2262029386@qq.com
+ * @LastEditTime: 2024-09-28 13:05:12
+ * @Description: 
+-->
 
 
 <h1 style="text-align:center;">Lazy Dock</h1>
@@ -52,8 +58,12 @@ pip install lazydock
 - [shader](pml/shader.md): provide a shader for pymol.  
 
 ### pyroseeta utils - pyrt
-- [pose](pyrt/pose.md): provide a wrapper pose class to opt pose.  
+- [pose](pyrt/pose.md): provide a wrapper pose class to opt pose. 
+
+### web - web-server-tools
+- [model_eval]: evaluate model build result.  
 
 
 ## release note
+- [0.3.0](release_note/0.3.0.md)
 - [0.2.0](release_note/0.2.0.md)
