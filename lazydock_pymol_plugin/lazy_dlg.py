@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple, Union
 
 import seaborn as sns
 from matplotlib import pyplot as plt
-from mbapy.file import decode_bits_to_str
+from mbapy.file import decode_bits_to_str, opts_file
 from mbapy.plot import save_show
 from nicegui import ui
 from pymol import api, cmd
@@ -31,6 +31,7 @@ class LazyPose:
         self.sort_pdb_by_res = False
         self.show_best_per = 10
         self.save_with_each_header = True
+        self.save_original_pdbstring = False
         # select receptor
         self.ui_molecule = None
         self.ui_sele = None
@@ -51,6 +52,7 @@ class LazyPose:
             with ui.column():
                 ui.checkbox('sort pdb by res', value=self.sort_pdb_by_res).bind_value_to(self, 'sort_pdb_by_res')
                 ui.checkbox('save with each header', value=self.save_with_each_header).bind_value_to(self, 'save_with_each_header')
+                ui.checkbox('save orignal pdbstring', value=self.save_original_pdbstring).bind_value_to(self,'save_original_pdbstring')
             # sele receptor
             with ui.card().classes('w-1/2'):
                 with ui.row().classes('w-full'):
@@ -93,6 +95,7 @@ class LazyPose:
                     ui.button('show percentage', on_click=self.show_percentage_poses).props('no-caps').classes('flex flex-grow')
                     ui.button('show all', on_click=self.show_all_poses).props('no-caps').classes('flex flex-grow')
                     ui.button('hide all', on_click=self.hide_all_poses).props('no-caps').classes('flex flex-grow')
+                    ui.button('save showed', on_click=self.save_showed_pose).props('no-caps').classes('flex flex-grow')
                 # pose info
                 with ui.card().classes('w-full h-full'):
                     self.build_pose_info_gui()
@@ -181,6 +184,26 @@ class LazyPose:
     def hide_all_poses(self):
         for pose_name in self.dlg_pose[self.now_dlg_name].n2i:
             self.hide_pose(self.now_dlg_name, pose_name)
+            
+    def save_showed_pose(self):
+        if any(self.dlg_pose[self.now_dlg_name].get_pose_prop('is_show', pose_name)\
+                for pose_name in self.dlg_pose[self.now_dlg_name].n2i):
+            save_dir = MyFileDialog().get_ask_dir()
+            if not save_dir:
+                ui.notify('Please select a directory to save')
+                return None
+        else:
+            ui.notify('Please show at least one pose')
+            return None
+        for pose_name in self.dlg_pose[self.now_dlg_name].n2i:
+            if self.dlg_pose[self.now_dlg_name].get_pose_prop('is_show', pose_name):
+                pml_name = self.dlg_pose[self.now_dlg_name].get_pose_prop('pml_name', pose_name)
+                if self.save_original_pdbstring:
+                    pose = self.dlg_pose[self.now_dlg_name].get_pose(pose_name)
+                    opts_file(os.path.join(save_dir, f'{pml_name}.pdb'), 'w', data = pose.as_pdb_string())
+                else:
+                    cmd.save(os.path.join(save_dir, f'{pml_name}.pdb'), pml_name)
+                print(f'{pml_name} saved to {save_dir}')
 
     def delete_dlg(self):
         cmd.delete(self.now_dlg_name + '_*')
@@ -377,6 +400,7 @@ class LazyDLG:
         self._app = app
         
         self.pose_page = LazyPose(self._app)
+        self.rmsd_page = None # TODO: show each showed pose RMSD with each other in heatmap
         self.analysis_page = InteractionPage(self._app)
         
     def build_gui(self):
