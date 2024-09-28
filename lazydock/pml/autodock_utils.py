@@ -43,9 +43,12 @@ class ADModel(BaseInfo):
                 if not atom[4]:
                     atom[4] = 'A'
                 if len(atom[2]) == 4:
-                    atom[-1] = atom[2][1]
+                    atom[-1] = atom[2][1] # such as 1HH1
                 elif len(atom[2]) >= 1:
-                    atom[-1] = atom[2][0]
+                    if atom[2][0].isdigit():
+                        atom[-1] = atom[2][1] # such as 1HH
+                    else:
+                        atom[-1] = atom[2][0] # such as H, NH1
             self.pdb_lines = [PDB_FORMAT2.format(*line) if len(line[2])==4 else PDB_FORMAT.format(*line) for line in self.pdb_atoms]
             self.pdb_string = '\n'.join(self.pdb_lines)
         else:
@@ -196,5 +199,5 @@ if __name__ == '__main__':
     cmd.read_pdbstr(std.pose_lst[0].as_pdb_string(), 'std')
     print(std.pose_lst[0].as_pdb_string(), '\n\n')
     print(cmd.get_pdbstr('std'))
-    Chem.MolFromPDBBlock(cmd.get_pdbstr('std'), removeHs=True, sanitize=False)
+    ligand = Chem.MolFromPDBBlock(cmd.get_pdbstr('std'), removeHs=True, sanitize=False)
     pass
