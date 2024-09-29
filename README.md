@@ -2,7 +2,7 @@
  * @Author: BHM-Bob 2262029386@qq.com
  * @Date: 2022-10-19 22:16:22
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-05-06 17:38:05
+ * @LastEditTime: 2024-09-29 09:30:19
  * @Description: 
 -->
 
@@ -42,8 +42,11 @@
 
 <h2 style="text-align:center;">Get start</h2>
 
-#### install 
+## install 
 Now, lazydock only support pypi install:  
 ```
 pip install lazydock
 ```
+
+## Docs
+- [lazydock.rtfd.io](lazydock.rtfd.io)
