@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-09-28 13:05:12
+ * @LastEditTime: 2024-09-29 09:28:53
  * @Description: 
 -->
 
@@ -61,7 +61,7 @@ pip install lazydock
 - [pose](pyrt/pose.md): provide a wrapper pose class to opt pose. 
 
 ### web - web-server-tools
-- [model_eval]: evaluate model build result.  
+- [model_eval](web/model_eval.md): evaluate model build result.  
 
 
 ## release note
