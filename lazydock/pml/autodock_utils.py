@@ -14,7 +14,7 @@ from mbapy.game import BaseInfo
 
 # atom-type, atom-number, atom-name, residue-name, chain-name, residue-number, x, y, z, occupancy, temperature-factor
 # ATOM      1  CA  LYS     7     136.747 133.408 135.880 -0.06 +0.10 OA
-PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+) ([A-Z]+)"
+PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+) [ \.\-\+\d]+ ([A-Z]+)"
 PDB_FORMAT = "{:6s}{:>5s}  {:<3s} {:>3s} {:1s}{:>4s}    {:>8s}{:>8s}{:>8s}{:>6s}{:>6s}          {:>2s}  "
 PDB_FORMAT2= "{:6s}{:>5s} {:<4s} {:>3s} {:1s}{:>4s}    {:>8s}{:>8s}{:>8s}{:>6s}{:>6s}          {:>2s}  "
 
@@ -53,7 +53,7 @@ class ADModel(BaseInfo):
                     if atom[2][0].isdigit():
                         atom[-1] = atom[2][1] # such as 1HH
                     else:
-                        atom[-1] = atom[2][0] # such as H, NH1
+                        atom[-1] = atom[2][0] # such as H, CA, NH1
             self.pdb_lines = [PDB_FORMAT2.format(*line) if len(line[2])==4 else PDB_FORMAT.format(*line) for line in self.pdb_atoms]
             self.pdb_string = '\n'.join(self.pdb_lines)
         else:
