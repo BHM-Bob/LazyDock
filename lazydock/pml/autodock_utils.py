@@ -35,7 +35,7 @@ class ADModel(BaseInfo):
         self.info = content
         self.pdb_lines = list(map(lambda x: x[0], re.findall(r'((ATOM|HETATM).+?\n)', self.info)))
         self.pdb_atoms = list(map(list, re.findall(PDB_PATTERN, self.info)))
-        if _sort_atom_by_res or _parse2std:
+        if _sort_atom_by_res:
             pack = sorted(zip(self.pdb_lines, self.pdb_atoms), key = lambda x : (x[1][4], int(x[1][5]), int(x[1][1])))
             self.pdb_lines, self.pdb_atoms = zip(*pack)
         if _parse2std:
@@ -191,8 +191,8 @@ if __name__ == '__main__':
     # def load_test(idx):
     #     DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True)
     # load_test()
-    normal = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=False)
-    std = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=True)
+    normal = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=False, parse2std=False)
+    std = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=False, parse2std=True)
     from pymol import cmd
     from rdkit import Chem
     cmd.reinitialize()
