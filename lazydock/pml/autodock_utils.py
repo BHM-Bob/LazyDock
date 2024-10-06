@@ -7,12 +7,14 @@ import re
 import tkinter as tk
 import tkinter.filedialog as tkFileDialog
 from typing import Any, Callable, List
-from mbapy.file import opts_file, decode_bits_to_str
+
+from mbapy.base import put_err
+from mbapy.file import decode_bits_to_str, opts_file
 from mbapy.game import BaseInfo
 
 # atom-type, atom-number, atom-name, residue-name, chain-name, residue-number, x, y, z, occupancy, temperature-factor
-# ATOM      1  CA  LYS     7     136.747 133.408 135.880 -0.06 +0.10
-PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+) [ -+\d.]+? ([A-Z]+)"
+# ATOM      1  CA  LYS     7     136.747 133.408 135.880 -0.06 +0.10 OA
+PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+) ([A-Z]+)"
 PDB_FORMAT = "{:6s}{:>5s}  {:<3s} {:>3s} {:1s}{:>4s}    {:>8s}{:>8s}{:>8s}{:>6s}{:>6s}          {:>2s}  "
 PDB_FORMAT2= "{:6s}{:>5s} {:<4s} {:>3s} {:1s}{:>4s}    {:>8s}{:>8s}{:>8s}{:>6s}{:>6s}          {:>2s}  "
 
@@ -35,6 +37,9 @@ class ADModel(BaseInfo):
         self.info = content
         self.pdb_lines = list(map(lambda x: x[0], re.findall(r'((ATOM|HETATM).+?\n)', self.info)))
         self.pdb_atoms = list(map(list, re.findall(PDB_PATTERN, self.info)))
+        if len(self.pdb_atoms) != len(self.pdb_lines):
+            put_err(f'pdb_atoms and pdb_lines length not match: {len(self.pdb_atoms)} vs {len(self.pdb_lines)}, just use pdb_lines')
+            _sort_atom_by_res = _parse2std = False
         if _sort_atom_by_res:
             pack = sorted(zip(self.pdb_lines, self.pdb_atoms), key = lambda x : (x[1][4], int(x[1][5]), int(x[1][1])))
             self.pdb_lines, self.pdb_atoms = zip(*pack)
