@@ -41,8 +41,14 @@ class LazyPose:
         self.sele_selection = None
         
     def ui_update_ui(self):
-        self.ui_molecule.set_options(self._app._now_molecule)
         self.ui_sele.set_options(self._app._now_selection)
+        if self._app.lazy_dlg.pose_page.dlg_pose:
+            dlg_pose: Dict[str, DlgFile] = self._app.lazy_dlg.pose_page.dlg_pose
+            self.ui_dlg.set_options(list(dlg_pose.keys()))
+            all_ligands = [dlg_pose[dlg].get_pose_prop('pml_name', lig) for dlg in dlg_pose for lig in dlg_pose[dlg].n2i if dlg_pose[dlg].get_pose_prop('is_show', lig, default = False)]
+            self.ui_molecule.set_options(list(set(self._app._now_molecule) - set(all_ligands)))
+        else:
+            self.ui_molecule.set_options(self._app._now_molecule)
         
     def build_gui(self):
         """called by LazyDLG.__init__"""
@@ -244,7 +250,7 @@ class LazyPose:
                 print(f'{receptor} and {pml_name} saved to {pdb_path}')
         
         
-class InteractionPage:
+class InteractionPage(LazyPose):
     def __init__(self, app):
         self._app = app
         self._app.ui_update_func.append(self.ui_update_ui)
@@ -270,16 +276,6 @@ class InteractionPage:
         self.min_receptor_interaction = 0 # abs
         self.fig_w = 12
         self.fig_h = 7
-        
-    def ui_update_ui(self):
-        self.ui_sele.set_options(self._app._now_selection)
-        if self._app.lazy_dlg.pose_page.dlg_pose:
-            dlg_pose: Dict[str, DlgFile] = self._app.lazy_dlg.pose_page.dlg_pose
-            self.ui_dlg.set_options(list(dlg_pose.keys()))
-            all_ligands = [dlg_pose[dlg].get_pose_prop('pml_name', lig) for dlg in dlg_pose for lig in dlg_pose[dlg].n2i if dlg_pose[dlg].get_pose_prop('is_show', lig, default = False)]
-            self.ui_molecule.set_options(list(set(self._app._now_molecule) - set(all_ligands)))
-        else:
-            self.ui_molecule.set_options(self._app._now_molecule)
             
     def calculate_interaction(self):
         # get receptor
