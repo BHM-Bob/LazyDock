@@ -28,9 +28,11 @@ class LazyPose:
         self.last_pose_name = None
         self.now_pose_name = None
         # show pose control
-        self.sort_pdb_by_res = False
+        self.sort_pdb_by_res = True
+        self.parse2std = True
         self.show_best_per = 10
-        self.save_with_each_header = True
+        self.save_lig_with_HETATM = True
+        self.save_with_each_header = False
         self.save_original_pdbstring = False
         # select receptor
         self.ui_molecule = None
@@ -51,6 +53,8 @@ class LazyPose:
             # load and save control
             with ui.column():
                 ui.checkbox('sort pdb by res', value=self.sort_pdb_by_res).bind_value_to(self, 'sort_pdb_by_res')
+                ui.checkbox('parse2std', value=self.parse2std).bind_value_to(self, 'parse2std')
+                ui.checkbox('save lig with HETATM', value=self.save_lig_with_HETATM).bind_value_to(self,'save_lig_with_HETATM')
                 ui.checkbox('save with each header', value=self.save_with_each_header).bind_value_to(self, 'save_with_each_header')
                 ui.checkbox('save orignal pdbstring', value=self.save_original_pdbstring).bind_value_to(self,'save_original_pdbstring')
             # sele receptor
@@ -135,7 +139,9 @@ class LazyPose:
             if dlg_name in self.dlg_pose:
                 continue # TODO: don't kown why, will load again on same file, cause read null at the second time
             dlg_content = decode_bits_to_str(content.read())
-            self.dlg_pose[dlg_name] = DlgFile(content=dlg_content, sort_pdb_line_by_res=self.sort_pdb_by_res)
+            self.dlg_pose[dlg_name] = DlgFile(content=dlg_content,
+                                              sort_pdb_line_by_res=self.sort_pdb_by_res,
+                                              parse2std=self.parse2std)
             self.dlg_pose[dlg_name].sort_pose()
             self.dlg_pose[dlg_name].asign_pose_name(list(map(lambda x: f'{dlg_name}::{x+1}',
                                                              range(len(self.dlg_pose[dlg_name].pose_lst)))))
@@ -198,6 +204,8 @@ class LazyPose:
         for pose_name in self.dlg_pose[self.now_dlg_name].n2i:
             if self.dlg_pose[self.now_dlg_name].get_pose_prop('is_show', pose_name):
                 pml_name = self.dlg_pose[self.now_dlg_name].get_pose_prop('pml_name', pose_name)
+                if self.save_lig_with_HETATM:
+                    cmd.alter(pml_name, 'type="HETATM"')
                 if self.save_original_pdbstring:
                     pose = self.dlg_pose[self.now_dlg_name].get_pose(pose_name)
                     opts_file(os.path.join(save_dir, f'{pml_name}.pdb'), 'w', data = pose.as_pdb_string())
@@ -222,6 +230,8 @@ class LazyPose:
         for name in self.dlg_pose[self.now_dlg_name].n2i:
             if self.dlg_pose[self.now_dlg_name].get_pose_prop('is_show', name):
                 pml_name = self.dlg_pose[self.now_dlg_name].get_pose_prop('pml_name', name)
+                if self.save_lig_with_HETATM:
+                    cmd.alter(pml_name, 'type="HETATM"')
                 pdb_path = os.path.join(save_dir, f'{receptor}_{pml_name}.pdb')
                 if self.save_with_each_header:
                     api.multisave(pdb_path, receptor, append = 0)
