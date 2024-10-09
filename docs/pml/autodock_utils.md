@@ -1,334 +1,350 @@
 <!--
  * @Date: 2024-08-27 10:15:51
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-08-27 10:21:03
+ * @LastEditTime: 2024-10-09 20:58:22
  * @Description: 
 -->
 
 # Module Description
 This module provides a collection of classes and functions for handling and parsing AutoDock docing result file(dlg) and PDB (Protein Data Bank) formatted strings, which are commonly used to represent the three-dimensional structures of molecules.
 
+# Description
+
+This module is designed to facilitate the process of setting up docking runs with Autodock and viewing the results using PyMOL. It provides functionalities to parse and manipulate PDB formatted strings, manage docking poses, and interact with the file system through a graphical user interface.
+
 # Functions
 
 ## tk_file_dialog_wrapper(*args, **kwargs)
-### Function Introduction
-A decorator function that wraps around the tkinter file dialog functions to provide a consistent interface for opening files, saving files, and asking for directories.
+### Function Description
+This function is a wrapper that creates a dialog box for file operations. It initializes a Tkinter window, invokes the specified file dialog function, and ensures that the dialog is closed properly.
 
 ### Parameters
-- `args`: Variable length argument list for the tkinter file dialog function.
-- `kwargs`: Arbitrary keyword arguments for the tkinter file dialog function.
+- `tk_file_dialog_func`: The file dialog function to be wrapped.
 
-### Return Value
-A wrapped function that creates a Tkinter window, executes the file dialog function, and properly closes the window after the operation.
+### Returns
+A wrapped function that handles the file dialog operation.
 
 ### Notes
-- Ensures that the file dialog is properly managed without leaving any open Tkinter windows.
+- This function is used to create a graphical file dialog that interacts with the user.
 
 ### Example
 ```python
 @tk_file_dialog_wrapper()
-def get_file():
-    return tkFileDialog.askopenfilename()
+def get_open_file(parent):
+    return tkFileDialog.askopenfilename(parent=parent, filetypes=self.types)
 ```
 
 # Classes
 
-## ADModel(BaseInfo)
-### Class Introduction
-A storage class designed to hold information about a docked ligand, including its PDB string representation, energy, and other relevant data.
+## ADModel
+### Class Definition
+`ADModel(content: str = None, _sort_atom_by_res: bool = False, _parse2std: bool = False)`
 
-### Constructor
-- `__init__(content: str = None, _sort_atom_by_res: bool = False)`: Initializes a new instance of the ADModel class.
-
-#### Parameters
-- `content`: A string containing the PDB content.
-- `_sort_atom_by_res`: A boolean indicating whether to sort atoms by residue.
+### Initialization Method
+Initializes an ADModel instance with optional PDB content. Parses the content if provided.
 
 ### Members
-- `energy`: The free energy of binding.
-- `name`: The name of the ligand.
-- `poseN`: The pose number.
-- `info`: Additional information about the ligand.
-- `pdb_string`: The PDB string representation of the ligand.
-- `pdb_lines`: A list of lines from the PDB file.
+- `energy`: Stores the energy of the docked ligand.
+- `name`: Stores the name of the ligand.
+- `poseN`: Stores the pose number.
+- `info`: Stores additional information about the ligand.
+- `pdb_string`: Stores the PDB formatted string.
+- `pdb_lines`: Stores the lines of the PDB file.
 
 ### Methods
 
-#### as_pdb_string()-> str
-##### Method Introduction
-Returns the PDB string representation of the ligand.
+#### parse_content(content: str, _sort_atom_by_res: bool = False, _parse2std: bool = False)
+##### Method Description
+Parses the PDB content and organizes it into structured data.
 
 ##### Parameters
-None
+- `content`: The PDB content to be parsed.
+- `_sort_atom_by_res`: Whether to sort atoms by residue.
+- `_parse2std`: Whether to parse the content into standard PDB format.
 
-##### Return Value
-The PDB string as a single concatenated string.
+##### Returns
+- None
 
 ##### Notes
-- Useful for exporting or further processing the PDB data.
+- This method is crucial for processing the PDB data and making it accessible.
 
 ##### Example
 ```python
-pdb_str = ad_model_instance.as_pdb_string()
+ad_model = ADModel()
+ad_model.parse_content(some_pdb_content)
 ```
 
-#### info_string()-> str
-##### Method Introduction
-Returns the additional information string associated with the ligand.
+#### as_pdb_string()
+##### Method Description
+Returns the PDB content as a formatted string.
 
 ##### Parameters
-None
+- None
 
-##### Return Value
-The info string.
+##### Returns
+A string representing the PDB content.
 
 ##### Notes
-- Provides context or metadata about the ligand.
+- This method is useful for exporting or displaying the PDB data.
 
 ##### Example
 ```python
-# 假设我们有一个包含 PDB 文件路径的列表
-pdb_file_paths = ['path/to/pdb1.pdb', 'path/to/pdb2.pdb', 'path/to/pdb3.pdb']
-
-# 创建一个空列表来存储 ADModel 实例
-ad_models = []
-
-# 遍历所有文件路径
-for file_path in pdb_file_paths:
-    # 读取 PDB 文件内容
-    with open(file_path, 'r') as file:
-        pdb_content = file.read()
-    
-    # 创建 ADModel 实例并解析内容
-    ad_model = ADModel(pdb_content)
-    ad_model.parse_content(pdb_content)
-    
-    # 将实例添加到列表中
-    ad_models.append(ad_model)
-
-# 现在 ad_models 列表包含了所有 PDB 文件的数据
-# 你可以进行进一步的操作，例如按能量排序
-ad_models.sort(key=lambda x: x.energy)
-
-# 打印每个模型的能量值
-for model in ad_models:
-    print(f"Model name: {model.name}, Energy: {model.energy}")
+pdb_str = ad_model.as_pdb_string()
 ```
 
-## DlgFile(BaseInfo)
-### Class Introduction
-A class for handling file operations related to PDB files, including loading, decoding, and sorting the content.
+#### info_string()
+##### Method Description
+Returns the information string associated with the model.
 
-### Constructor
-- `__init__(path: str = None, content: str = None, sort_pdb_line_by_res: bool = False)`: Initializes a new instance of the DlgFile class with optional file path or content.
+##### Parameters
+- None
 
-#### Parameters
-- `path`: The file path to load the PDB content from.
-- `content`: A string containing the PDB content.
-- `sort_pdb_line_by_res`: A boolean indicating whether to sort PDB lines by residue.
+##### Returns
+The information string.
+
+##### Notes
+- This method provides additional context about the model.
+
+##### Example
+```python
+info = ad_model.info_string()
+```
+
+## DlgFile
+### Class Definition
+`DlgFile(path: str = None, content: str = None, sort_pdb_line_by_res: bool = False, parse2std: bool = False)`
+
+### Initialization Method
+Initializes a DlgFile instance with optional file path or content. Decodes the content into a list of poses.
 
 ### Members
-- `path`: The file path of the PDB file.
-- `sort_pdb_line_by_res`: A flag for sorting PDB lines by residue.
-- `pose_lst`: A list of ADModel instances representing the poses.
-- `n2i`: A dictionary for mapping pose names to indices.
+- `path`: The file path.
+- `sort_pdb_line_by_res`: Whether to sort PDB lines by residue.
+- `parse2std`: Whether to parse to standard format.
+- `pose_lst`: A list of ADModel instances.
+- `n2i`: A dictionary mapping pose names to indices.
 
 ### Methods
 
-#### __len__()-> int
-##### Method Introduction
-Returns the number of poses in the pose list.
+#### __len__()
+##### Method Description
+Returns the number of poses.
 
 ##### Parameters
-None
+- None
 
-##### Return Value
-The count of poses.
+##### Returns
+The number of poses.
 
 ##### Notes
-- Provides a quick way to determine the number of docked ligands.
+- This method allows the use of len() on DlgFile instances.
 
 ##### Example
 ```python
-num_poses = len(dlg_file_instance)
+num_poses = len(dlg_file)
 ```
 
-#### sort_pose(key: Callable[[ADModel], Any] = None, inplace: bool = True, reverse: bool = False) -> List[ADModel]
-##### Method Introduction
-Sorts the pose list based on a given key function.
+#### sort_pose(self, key: Callable[[ADModel], Any] = None, inplace: bool = True, reverse: bool = False)
+##### Method Description
+Sorts the poses based on a given key.
 
 ##### Parameters
-- `key`: A function used to extract a comparison key from each pose.
-- `inplace`: A boolean indicating whether to sort in place.
-- `reverse`: A boolean indicating the sort order.
+- `key`: The function to extract the sorting key from an ADModel instance.
+- `inplace`: Whether to sort the poses in place.
+- `reverse`: Whether to reverse the sort order.
 
-##### Return Value
-The sorted pose list.
+##### Returns
+The sorted list of poses.
 
 ##### Notes
-- Allows for flexible sorting based on various criteria such as energy.
+- This method is useful for organizing poses based on energy or other criteria.
 
 ##### Example
 ```python
-sorted_poses = dlg_file_instance.sort_pose(key=lambda x: x.energy, reverse=True)
+sorted_poses = dlg_file.sort_pose(key=lambda x: x.energy)
 ```
 
-#### decode_content()-> List[ADModel]
-##### Method Introduction
-Decodes the content into a list of poses.
+#### decode_content()
+##### Method Description
+Decodes the content into a list of ADModel instances.
 
 ##### Parameters
-None
+- None
 
-##### Return Value
+##### Returns
 A list of ADModel instances.
 
 ##### Notes
-- Parses the PDB content to create a structured list of poses.
+- This method is essential for converting the raw content into a usable format.
 
 ##### Example
 ```python
-poses = dlg_file_instance.decode_content()
+poses = dlg_file.decode_content()
 ```
 
 #### asign_pose_name(pose_names: List[str])
-##### Method Introduction
-Assigns names to the poses based on the provided list.
+##### Method Description
+Assigns names to the poses.
 
 ##### Parameters
-- `pose_names`: A list of names for the poses.
+- `pose_names`: A list of names to be assigned to the poses.
 
-##### Return Value
-None
+##### Returns
+- None
 
 ##### Notes
-- Ensures that the number of names matches the number of poses.
+- This method helps in identifying poses by their names.
 
 ##### Example
 ```python
-dlg_file_instance.asign_pose_name(['Pose1', 'Pose2'])
+dlg_file.asign_pose_name(['pose1', 'pose2'])
 ```
 
 #### asign_prop(prop: str, value: List[Any])
-##### Method Introduction
-Assigns a property to all poses with the given value.
+##### Method Description
+Assigns a property to all poses.
 
 ##### Parameters
-- `prop`: The property name to assign.
+- `prop`: The property name.
 - `value`: A list of values for the property.
 
-##### Return Value
-None
+##### Returns
+- None
 
 ##### Notes
-- Used to set properties such as energy or other metrics for all poses.
+- This method is used to add custom properties to poses.
 
 ##### Example
 ```python
-dlg_file_instance.asign_prop('energy', [0.5, -0.3])
+dlg_file.asign_prop('custom_prop', [value1, value2])
 ```
 
 #### set_pose_prop(prop: str, value: Any, pose_name: str = None, pose_idx: int = None)
-##### Method Introduction
-Sets a property for a specific pose by name or index.
+##### Method Description
+Sets a property for a specific pose.
 
 ##### Parameters
-- `prop`: The property name to set.
-- `value`: The value to set for the property.
+- `prop`: The property name.
+- `value`: The value to be set.
 - `pose_name`: The name of the pose.
 - `pose_idx`: The index of the pose.
 
-##### Return Value
-None
+##### Returns
+- None
 
 ##### Notes
-- Allows for setting properties on individual poses.
+- This method allows setting properties for individual poses.
 
 ##### Example
 ```python
-dlg_file_instance.set_pose_prop('energy', -0.2, pose_name='Pose1')
+dlg_file.set_pose_prop('energy', 5.0, pose_name='pose1')
 ```
 
 #### get_pose(pose_name: str = None, pose_idx: int = None)
-##### Method Introduction
-Retrieves a pose by name or index.
+##### Method Description
+Retrieves a specific pose.
 
 ##### Parameters
 - `pose_name`: The name of the pose.
 - `pose_idx`: The index of the pose.
 
-##### Return Value
-The ADModel instance representing the pose.
+##### Returns
+The requested ADModel instance.
 
 ##### Notes
-- Provides access to a specific pose within the list.
+- This method provides access to individual poses.
 
 ##### Example
 ```python
-pose = dlg_file_instance.get_pose(pose_name='Pose1')
+pose = dlg_file.get_pose(pose_name='pose1')
 ```
 
 #### get_pose_prop(prop: str, pose_name: str = None, pose_idx: int = None, default: Any = None)
-##### Method Introduction
-Gets a property value for a specific pose by name or index.
+##### Method Description
+Gets a property of a specific pose.
 
 ##### Parameters
-- `prop`: The property name to retrieve.
+- `prop`: The property name.
 - `pose_name`: The name of the pose.
 - `pose_idx`: The index of the pose.
-- `default`: The default value if the property is not set.
+- `default`: The default value if the property is not found.
 
-##### Return Value
-The property value for the specified pose.
+##### Returns
+The value of the property.
 
 ##### Notes
-- Retrieves individual property values for poses.
+- This method retrieves properties of individual poses.
 
 ##### Example
 ```python
-energy = dlg_file_instance.get_pose_prop('energy', pose_name='Pose1')
+energy = dlg_file.get_pose_prop('energy', pose_name='pose1')
 ```
 
 ## MyFileDialog
-### Class Introduction
-A class that encapsulates file dialog operations, providing methods to open files, save files, and ask for directories with a consistent interface.
+### Class Definition
+`MyFileDialog(types=[("Executable", "*")], initialdir: str = None)`
 
-### Constructor
-- `__init__(types=[("Executable", "*")], initialdir: str = None)`: Initializes a new instance of the MyFileDialog class with optional file types and initial directory.
+### Initialization Method
+Initializes a MyFileDialog instance with optional file types and initial directory.
 
-#### Parameters
-- `types`: A list of file types to filter by.
-- `initialdir`: The initial directory to start the file dialog in.
+### Members
+- `initialdir`: The initial directory for the file dialog.
+- `types`: A list of file types accepted by the dialog.
 
 ### Methods
 
 #### get_open_file(parent)
-##### Method Introduction
+##### Method Description
 Opens a dialog to select an existing file.
 
 ##### Parameters
-- `parent`: The parent Tkinter window for the dialog.
+- `parent`: The parent window of the dialog.
 
-##### Return Value
-The path of the selected file or None if the dialog was cancelled.
+##### Returns
+The path of the selected file.
 
 ##### Notes
-- Utilizes the wrapped tkinter file dialog function.
+- This method is a convenient way to get file paths from the user.
 
 ##### Example
 ```python
-file_path = my_file_dialog_instance.get_open_file()
+file_path = my_file_dialog.get_open_file(parent_window)
 ```
 
 #### get_save_file(parent)
-##### Method Introduction
-Opens a dialog to select a location to save a file.
+##### Method Description
+Opens a dialog to select a location and name for saving a file.
 
 ##### Parameters
-- `parent`: The parent Tkinter window for the dialog.
+- `parent`: The parent window of the dialog.
 
-##### Return Value
-The path to save the file or None if the dialog was cancelled.
+##### Returns
+The path where the file will be saved.
 
 ##### Notes
-- Utilizes the wrapped tkinter file dialog
+- This method helps in saving files with user interaction.
+
+##### Example
+```python
+save_path = my_file_dialog.get_save_file(parent_window)
+```
+
+#### get_ask_dir(parent)
+##### Method Description
+Opens a dialog to select a directory.
+
+##### Parameters
+- `parent`: The parent window of the dialog.
+
+##### Returns
+The path of the selected directory.
+
+##### Notes
+- This method allows the user to choose a directory interactively.
+
+##### Example
+```python
+directory_path = my_file_dialog.get_ask_dir(parent_window)
+```
+
+
