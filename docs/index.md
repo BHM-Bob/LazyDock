@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-09-29 09:28:53
+ * @LastEditTime: 2024-10-09 21:01:50
  * @Description: 
 -->
 
@@ -55,7 +55,8 @@ pip install lazydock
 - [autodock](pml/autodock_utils.md): parse autodock results to pdb pose.  
 - [interaction](pml/interaction_utils.md): calculate interactions between receptor and poses.  
 - [server](pml/server.md): provide a server-client interface to communicate with pymol.  
-- [shader](pml/shader.md): provide a shader for pymol.  
+- [shader](pml/shader.md): provide a shader for pymol. 
+- [RRCS](pml/rrcs.md)  
 
 ### pyroseeta utils - pyrt
 - [pose](pyrt/pose.md): provide a wrapper pose class to opt pose. 
@@ -65,5 +66,6 @@ pip install lazydock
 
 
 ## release note
+- [0.4.0](release_note/0.4.0.md)
 - [0.3.0](release_note/0.3.0.md)
 - [0.2.0](release_note/0.2.0.md)
