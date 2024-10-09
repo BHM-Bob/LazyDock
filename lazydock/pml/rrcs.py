@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-30 19:28:57
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-10-09 09:29:34
+LastEditTime: 2024-10-09 20:49:09
 Description: RRCS calculation in PyMOL, RRCS is from article "Common activation mechanism of class A GPCRs": https://github.com/elifesciences-publications/RRCS/blob/master/RRCS.py
 '''
 from typing import Dict, Tuple
@@ -11,46 +11,70 @@ import pandas as pd
 import scipy
 from pymol import cmd
 
+
+def _test_close(dict_coord: Dict[str, Dict[int, Tuple[float, float, float, float]]],
+                ires: str, jres: str):
+    for iatom in dict_coord[ires]:
+        (ix, iy, iz, iocc) = dict_coord[ires][iatom]
+        for jatom in dict_coord[jres]:                  
+            (jx, jy, jz, jocc) = dict_coord[jres][jatom]
+            dx = abs(ix-jx)
+            dy = abs(iy-jy)
+            dz = abs(iz-jz)
+            if dx < 4.63 and dy < 4.63 and dz < 4.63:
+                return True
+    return False
+
+def _calcu_score(dict_coord: Dict[str, Dict[int, Tuple[float, float, float, float]]],
+                 atomnum2name: Dict[int, str], ires: str, jres: str,
+                 check_name: bool, score_count: int):
+    total_score = 0
+    for iatom in dict_coord[ires]:
+        if check_name and atomnum2name[iatom] in ['N', 'CA', 'C', 'O']:
+            continue
+        (ix, iy, iz, iocc) = dict_coord[ires][iatom]
+        for jatom in dict_coord[jres]:
+            if check_name and atomnum2name[jatom] in ['N', 'CA', 'C', 'O']:
+                continue
+            (jx, jy, jz, jocc) = dict_coord[jres][jatom]
+            d2 = (ix-jx)**2 + (iy-jy)**2 + (iz-jz)**2
+            if d2 >= 21.4369:  # 4.63*4.63 = 21.4369
+                score = 0
+            elif d2 <= 10.4329:  # 3.23*3.23 = 10.4329
+                score = 1.0*iocc*jocc
+            else:
+                score = (1-(d2**0.5 - 3.23)/1.4)*iocc*jocc
+            total_score += score
+            score_count[0] += 1
+    return total_score
+
 def calcu_RRCS(model: str):
-    """
-    calcu RRCS score for each residue in the model.
-    
-    Parameters:
-        - model: str, pymol name of the model to calculate RRCS score, must be loaded in PyMOL.
-        
-    Returns:
-    contact_df: pd.DataFrame, contact_df[ires][jres] = contact_score
-    """
-    dict_coord = {} # dict to store coordinates. dict_coord[res][atom] = (x, y, z, occupancy, name)
-    cmd.iterate_state(1, model, 'dict_coord.setdefault(f"{chain}:{resi}:{resn}", {}).setdefault(index, (x, y, z, q, name, resi))', space={'dict_coord': dict_coord})
-    arr_coord = np.array([dict_coord[ires][iatom][:3] for ires in dict_coord for iatom in dict_coord[ires]])
-    arr_n2info = np.array([[ires, iatom[-3], iatom[-2], iatom[-1]] for ires in dict_coord for iatom in dict_coord[ires].values()])
-    q2_mat = arr_n2info[:, 1].astype(float).reshape(-1, 1) * arr_n2info[:, 1].astype(float).reshape(1, -1)
-    # calcu d1 and d2 for each atom pair
-    d1_mat = scipy.spatial.distance.cdist(arr_coord, arr_coord, metric = 'cityblock')
-    d2_mat = scipy.spatial.distance.cdist(arr_coord, arr_coord, metric = 'euclidean') ** 2
-    # make condition mat
-    ## find close atom, if atom is close to other atom with d1 < 4.63
-    is_close_atom_mat = (d1_mat < 4.63).astype(int)
-    ## find residue pair, if atom is in same residue with other atom
-    is_res_pair_mat = (arr_n2info[:, 0].reshape(-1, 1) != arr_n2info[:, 0].reshape(1, -1)).astype(int)
-    ## find close res, if is, use backbone atom check: abs(ires_num - jres_num) < 5
-    is_close_res = (np.abs(arr_n2info[:, 3].astype(int) - arr_n2info[:, 3].astype(int).reshape(1, -1)) < 5).astype(int)
-    is_close_res_mat = (is_close_res.reshape(-1, 1) & is_close_res.reshape(1, -1)).astype(int)
-    is_far_res_mat = 1 - is_close_res_mat
-    ## find side atom, for backbone atom check, N, CA, C, O are backbone atoms, others are side atoms
-    is_bb_atom = (arr_n2info[:, 2] == 'N') | (arr_n2info[:, 2] == 'CA') | (arr_n2info[:, 2] == 'C') | (arr_n2info[:, 2] == 'O')
-    is_side_atom_mat = 1 - (is_bb_atom.reshape(-1, 1) & is_bb_atom.reshape(1, -1)).astype(int)
-    ## calcu distance mat
-    is_middle_d2 = (d2_mat >= 10.4329) & (d2_mat <= 21.4369).astype(int)
-    is_small_d2 = (d2_mat < 10.4329).astype(int)
-    # calcu score mat
-    condition_mat = is_close_atom_mat * is_res_pair_mat * (is_close_res_mat*is_side_atom_mat + is_far_res_mat)
-    score_mat = condition_mat * (is_middle_d2*1.0 + is_small_d2*(1-(d2_mat**0.5 - 3.23)/1.4)) * q2_mat
-    # score_mat = np.triu(score_mat, k=0) # keep half of the score mat
+    dict_coord = {} # dict to store coordinates. dict_coord[res][atom] = (x, y, z, occupancy)
+    cmd.iterate_state(1, model, 'dict_coord.setdefault(f"{chain}:{resi}:{resn}", {}).setdefault(index, (x, y, z, q))', space={'dict_coord': dict_coord})
+    atomnum2name = {} # map atom number to atom name, in order to find N, CA, C, O
+    cmd.iterate(model, 'atomnum2name[index] = name', space={'atomnum2name': atomnum2name})
+    contact_score = {} # dict to store final results. contact_score[ires][jres] = contact_score.
+    score_count = [0] # 66320
+    # calcu RRCS score for each residue pair
+    for ires in dict_coord:
+        ires_num = int(ires.split(':')[1])
+        contact_score[ires] = {}
+        # find jres if it has any atom close to ires
+        for jres in dict_coord:
+            jres_num = int(jres.split(':')[1])
+            contact_score[ires][jres] = 0
+            # skip because alreadly calculated
+            if jres_num <= ires_num:
+                continue
+            # skip if jres has no atom close to ires
+            if not _test_close(dict_coord, ires, jres):
+                continue
+            # calculate RRCS score for ires and jres
+            contact_score[ires][jres] = _calcu_score(dict_coord, atomnum2name, ires, jres,
+                                                     check_name= abs(ires_num - jres_num) < 5, score_count=score_count)
     # convert dict to DataFrame
-    contact_df = pd.DataFrame(data=score_mat,
-                              index=list(arr_n2info[:, 0]), columns=list(arr_n2info[:, 0]))
+    contact_df = pd.DataFrame(data={k:list(v.values()) for k,v in contact_score.items()},
+                              index=contact_score.keys(), columns=contact_score.keys())
     return contact_df
 
 if __name__ == '__main__':
