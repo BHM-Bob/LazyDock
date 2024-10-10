@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-31 21:49:34
+LastEditTime: 2024-10-10 16:19:33
 Description: 
 '''
 from typing import Dict, List, Tuple
@@ -210,6 +210,12 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[str, str, str, 
     return interaction_df
 
 
+
+def sort_func(index: pd.Index):
+    index = index.str.split(':')
+    return list(map(lambda x: (x[0], int(x[1]), x[2]), index))
+
+
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: int = 0,
                                      cutoff: float = 4., nagetive_factor: float = -1.):
     """
@@ -228,9 +234,6 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: int 
         interaction_df (pd.DataFrame): , interactions between receptor and ligand, in the format of ligand-residue-residue matrix, with the value of each cell is the interaction score between two atoms.
             interaction_df.loc[ligand_res, receptor_res] = score
     """
-    def sort_func(index: pd.Index):
-        index = index.str.split(':')
-        return list(map(lambda x: (x[0], int(x[1]), x[2]), index))
     # prepare interactions
     all_interactions, interaction_df = {}, pd.DataFrame()
     # select receptor
