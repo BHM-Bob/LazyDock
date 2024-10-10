@@ -44,7 +44,6 @@ class LazyPose:
         self.ui_sele.set_options(self._app._now_selection)
         if self._app.lazy_dlg.pose_page.dlg_pose:
             dlg_pose: Dict[str, DlgFile] = self._app.lazy_dlg.pose_page.dlg_pose
-            self.ui_dlg.set_options(list(dlg_pose.keys()))
             all_ligands = [dlg_pose[dlg].get_pose_prop('pml_name', lig) for dlg in dlg_pose for lig in dlg_pose[dlg].n2i if dlg_pose[dlg].get_pose_prop('is_show', lig, default = False)]
             self.ui_molecule.set_options(list(set(self._app._now_molecule) - set(all_ligands)))
         else:
