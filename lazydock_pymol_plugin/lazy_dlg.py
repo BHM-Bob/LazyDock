@@ -13,7 +13,11 @@ from nicegui import ui
 from pymol import api, cmd
 
 from lazydock.pml.autodock_utils import DlgFile, MyFileDialog
-from lazydock.pml.interaction_utils import calcu_receptor_poses_interaction, filter_interaction_df
+from lazydock.pml.interaction_utils import \
+    calcu_receptor_poses_interaction as calc_pml_interaction
+from lazydock.pml.interaction_utils import filter_interaction_df
+from lazydock.pml.plip_interaction import \
+    calcu_receptor_poses_interaction as calc_plip_interaction
 from lazydock.utils import uuid4
 
 
@@ -261,6 +265,7 @@ class InteractionPage(LazyPose):
         self.sele_selection = None
         self.sele_dlg = None
         # interaction
+        self.interaction_method = 'pymol'
         self.interactions = None
         self.interaction_df = None
         self.interaction_mode = 0
@@ -275,6 +280,10 @@ class InteractionPage(LazyPose):
         self.min_receptor_interaction = 0 # abs
         self.fig_w = 12
         self.fig_h = 7
+        
+    def ui_update_ui(self):
+        super().ui_update_ui()
+        self.ui_dlg.set_options(list(self._app.lazy_dlg.pose_page.dlg_pose.keys()))
             
     def calculate_interaction(self):
         # get receptor
@@ -292,10 +301,15 @@ class InteractionPage(LazyPose):
             ui.notify('Please select at least one ligand')
             return None
         # calculate interactions
-        self.interactions, self.interaction_df = calcu_receptor_poses_interaction(
-                                                self.sele_molecule or self.sele_selection, ligands,
-                                                self.interaction_mode, self.distance_cutoff,
-                                                self.nagetive_factor)
+        if self.interaction_method == 'pymol':
+            calc_fn = calc_pml_interaction
+        elif self.interaction_method == 'PLIP':
+            calc_fn = calc_plip_interaction
+        else:
+            assert False, f'Unknown interaction method: {self.interaction_method}'
+        self.interactions, self.interaction_df = calc_fn(self.sele_molecule or self.sele_selection, ligands,
+                                                         mode=self.interaction_mode, cutoff=self.distance_cutoff,
+                                                         nagetive_factor=self.nagetive_factor)
         if self.interactions is not None:
             ui.notify(f'Interactions calculated for {len(ligands)} ligands')
         else:
@@ -349,6 +363,7 @@ class InteractionPage(LazyPose):
                 with ui.card().classes('w-full'):
                     with ui.column().classes('w-full'):
                         ui.label('interaction calculation config').classes('w-full')
+                        ui.select(['pymol', 'PLIP'], value=self.interaction_method).bind_value_to(self, 'interaction_method')
                         ui.number('distance cutoff', value=self.distance_cutoff).bind_value_to(self, 'distance_cutoff')
                         ui.select(options = list(range(9)), value = 0).bind_value_to(self, 'interaction_mode')
                         ui.number('nagetive factor', value=self.nagetive_factor).bind_value_to(self, 'nagetive_factor')
