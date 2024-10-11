@@ -37,7 +37,8 @@ def get_pocket_box_from_ProteinPlus(receptor_path: str, ligand_path: str,
     return None
 
 def parse_pocket_box_from_ProteinPlus(result_path: str, k: Union[int, List[int]] = None,
-                                      reinitialize: bool = False, draw_box: bool = True, _cmd = None):
+                                      reinitialize: bool = False, draw_box: bool = True,
+                                      _cmd = None, method: str = 'extend'):
     _cmd = _cmd or cmd
     if reinitialize:
         _cmd.reinitialize()
@@ -66,13 +67,25 @@ def parse_pocket_box_from_ProteinPlus(result_path: str, k: Union[int, List[int]]
     if draw_box:
         draw_bounding_box(pocket_name, quiet=1, _cmd = _cmd)
     # calcu box
-    ([minX, minY, minZ], [maxX, maxY, maxZ]) = _cmd.get_extent(pocket_name)
-    _cmd.delete(pocket_name)
-    return {
-        'box_center': [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2],
-        'box_size': [maxX - minX, maxY - minY, maxZ - minZ],
-        'box_vertices': [[minX, minY, minZ], [maxX, maxY, maxZ]],
-    }
+    if method == 'extend':
+        ([minX, minY, minZ], [maxX, maxY, maxZ]) = _cmd.get_extent(pocket_name)
+        _cmd.delete(pocket_name)
+        return {
+            'box_center': [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2],
+            'box_size': [maxX - minX, maxY - minY, maxZ - minZ],
+            'box_vertices': [[minX, minY, minZ], [maxX, maxY, maxZ]],
+        }
+    elif method == 'mean':
+        df = pd.DataFrame(columns=['resn_resi_index', 'X', 'Y', 'Z'])
+        df.set_index(['resn_resi_index'])
+        cmd.iterate_state(1, pocket_name, 'df.loc[f"{resn}_{resi}_{index}", ("X", "Y", "Z")] = [x, y, z]',
+                          space=locals())
+        _cmd.delete(pocket_name)
+        return df, {
+            'box_center': df[['X', 'Y', 'Z']].mean().tolist(),
+            'box_size': (df[['X', 'Y', 'Z']].max() - df[['X', 'Y', 'Z']].min()).tolist(),
+            'box_vertices': [df[['X', 'Y', 'Z']].min().tolist(), df[['X', 'Y', 'Z']].max().tolist()],
+        }
     
     
 __all__ = [
