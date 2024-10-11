@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-10-09 21:01:50
+ * @LastEditTime: 2024-10-11 10:09:01
  * @Description: 
 -->
 
@@ -63,6 +63,7 @@ pip install lazydock
 
 ### web - web-server-tools
 - [model_eval](web/model_eval.md): evaluate model build result.  
+- [gen_box](web/gen_box.md): generate pocket/gridbox info.
 
 
 ## release note
