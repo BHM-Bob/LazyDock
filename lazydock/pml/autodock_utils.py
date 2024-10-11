@@ -21,12 +21,13 @@ PDB_FORMAT2= "{:6s}{:>5s} {:<4s} {:>3s} {:1s}{:>4s}    {:>8s}{:>8s}{:>8s}{:>6s}{
 class ADModel(BaseInfo):
     """STORAGE CLASS FOR DOCKED LIGAND"""
     def __init__(self, content: str = None, _sort_atom_by_res: bool = False,
-                 _parse2std: bool = False):
+                 _parse2std: bool = False, default_chain: str = 'Z'):
         self.energy = 0.
         self.name = ''
         self.poseN = 0
         self.info = ''
         self.pdb_string = ''
+        self.default_chain = default_chain
         self.pdb_lines = []
         if content is not None:
             self.parse_content(content, _sort_atom_by_res, _parse2std)
@@ -46,7 +47,7 @@ class ADModel(BaseInfo):
         if _parse2std:
             for atom in self.pdb_atoms:
                 if not atom[4]:
-                    atom[4] = 'A'
+                    atom[4] = self.default_chain
                 if len(atom[2]) == 4:
                     atom[-1] = atom[2][1] # such as 1HH1
                 elif len(atom[2]) >= 1:
