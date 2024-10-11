@@ -1,26 +1,31 @@
 
-import os
 from pathlib import Path
 from typing import Dict, List, Union
 
-from pymol import cmd
+import pandas as pd
+from mbapy.base import put_log
 from mbapy.file import opts_file
-from mbapy.web import BROWSER_HEAD, Browser, random_sleep
+from mbapy.web import Browser, random_sleep
+from pymol import cmd
 
 if __name__ == '__main__':
-    from lazydock.utils import uuid4
     from lazydock.pml.thirdparty.draw_bounding_box import draw_bounding_box
+    from lazydock.utils import uuid4
 else:
-    from ..utils import uuid4
     from ..pml.thirdparty.draw_bounding_box import draw_bounding_box
+    from ..utils import uuid4
 
 
 def get_pocket_box_from_ProteinPlus(receptor_path: str, ligand_path: str,
                                     browser: Browser = None):
     receptor_path = str(Path(receptor_path).resolve())
     ligand_path = str(Path(ligand_path).resolve())
-    b = browser or Browser({'profile.default_content_settings.popups': 0,
-                            'download.default_directory': os.path.dirname(receptor_path)})
+    if not browser:
+        download_path = str(Path(receptor_path).resolve().parent)
+        b = Browser(download_path=str(Path(receptor_path).resolve().parent))
+        put_log(f'using download path: {download_path}')
+    else:
+        b = browser
     b.get('https://proteins.plus/')
     btn = b.find_elements('//*[@id="pdb_file_pathvar"]')[0]
     btn.send_keys(receptor_path)
@@ -34,6 +39,9 @@ def get_pocket_box_from_ProteinPlus(receptor_path: str, ligand_path: str,
     while not b.wait_element(element='/html/body/div[4]/div[3]/div/div[3]/div[3]/div[3]/div[1]/form/input[1]'):
         random_sleep(3)
     b.click(element='/html/body/div[4]/div[3]/div/div[3]/div[3]/div[3]/div[1]/form/input[1]')
+    # distroy browser
+    if not browser:
+        b.browser.quit()
     return None
 
 def parse_pocket_box_from_ProteinPlus(result_path: str, k: Union[int, List[int]] = None,
@@ -95,8 +103,9 @@ __all__ = [
 
 if __name__ == '__main__':
     # from mbapy.base import Configs
-    # b = Browser(options=['--no-sandbox', f"--user-agent={Configs.web.chrome_driver_path}"])
+    # b = Browser(options=['--no-sandbox', f"--user-agent={Configs.web.chrome_driver_path}"],
+    #             download_path=os.path.abspath('data_tmp/pdb'))
     # get_pocket_box_from_ProteinPlus('data_tmp/pdb/RECEPTOR.pdb', 'data_tmp/pdb/LIGAND.sdf', browser=b)
-    print(parse_pocket_box_from_ProteinPlus('data_tmp/pdb/POCKET.zip', [1], True))
+    df, box = parse_pocket_box_from_ProteinPlus('data_tmp/pdb/POCKET.zip', [1], True, method='mean')
     print(parse_pocket_box_from_ProteinPlus('data_tmp/pdb/POCKET.zip', [1, 2, 3], True))
     print(parse_pocket_box_from_ProteinPlus('data_tmp/pdb/POCKET.zip', [1, 2, 3, 4, 5], True))
