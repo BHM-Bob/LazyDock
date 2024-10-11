@@ -1,7 +1,7 @@
 '''
 Date: 2024-10-11 10:33:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-10-11 16:35:16
+LastEditTime: 2024-10-11 19:33:45
 Description: 
 '''
 from typing import Dict, List, Tuple
@@ -20,7 +20,7 @@ else:
     from .interaction_utils import sort_func
     
     
-def get_atom_level_interactions(mol, cutoff: float = 4.):
+def get_atom_level_interactions(mol, receptor_chain: str, ligand_chain: str, cutoff: float = 4.):
     """
     """
     interactions = {}
@@ -36,16 +36,18 @@ def get_atom_level_interactions(mol, cutoff: float = 4.):
                                   ['Metal Complexes', info.metal_features, info.metal_info]]:
             interactions.setdefault(name, [])
             for value in values:
-                find_idx_fn = lambda x: feat.index(list(filter(lambda y: x in y, feat))[0])
+                find_idx_fn = lambda x: feat.index(list(filter(lambda y: x == y, feat))[0])
                 rec_idx, lig_idx = find_idx_fn('RESNR'), find_idx_fn('RESNR_LIG')
                 dist_term = 'DIST'
                 if name == 'Hydrogen Bonds':
                     dist_term = 'DIST_H-A'
                 elif name == 'Water Bridges':
                     dist_term = 'DIST_A-W'
+                elif name == 'pi-Stacking':
+                    dist_term = 'CENTDIST'
                 dist_idx = find_idx_fn(dist_term)
                 rec_res, lig_res, dist = value[rec_idx:rec_idx+3], value[lig_idx:lig_idx+3], float(value[dist_idx])
-                if dist <= cutoff:
+                if dist <= cutoff and rec_res[-1] == receptor_chain and lig_res[-1] == ligand_chain:
                     interactions[name].append((rec_res, lig_res, dist))
     return interactions
 
@@ -88,19 +90,20 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], cutoff: fl
             interaction_df.loc[ligand_res, receptor_res] = score
     """
     # prepare interactions
+    receptor_chain = cmd.get_chains(receptor)[0]
     all_interactions, interaction_df = {}, pd.DataFrame()
     # calcu for each ligand
     for ligand in poses:
+        ligand_chain = cmd.get_chains(ligand)[0]
         # calcu interaction
         sele_complex = uuid4()
         cmd.select(sele_complex, f'{ligand} or {receptor}')
         mol = PDBComplex()
         mol.load_pdb(cmd.get_pdbstr(sele_complex), as_string=True)
         mol.analyze()
-        all_interactions[ligand] = get_atom_level_interactions(mol)
+        all_interactions[ligand] = get_atom_level_interactions(mol, receptor_chain, ligand_chain, cutoff)
         # merge interactions by res
         merge_interaction_df(all_interactions[ligand], interaction_df, cutoff)
-        cmd.delete(sele_complex)
     if not interaction_df.empty:
         # sort res
         interaction_df.sort_index(axis=0, inplace=True, key=sort_func)
@@ -113,8 +116,14 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], cutoff: fl
 
 if __name__ == '__main__':
     # dev code
+    from lazydock.pml.autodock_utils import DlgFile
     cmd.reinitialize()
     cmd.load('data_tmp/pdb/RECEPTOR.pdb', 'RECEPTOR')
-    cmd.load('data_tmp/pdb/LIGAND.pdb', 'LIGAND')
-    cmd.alter('LIGAND', 'type="HETATM"')
-    calcu_receptor_poses_interaction('RECEPTOR', ['LIGAND'])
+    dlg = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=True)
+    dlg.sort_pose()
+    pose_lst = []
+    for i, pose in enumerate(dlg.pose_lst[:10]):
+        pose_lst.append(f'ligand_{i}')
+        cmd.read_pdbstr(pose.as_pdb_string(), pose_lst[-1])
+        cmd.alter(f'ligand_{i}', 'type="HETATM"')
+    calcu_receptor_poses_interaction('RECEPTOR', pose_lst)
