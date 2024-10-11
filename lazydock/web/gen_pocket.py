@@ -18,6 +18,17 @@ else:
 
 def get_pocket_box_from_ProteinPlus(receptor_path: str, ligand_path: str,
                                     browser: Browser = None):
+    """
+    download pocket result zip file from ProteinPlus.
+    
+    Parameters
+        - receptor_path: str, path to the receptor pdb file.
+        - ligand_path: str, path to the ligand sdf file.
+        - browser: lazydock.web.Browser, browser object to use. If None, a new browser will be created.
+        
+    Returns
+        None, the pocket result zip file will be downloaded to the download_path specified in the browser.
+    """
     receptor_path = str(Path(receptor_path).resolve())
     ligand_path = str(Path(ligand_path).resolve())
     if not browser:
@@ -47,6 +58,27 @@ def get_pocket_box_from_ProteinPlus(receptor_path: str, ligand_path: str,
 def parse_pocket_box_from_ProteinPlus(result_path: str, k: Union[int, List[int]] = None,
                                       reinitialize: bool = False, draw_box: bool = True,
                                       _cmd = None, method: str = 'extend'):
+    """
+    parse zip result file from ProteinPlus and return box information.
+    
+    Parameters
+        - result_path: str, path to the zip file downloaded from ProteinPlus.
+        - k: int or list of int, index of the pocket to be parsed. If None, all pockets will be parsed.
+        - reinitialize: bool, whether to reinitialize pymol or not.
+        - draw_box: bool, whether to draw box or not.
+        - _cmd: pymol.cmd, pymol command object, can be pml.server.PymolAPI
+        - method: str, method to calculate box center and size. 'extend' to use pymol's get_extent function, 'mean' to calculate mean coordinates of all atoms in the pocket.
+        
+    Returns
+        box_df: pandas.DataFrame, dataframe of pocket information. Only return in the method of 'mean'.
+            - 'resn_resi_index': str, residue name, residue index and atom index.
+            -  'X', 'Y', 'Z': float, coordinates of the atom.
+        box_info: dict, box information.
+            - 'box_center': list of float, center of the box.
+            - 'box_size': list of float, size of the box.
+            - 'box_vertices': list of list of float, vertices of the box.
+        
+    """
     _cmd = _cmd or cmd
     if reinitialize:
         _cmd.reinitialize()
