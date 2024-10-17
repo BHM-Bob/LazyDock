@@ -1,14 +1,12 @@
 '''
 Date: 2024-09-30 19:28:57
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-10-09 20:49:09
+LastEditTime: 2024-10-09 21:06:26
 Description: RRCS calculation in PyMOL, RRCS is from article "Common activation mechanism of class A GPCRs": https://github.com/elifesciences-publications/RRCS/blob/master/RRCS.py
 '''
 from typing import Dict, Tuple
 
-import numpy as np
 import pandas as pd
-import scipy
 from pymol import cmd
 
 
@@ -80,7 +78,7 @@ def calcu_RRCS(model: str):
 if __name__ == '__main__':
     cmd.reinitialize()
     cmd.load('data_tmp/pdb/RECEPTOR.pdb', 'receptor')
-    from mbapy.base import TimeCosts
+    from mbapy_lite.base import TimeCosts
     @TimeCosts(3)
     def test_calcu(idx):
         calcu_RRCS('receptor')

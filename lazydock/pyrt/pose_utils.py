@@ -7,7 +7,7 @@ Description:
 from typing import Union
 
 import pyrosetta
-from mbapy.base import get_default_call_for_None, parameter_checker
+from mbapy_lite.base import get_default_call_for_None, parameter_checker
 from pyrosetta.rosetta.core.chemical import ChemicalManager
 from pyrosetta.rosetta.core.conformation import ResidueFactory
 from pyrosetta.rosetta.core.pose import (Pose, append_pose_to_pose,

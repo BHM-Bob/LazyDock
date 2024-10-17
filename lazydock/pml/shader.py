@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.colors import Colormap, TwoSlopeNorm
-from mbapy.plot import rgb2hex
+from mbapy_lite.plot import rgb2hex
 from pymol import cmd
 
 from lazydock.utils import uuid4

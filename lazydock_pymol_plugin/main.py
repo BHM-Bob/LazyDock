@@ -9,7 +9,7 @@ from threading import Thread
 from lazy_dlg import LazyDLG
 from lazy_plot import LazyPlot
 from lazy_pocket import LazyPocket
-# from mbapy.web import TaskPool
+# from mbapy_lite.web import TaskPool
 from nicegui import app, ui
 from pymol import cmd
 

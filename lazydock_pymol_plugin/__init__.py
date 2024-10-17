@@ -8,7 +8,6 @@ Description: LazyDock Pymol Plugin
 import os
 
 os.environ['MBAPY_FAST_LOAD'] = 'True'
-os.environ['MBAPY_AUTO_IMPORT_TORCH'] = 'False'
 
 import sys
 

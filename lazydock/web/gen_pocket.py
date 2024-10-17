@@ -3,9 +3,9 @@ from pathlib import Path
 from typing import Dict, List, Union
 
 import pandas as pd
-from mbapy.base import put_log
-from mbapy.file import opts_file
-from mbapy.web import Browser, random_sleep
+from mbapy_lite.base import put_log
+from mbapy_lite.file import opts_file
+from mbapy_lite.web import Browser, random_sleep
 from pymol import cmd
 
 if __name__ == '__main__':
@@ -134,7 +134,7 @@ __all__ = [
 ]
 
 if __name__ == '__main__':
-    # from mbapy.base import Configs
+    # from mbapy_lite.base import Configs
     # b = Browser(options=['--no-sandbox', f"--user-agent={Configs.web.chrome_driver_path}"],
     #             download_path=os.path.abspath('data_tmp/pdb'))
     # get_pocket_box_from_ProteinPlus('data_tmp/pdb/RECEPTOR.pdb', 'data_tmp/pdb/LIGAND.sdf', browser=b)

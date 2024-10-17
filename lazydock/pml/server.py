@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
-from mbapy.base import get_fmt_time
+from mbapy_lite.base import get_fmt_time
 from pymol import api as pml_api
 from pymol import cmd as pml_cmd
 

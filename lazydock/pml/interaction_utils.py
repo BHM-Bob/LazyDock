@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
-from mbapy.base import put_err
+from mbapy_lite.base import put_err
 from pymol import CmdException, cmd
 
 if __name__ == '__main__':

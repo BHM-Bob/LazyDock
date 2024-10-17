@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-15 22:05:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-21 21:04:30
+LastEditTime: 2024-10-17 16:38:16
 Description: 
 '''
 import re
@@ -11,10 +11,10 @@ from typing import Dict, List, Union
 
 import requests
 from lxml import etree
-from mbapy.base import put_err
-from mbapy.file import opts_file
-from mbapy.web import BROWSER_HEAD, Browser, random_sleep
-    
+from mbapy_lite.base import put_err
+from mbapy_lite.file import opts_file
+from mbapy_lite.web import BROWSER_HEAD, Browser, random_sleep
+
 
 def get_score_from_proq(pdb_path: str, **kwargs) -> Dict[str, float]:
     """return LGscore and MaxSub in dict"""

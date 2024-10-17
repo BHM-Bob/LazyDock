@@ -8,9 +8,9 @@ import tkinter as tk
 import tkinter.filedialog as tkFileDialog
 from typing import Any, Callable, List
 
-from mbapy.base import put_err
-from mbapy.file import decode_bits_to_str, opts_file
-from mbapy.game import BaseInfo
+from mbapy_lite.base import put_err
+from mbapy_lite.file import decode_bits_to_str, opts_file
+from mbapy_lite.game import BaseInfo
 
 # atom-type, atom-number, atom-name, residue-name, chain-name, residue-number, x, y, z, occupancy, temperature-factor
 # ATOM      1  CA  LYS     7     136.747 133.408 135.880 -0.06 +0.10 OA
@@ -192,7 +192,7 @@ class MyFileDialog:
 
 
 if __name__ == '__main__':
-    # from mbapy.base import TimeCosts
+    # from mbapy_lite.base import TimeCosts
     # @TimeCosts(10)
     # def load_test(idx):
     #     DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True)

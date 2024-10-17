@@ -7,8 +7,9 @@ from typing import Dict, List, Tuple, Union
 
 import seaborn as sns
 from matplotlib import pyplot as plt
-from mbapy.file import decode_bits_to_str, opts_file
-from mbapy.plot import save_show
+from mbapy_lite.base import put_err
+from mbapy_lite.file import decode_bits_to_str, opts_file
+from mbapy_lite.plot import save_show
 from nicegui import ui
 from pymol import api, cmd
 
@@ -16,8 +17,16 @@ from lazydock.pml.autodock_utils import DlgFile, MyFileDialog
 from lazydock.pml.interaction_utils import \
     calcu_receptor_poses_interaction as calc_pml_interaction
 from lazydock.pml.interaction_utils import filter_interaction_df
-from lazydock.pml.plip_interaction import \
-    calcu_receptor_poses_interaction as calc_plip_interaction
+
+try:
+    from lazydock.pml.plip_interaction import \
+        calcu_receptor_poses_interaction as calc_plip_interaction
+except ImportError:
+    # if plip is not installed, use interaction_utils instead
+    put_err('plip is not installed, just use pymol as plip instead')
+    from lazydock.pml.interaction_utils import \
+        calcu_receptor_poses_interaction as calc_plip_interaction
+
 from lazydock.utils import uuid4
 
 
