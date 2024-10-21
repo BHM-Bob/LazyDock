@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-30 19:28:57
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-10-18 20:46:34
+LastEditTime: 2024-10-21 15:31:51
 Description: RRCS calculation in PyMOL, RRCS is from article "Common activation mechanism of class A GPCRs": https://github.com/elifesciences-publications/RRCS/blob/master/RRCS.py
 '''
 from typing import Dict, Tuple
@@ -25,14 +25,14 @@ def _test_close(dict_coord: Dict[str, Dict[int, Tuple[float, float, float, float
 
 def _calcu_score(dict_coord: Dict[str, Dict[int, Tuple[float, float, float, float]]],
                  atomnum2name: Dict[int, str], ires: str, jres: str,
-                 check_name: bool, score_count: int):
+                 check_hetatm: bool, score_count: int):
     total_score = 0
     for iatom in dict_coord[ires]:
-        if check_name and atomnum2name[iatom] in ['N', 'CA', 'C', 'O']:
+        if check_hetatm and atomnum2name[iatom] in ['N', 'CA', 'C', 'O']:
             continue
         (ix, iy, iz, iocc) = dict_coord[ires][iatom]
         for jatom in dict_coord[jres]:
-            if check_name and atomnum2name[jatom] in ['N', 'CA', 'C', 'O']:
+            if check_hetatm and atomnum2name[jatom] in ['N', 'CA', 'C', 'O']:
                 continue
             (jx, jy, jz, jocc) = dict_coord[jres][jatom]
             d2 = (ix-jx)**2 + (iy-jy)**2 + (iz-jz)**2
@@ -47,6 +47,14 @@ def _calcu_score(dict_coord: Dict[str, Dict[int, Tuple[float, float, float, floa
     return total_score
 
 def calcu_RRCS(model: str, _cmd = None):
+    """
+    Parameters:
+        - model: molecular name loaded in pymol
+        - _cmd: pymol command object, default is cmd.
+
+    Returns:
+        contact_df: DataFrame of contact scores, index and columns are residue names.
+    """
     _cmd = _cmd or cmd
     dict_coord = {} # dict to store coordinates. dict_coord[res][atom] = (x, y, z, occupancy)
     _cmd.iterate_state(1, model, 'dict_coord.setdefault(f"{chain}:{resi}:{resn}", {}).setdefault(index, (x, y, z, q))', space={'dict_coord': dict_coord})
@@ -70,7 +78,7 @@ def calcu_RRCS(model: str, _cmd = None):
                 continue
             # calculate RRCS score for ires and jres
             contact_score[ires][jres] = _calcu_score(dict_coord, atomnum2name, ires, jres,
-                                                     check_name= abs(ires_num - jres_num) < 5, score_count=score_count)
+                                                     check_hetatm=abs(ires_num - jres_num) < 5, score_count=score_count)
     # convert dict to DataFrame
     contact_df = pd.DataFrame(data={k:list(v.values()) for k,v in contact_score.items()},
                               index=contact_score.keys(), columns=contact_score.keys())
