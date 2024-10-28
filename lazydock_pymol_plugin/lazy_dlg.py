@@ -5,6 +5,7 @@ import pickle
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
+import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
 from mbapy_lite.base import put_err
@@ -54,7 +55,8 @@ class LazyPose:
         self.sele_selection = None
         
     def ui_update_ui(self):
-        self.ui_sele.set_options(self._app._now_selection)
+        if self.ui_sele is not None:
+            self.ui_sele.set_options(self._app._now_selection)
         if self._app.lazy_dlg.pose_page.dlg_pose:
             dlg_pose: Dict[str, DlgFile] = self._app.lazy_dlg.pose_page.dlg_pose
             all_ligands = [dlg_pose[dlg].get_pose_prop('pml_name', lig) for dlg in dlg_pose for lig in dlg_pose[dlg].n2i if dlg_pose[dlg].get_pose_prop('is_show', lig, default = False)]
@@ -260,8 +262,110 @@ class LazyPose:
                     cmd.save(pdb_path, tmp_sele)
                     cmd.delete(tmp_sele)
                 print(f'{receptor} and {pml_name} saved to {pdb_path}')
+                
+                
+class ResultPage(LazyPose):
+    """plot energy curve and RMSD heatmap for pose in dlg"""
+    def __init__(self, app):
+        self._app = app
+        self._app.ui_update_func.append(self.ui_update_ui)
+        self.energy_fig = None
+        self.rmsd_fig = None
+        self.energy_data = None
+        self.rmsd_data = None
+        # select receptor
+        self.ui_dlg = None
+        self.sele_dlg = None
         
+    def ui_update_ui(self):
+        self.ui_dlg.set_options(list(self._app.lazy_dlg.pose_page.dlg_pose.keys()))
         
+    def calculate_energy_curve(self):
+        if self.sele_dlg is None:
+            return ui.notify('Please select a DLG')
+        dlg_pose: DlgFile = self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]
+        idx_energy = [[pose.run_idx, pose.energy] for pose in dlg_pose.pose_lst]
+        sorted_energies_by_idx = list(map(lambda x: x[1], sorted(idx_energy, key=lambda x: x[0])))
+        sorted_energies = sorted(sorted_energies_by_idx, reverse=True)
+        pooled_energies_by_idx = [min(sorted_energies_by_idx[:i]) for i in range(1, len(sorted_energies_by_idx)+1)]
+        self.energy_data = (sorted_energies_by_idx, sorted_energies, pooled_energies_by_idx)
+        ui.notify(f'Energy curve calculated for {len(dlg_pose.pose_lst)} poses, [{min(sorted_energies_by_idx)} ~ {max(sorted_energies_by_idx)}]')
+        
+    def calculate_rmsd_matrix(self):
+        if self.sele_dlg is None:
+            return ui.notify('Please select a DLG')
+        dlg_pose = self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]
+        rmsds = []
+        for i, name1 in enumerate(dlg_pose.n2i):
+            pose1 = dlg_pose.get_pose(name1)
+            for j, name2 in enumerate(dlg_pose.n2i):
+                if i >= j:
+                    continue
+                pose2 = dlg_pose.get_pose(name2)
+                rmsds.append(pose1.rmsd(pose2))
+        
+    @ui.refreshable
+    def plot_energy_curve(self):
+        plt.close(self.energy_fig)
+        self.energy_fig = None
+        if self.energy_data is not None:
+            sorted_energies_by_idx, sorted_energies, pooled_energies_by_idx = self.energy_data
+            mean_energy = np.mean(sorted_energies)
+            with ui.pyplot(figsize=(12, 8), close=False) as fig:
+                self.energy_fig = fig.fig
+                gs = fig.fig.add_gridspec(1, 2,  width_ratios=(4, 1), left=0.1, right=0.9, bottom=0.1, top=0.9,
+                      wspace=0.05, hspace=0.05)
+                # Create the Axes.
+                ax = self.energy_fig.add_subplot(gs[0, 0])
+                ax_histy = self.energy_fig.add_subplot(gs[0, 1], sharey=ax)
+                # Draw the scatter plot and marginals.
+                ax.plot(pooled_energies_by_idx, linewidth=2, label='Minimum Energy in Run Order')
+                ax.plot([mean_energy] * len(pooled_energies_by_idx), c='black', linewidth=2, label=f'Mean Energy: {mean_energy:.4f} kcal/mol')
+                ax.scatter(list(range(len(sorted_energies_by_idx))), sorted_energies_by_idx,
+                           alpha=0.4, c='green', s=50, label='Individual Energy in Run Order')
+                ax.scatter(list(range(len(sorted_energies))), sorted_energies,
+                           alpha=0.2, c='red', s=30, label='Individual Energy in Descending Order')
+                ax.set_xlabel('Pose Index', fontdict={'size': 14})
+                ax.set_ylabel('Energy (kcal/mol)', fontdict={'size': 14})
+                ax.set_title(f'Energy Curve for {self.sele_dlg}', fontdict={'size': 16})
+                # plot hist
+                ax_histy.tick_params(axis="y", labelleft=False)
+                ax_histy.hist(sorted_energies, bins=int(max(sorted_energies)-min(sorted_energies)), orientation='horizontal')
+                # minor works
+                ax.legend(fontsize=12)
+                plt.tight_layout()
+    
+    @ui.refreshable
+    def plot_rmsd_heatmap(self):
+        plt.close(self.rmsd_fig)
+        self.rmsd_fig = None
+        if self.rmsd_data is not None:
+            # plot
+            with ui.pyplot(figsize=(12, 8), close=False) as fig:
+                self.rmsd_fig = fig.fig
+                plt.tight_layout()
+        
+    def build_gui(self):
+        with ui.splitter(value = 20).classes('w-full h-full') as splitter:
+            with splitter.before:
+                # choose ligand
+                with ui.card().classes('w-full'):
+                    with ui.column().classes('w-full'):
+                        ui.label('select a ligand').classes('w-full')
+                        self.ui_dlg = ui.select(self._app.lazy_dlg.pose_page.now_dlg_name or [],
+                                                label = 'select a dlg').bind_value_to(self, 'sele_dlg').classes('w-full').props('use-chips')
+            # vitualization
+            with splitter.after:
+                with ui.row():
+                    ui.label('Interaction: ')
+                    ui.button('calculate energy curve', on_click=self.calculate_energy_curve).classes('flex flex-grow').props('no-caps')
+                    ui.button('calculate RMSD matrix', on_click=self.calculate_rmsd_matrix).classes('flex flex-grow').props('no-caps')
+                    ui.button('plot energy curve', on_click=self.plot_energy_curve.refresh).classes('flex flex-grow').props('no-caps')
+                    ui.button('plot RMSD heatmap', on_click=self.plot_rmsd_heatmap.refresh).classes('flex flex-grow').props('no-caps')
+                self.plot_energy_curve()
+                self.plot_rmsd_heatmap()
+
+
 class InteractionPage(LazyPose):
     def __init__(self, app):
         self._app = app
@@ -429,16 +533,19 @@ class LazyDLG:
         self._app = app
         
         self.pose_page = LazyPose(self._app)
-        self.rmsd_page = None # TODO: show each showed pose RMSD with each other in heatmap
+        self.result_page = ResultPage(self._app)
         self.analysis_page = InteractionPage(self._app)
         
     def build_gui(self):
         with ui.tabs().classes('w-full').props('align=left active-bg-color=blue') as tabs:
             self.ui_loader_tab = ui.tab('DLG Pose Loader').props('no-caps')
+            self.ui_result_tab = ui.tab('DLG Pose Result').props('no-caps')
             self.ui_analysis_tab = ui.tab('DLG Pose Analysis').props('no-caps')
         with ui.tab_panels(tabs, value=self.ui_loader_tab).classes('w-full'):
             with ui.tab_panel(self.ui_loader_tab):
                 self.pose_page.build_gui()
+            with ui.tab_panel(self.ui_result_tab):
+                self.result_page.build_gui()
             with ui.tab_panel(self.ui_analysis_tab):
                 self.analysis_page.build_gui()
         # return self
