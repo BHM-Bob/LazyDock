@@ -24,7 +24,7 @@ class ADModel(BaseInfo):
                  _parse2std: bool = False, default_chain: str = 'Z'):
         self.energy = 0.
         self.name = ''
-        self.poseN = 0
+        self.run_idx = 0
         self.info = ''
         self.pdb_string = ''
         self.default_chain = default_chain
@@ -71,6 +71,8 @@ class ADModel(BaseInfo):
                 self.energy = float(entr.split()[0])
             else:
                 self.energy = None
+        # parse run idx
+        self.run_idx = int(re.findall(r'MODEL +(\d+)', self.info)[0])
 
     def as_pdb_string(self):
         return self.pdb_string
