@@ -1,22 +1,45 @@
-# copied and fixed from Autodock Plugin: http://www.pymolwiki.org/index.php/autodock_plugin
-
-
 from __future__ import absolute_import, print_function
 
+import math
 import re
 import tkinter as tk
 import tkinter.filedialog as tkFileDialog
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Union
 
 from mbapy_lite.base import put_err
 from mbapy_lite.file import decode_bits_to_str, opts_file
 from mbapy_lite.game import BaseInfo
+from pymol import cmd
+
+if __name__ == '__main__':
+    from lazydock.utils import uuid4
+else:
+    from ..utils import uuid4
 
 # atom-type, atom-number, atom-name, residue-name, chain-name, residue-number, x, y, z, occupancy, temperature-factor
 # ATOM      1  CA  LYS     7     136.747 133.408 135.880 -0.06 +0.10 OA
 PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+) [ \.\-\+\d]+ ([A-Z]+)"
 PDB_FORMAT = "{:6s}{:>5s}  {:<3s} {:>3s} {:1s}{:>4s}    {:>8s}{:>8s}{:>8s}{:>6s}{:>6s}          {:>2s}  "
 PDB_FORMAT2= "{:6s}{:>5s} {:<4s} {:>3s} {:1s}{:>4s}    {:>8s}{:>8s}{:>8s}{:>6s}{:>6s}          {:>2s}  "
+
+
+def calcu_RMSD(pose1: Union[str, 'ADModel'], pose2: Union[str, 'ADModel'], _cmd = None):
+    _cmd = _cmd or cmd
+    def _get_pose(pose):
+        if isinstance(pose, ADModel):
+            name = uuid4()
+            _cmd.read_pdbstr(pose.as_pdb_string(), name)
+            return name, True
+        return pose, False
+    pml_pose1, is_loaded1 = _get_pose(pose1)
+    pml_pose2, is_loaded2 = _get_pose(pose2)
+    rmsd = math.sqrt(_cmd.rms(pml_pose1, pml_pose2, cycles=0)) # cutoff = float: outlier rejection cutoff (only if cycles>0) {default: 2.0}
+    if is_loaded1:
+        _cmd.delete(pml_pose1)
+    if is_loaded2:
+        _cmd.delete(pml_pose2)
+    return rmsd
+
 
 class ADModel(BaseInfo):
     """STORAGE CLASS FOR DOCKED LIGAND"""
@@ -79,6 +102,18 @@ class ADModel(BaseInfo):
 
     def info_string(self):
         return self.info
+    
+    def rmsd(self, other: 'ADModel', backend: str = 'pymol'):
+        if backend == 'pymol':
+            return calcu_RMSD(self, other)
+        elif backend == 'rdkit':
+            from rdkit import Chem
+            from rdkit.Chem import AllChem
+            pose1 = Chem.MolFromPDBBlock(self.as_pdb_string(), removeHs=True, sanitize=False)
+            pose2 = Chem.MolFromPDBBlock(other.as_pdb_string(), removeHs=True, sanitize=False)
+            return AllChem.GetBestRMS(pose1, pose2)
+        else:
+            raise ValueError(f'Unsupported backend: {backend}')
 
 
 class DlgFile(BaseInfo):
