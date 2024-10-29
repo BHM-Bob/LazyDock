@@ -291,19 +291,6 @@ class ResultPage(LazyPose):
         self.energy_data = (sorted_energies_by_idx, sorted_energies, pooled_energies_by_idx)
         ui.notify(f'Energy curve calculated for {len(dlg_pose.pose_lst)} poses, [{min(sorted_energies_by_idx)} ~ {max(sorted_energies_by_idx)}]')
         
-    def calculate_rmsd_matrix(self):
-        if self.sele_dlg is None:
-            return ui.notify('Please select a DLG')
-        dlg_pose = self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]
-        rmsds = []
-        for i, name1 in enumerate(dlg_pose.n2i):
-            pose1 = dlg_pose.get_pose(name1)
-            for j, name2 in enumerate(dlg_pose.n2i):
-                if i >= j:
-                    continue
-                pose2 = dlg_pose.get_pose(name2)
-                rmsds.append(pose1.rmsd(pose2))
-        
     @ui.refreshable
     def plot_energy_curve(self):
         plt.close(self.energy_fig)
@@ -332,17 +319,9 @@ class ResultPage(LazyPose):
                 ax_histy.tick_params(axis="y", labelleft=False)
                 ax_histy.hist(sorted_energies, bins=int(max(sorted_energies)-min(sorted_energies)), orientation='horizontal')
                 # minor works
+                ax.tick_params(axis='both', which='major', labelsize=12)
+                ax_histy.tick_params(axis='both', which='minor', labelsize=12)
                 ax.legend(fontsize=12)
-                plt.tight_layout()
-    
-    @ui.refreshable
-    def plot_rmsd_heatmap(self):
-        plt.close(self.rmsd_fig)
-        self.rmsd_fig = None
-        if self.rmsd_data is not None:
-            # plot
-            with ui.pyplot(figsize=(12, 8), close=False) as fig:
-                self.rmsd_fig = fig.fig
                 plt.tight_layout()
         
     def build_gui(self):
@@ -356,14 +335,10 @@ class ResultPage(LazyPose):
                                                 label = 'select a dlg').bind_value_to(self, 'sele_dlg').classes('w-full').props('use-chips')
             # vitualization
             with splitter.after:
-                with ui.row():
-                    ui.label('Interaction: ')
-                    ui.button('calculate energy curve', on_click=self.calculate_energy_curve).classes('flex flex-grow').props('no-caps')
-                    ui.button('calculate RMSD matrix', on_click=self.calculate_rmsd_matrix).classes('flex flex-grow').props('no-caps')
-                    ui.button('plot energy curve', on_click=self.plot_energy_curve.refresh).classes('flex flex-grow').props('no-caps')
-                    ui.button('plot RMSD heatmap', on_click=self.plot_rmsd_heatmap.refresh).classes('flex flex-grow').props('no-caps')
+                with ui.row().classes('w-full'):
+                    ui.button('calculate energy curve', on_click=self.calculate_energy_curve).props('no-caps')
+                    ui.button('plot energy curve', on_click=self.plot_energy_curve.refresh).props('no-caps')
                 self.plot_energy_curve()
-                self.plot_rmsd_heatmap()
 
 
 class InteractionPage(LazyPose):
