@@ -1,7 +1,7 @@
 {
     "std": 
     [
-        "mbapy>=0.7.9",
+        "mbapy>=0.10.0",
         "pyteomics",
         "pygame",
         "nicegui"
