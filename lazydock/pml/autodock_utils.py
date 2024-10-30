@@ -2,6 +2,7 @@ from __future__ import absolute_import, print_function
 
 import math
 import re
+import time
 import tkinter as tk
 import tkinter.filedialog as tkFileDialog
 from typing import Any, Callable, List, Union
@@ -9,12 +10,12 @@ from typing import Any, Callable, List, Union
 from mbapy_lite.base import put_err
 from mbapy_lite.file import decode_bits_to_str, opts_file
 from mbapy_lite.game import BaseInfo
+from mbapy_lite.web_utils.task import TaskPool
+import numpy as np
 from pymol import cmd
+from tqdm import tqdm
 
-if __name__ == '__main__':
-    from lazydock.utils import uuid4
-else:
-    from ..utils import uuid4
+from lazydock.utils import uuid4
 
 # atom-type, atom-number, atom-name, residue-name, chain-name, residue-number, x, y, z, occupancy, temperature-factor
 # ATOM      1  CA  LYS     7     136.747 133.408 135.880 -0.06 +0.10 OA
@@ -192,7 +193,26 @@ class DlgFile(BaseInfo):
             return getattr(self, prop)[pose_idx]
         else:
             return default
-
+        
+    def rmsd(self, backend: str = 'pymol', taskpool: TaskPool = None, verbose: bool = False):
+        rmsd_mat = np.zeros((len(self.pose_lst), len(self.pose_lst))).tolist()
+        for i, pose_i in tqdm(enumerate(self.pose_lst), desc='Calculating RMSD', total=len(self.pose_lst), disable=not verbose):
+            for j, pose_j in enumerate(self.pose_lst):
+                if i > j:
+                    continue
+                if taskpool is None:
+                    rmsd_mat[i][j] = pose_i.rmsd(pose_j, backend=backend)
+                else:
+                    while taskpool.count_waiting_tasks() > 0:
+                        time.sleep(0.1)
+                    rmsd_mat[i][j] = taskpool.add_task(f'{i}-{j}', pose_i.rmsd, pose_j, backend=backend)
+        for i in range(len(rmsd_mat)):
+            for j in range(len(rmsd_mat)):
+                if i > j:
+                    rmsd_mat[i][j] = rmsd_mat[j][i]
+                elif taskpool is not None:
+                    rmsd_mat[i][j] = taskpool.query_task(f'{i}-{j}', block=True, timeout=999)
+        return rmsd_mat
 
 
 def tk_file_dialog_wrapper(*args, **kwargs):
@@ -243,4 +263,8 @@ if __name__ == '__main__':
     print(std.pose_lst[0].as_pdb_string(), '\n\n')
     print(cmd.get_pdbstr('std'))
     ligand = Chem.MolFromPDBBlock(cmd.get_pdbstr('std'), removeHs=True, sanitize=False)
+    
+    taskpool = TaskPool('process', 4).start()
+    dlg = DlgFile(path='data_tmp/dlg/200run.dlg', sort_pdb_line_by_res=False, parse2std=True)
+    dlg.rmsd('rdkit', taskpool=taskpool, verbose=True)
     pass
