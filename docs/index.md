@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-10-11 10:09:01
+ * @LastEditTime: 2024-10-31 17:00:54
  * @Description: 
 -->
 
@@ -67,6 +67,7 @@ pip install lazydock
 
 
 ## release note
+- [0.5.0](release_note/0.5.0.md)
 - [0.4.0](release_note/0.4.0.md)
 - [0.3.0](release_note/0.3.0.md)
 - [0.2.0](release_note/0.2.0.md)
