@@ -5,12 +5,14 @@ import re
 import time
 import tkinter as tk
 import tkinter.filedialog as tkFileDialog
-from typing import Any, Callable, List, Union
+from typing import Any, Callable, List, Optional, Union
 
 from mbapy_lite.base import put_err
 from mbapy_lite.file import decode_bits_to_str, opts_file
 from mbapy_lite.game import BaseInfo
 from mbapy_lite.web_utils.task import TaskPool
+from mbapy_lite.stats.cluster import KMeans, KMeansBackend
+
 import numpy as np
 from pymol import cmd
 from tqdm import tqdm
@@ -34,7 +36,7 @@ def calcu_RMSD(pose1: Union[str, 'ADModel'], pose2: Union[str, 'ADModel'], _cmd 
         return pose, False
     pml_pose1, is_loaded1 = _get_pose(pose1)
     pml_pose2, is_loaded2 = _get_pose(pose2)
-    rmsd = math.sqrt(_cmd.rms(pml_pose1, pml_pose2, cycles=0)) # cutoff = float: outlier rejection cutoff (only if cycles>0) {default: 2.0}
+    rmsd = _cmd.rms(pml_pose1, pml_pose2, cycles=0) # cutoff = float: outlier rejection cutoff (only if cycles>0) {default: 2.0}
     if is_loaded1:
         _cmd.delete(pml_pose1)
     if is_loaded2:
@@ -53,6 +55,8 @@ class ADModel(BaseInfo):
         self.pdb_string = ''
         self.default_chain = default_chain
         self.pdb_lines = []
+        self.coords = None
+        self.coords_only_bb = None
         if content is not None:
             self.parse_content(content, _sort_atom_by_res, _parse2std)
 
@@ -104,7 +108,19 @@ class ADModel(BaseInfo):
     def info_string(self):
         return self.info
     
-    def rmsd(self, other: 'ADModel', backend: str = 'pymol'):
+    def parse_coords(self, only_bb: bool = True):
+        if self.coords is None or only_bb != self.coords_only_bb:
+            self.coords_only_bb = only_bb
+            self.coords = np.array([list(map(float, line[6:9])) for line in self.pdb_atoms if line[2] in ['C', 'N', 'O', 'CA'] or not only_bb])
+        return self.coords
+    
+    def calcu_rmsd_by_coords(self, other: 'ADModel', only_bb: bool = True):
+        self_coords = self.parse_coords(only_bb)
+        other_coords = other.parse_coords(only_bb)
+        d2 = np.sum((self_coords - other_coords)**2, axis=1)
+        return np.sqrt(np.mean(d2))
+    
+    def rmsd(self, other: 'ADModel', backend: str = 'pymol', only_bb: bool = True):
         if backend == 'pymol':
             return calcu_RMSD(self, other)
         elif backend == 'rdkit':
@@ -113,8 +129,17 @@ class ADModel(BaseInfo):
             pose1 = Chem.MolFromPDBBlock(self.as_pdb_string(), removeHs=True, sanitize=False)
             pose2 = Chem.MolFromPDBBlock(other.as_pdb_string(), removeHs=True, sanitize=False)
             return AllChem.GetBestRMS(pose1, pose2)
+        elif backend == 'numpy':
+            return self.calcu_rmsd_by_coords(other, only_bb)
         else:
             raise ValueError(f'Unsupported backend: {backend}')
+
+
+class RmsdClusterBackend(KMeansBackend):
+    def __init__(self) -> None:
+        super().__init__('scipy')
+    def cdist(self, data, centers):
+        return np.sqrt(np.mean(np.sum((data[:, None] - centers[None, :])**2, axis=-1), axis=-1))
 
 
 class DlgFile(BaseInfo):
@@ -195,6 +220,14 @@ class DlgFile(BaseInfo):
             return default
         
     def rmsd(self, backend: str = 'pymol', taskpool: TaskPool = None, verbose: bool = False):
+        # if backend is numpy, use matrix calculation to calculate rmsd for acceleration
+        if backend == 'numpy':
+            # [N_pose, M_atom, D_3]
+            coords = np.concatenate([[pose.parse_coords()] for pose in self.pose_lst], axis=0)
+            # d2 = [N_pose, N_pose, M_atom, D_3] => [N_pose, N_pose, M_atom]: np.sum((coords[None, :, :] - coords[:, None, :])**2, axis=-1)
+            # sum+devide => mean => [N_pose, N_pose, M_atom] => [N_pose, N_pose]
+            return np.sqrt(np.mean(np.sum((coords[None, :, :] - coords[:, None, :])**2, axis=-1), axis=-1))
+        # if is other backend, loop over all pairs and calculate rmsd
         rmsd_mat = np.zeros((len(self.pose_lst), len(self.pose_lst))).tolist()
         for i, pose_i in tqdm(enumerate(self.pose_lst), desc='Calculating RMSD', total=len(self.pose_lst), disable=not verbose):
             for j, pose_j in enumerate(self.pose_lst):
@@ -213,6 +246,35 @@ class DlgFile(BaseInfo):
                 elif taskpool is not None:
                     rmsd_mat[i][j] = taskpool.query_task(f'{i}-{j}', block=True, timeout=999)
         return rmsd_mat
+    
+    def rmsd_cluster(self, n_clusters: int):
+        coords = np.concatenate([[pose.parse_coords()] for pose in self.pose_lst], axis=0)
+        cluster = KMeans(n_clusters, backend=RmsdClusterBackend())
+        return cluster.fit_predict(coords)
+    
+    def calcu_SSE_SSR(self, rmsd_mat: np.ndarray, groups_idx: np.ndarray,
+                      centers_idx: Optional[np.ndarray] = None, center_idx: Optional[int] = None):
+        """
+        Parameters
+            - rmsd_mat: [N_pose, N_pose], RMSD matrix return by DlgFile.rmsd
+            - groups_idx: [N_pose], clustering result return by DlgFile.rmsd_cluster or other clustering algorithm
+            - centers_idx: [N_cluster], clustering center index, **must in the rmsd matrix**, if not provided, use the minimum of each group
+            - center_idx: int, center of the all poses, **must in the rmsd matrix**, if not provided, use the minimum of all poses
+            
+        Returns
+            - SSE: 组内误差平方和
+            - SSR: 组间误差平方和
+            - SSR/SST: 
+        """
+        if centers_idx is None:
+            centers_idx = np.array([np.argmin(rmsd_mat[groups_idx==i]) for i in np.unique(groups_idx)])
+        if center_idx is None:
+            center_idx = np.argmin(rmsd_mat)
+        sse, ssr = 0, 0
+        for i in np.unique(groups_idx):
+            sse += np.sum(rmsd_mat[groups_idx==i, centers_idx[i]]**2)
+            ssr += np.sum(groups_idx==i) * rmsd_mat[centers_idx[i], center_idx]**2
+        return sse, ssr, ssr/(sse+ssr)
 
 
 def tk_file_dialog_wrapper(*args, **kwargs):
