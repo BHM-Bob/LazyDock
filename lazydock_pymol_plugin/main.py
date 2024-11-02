@@ -61,6 +61,10 @@ class GUILauncher:
                     with ui.tab_panel(lazy_plot_tab):
                         self.lazy_plot.build_gui()
 
+
+def exec_from_cli():
+    app = GUILauncher()
+
     
 if __name__ in {"__main__", "__mp_main__"}:
     # dev code
