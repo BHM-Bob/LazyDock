@@ -1,7 +1,7 @@
 '''
 Date: 2024-05-06 17:18:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-10-31 16:59:57
+LastEditTime: 2024-11-02 22:15:31
 Description: 
 '''
 
@@ -75,7 +75,7 @@ setup(
     
     entry_points={
         "console_scripts": [
-            # "lazydock=lazydock.scripts:main",
+            "lazydock-pml=lazydock_pymol_plugin.main:exec_from_cli",
         ],
     },
     
