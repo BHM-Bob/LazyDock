@@ -1,17 +1,21 @@
 '''
 Date: 2024-08-19 10:41:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-08-31 20:10:11
+LastEditTime: 2024-11-03 20:11:27
 Description: 
 '''
+import os
 from threading import Thread
 
 from lazy_dlg import LazyDLG
 from lazy_plot import LazyPlot
+from lazy_pml import LazyPml
 from lazy_pocket import LazyPocket
 # from mbapy_lite.web import TaskPool
 from nicegui import app, ui
 from pymol import cmd
+
+from _nicegui.local_file_picker import local_file_picker
 
 
 class GUILauncher:
@@ -22,6 +26,7 @@ class GUILauncher:
         self.ui_update_func = []
         ui.timer(1, self.ui_update_content_from_pymol)
         
+        self.lazy_pml = LazyPml(self)
         self.lazy_pocket = LazyPocket(self)
         self.lazy_dlg = LazyDLG(self)
         self.lazy_plot = LazyPlot(self)
@@ -39,21 +44,37 @@ class GUILauncher:
         
         for fn in self.ui_update_func:
             fn()
-        
-    def build_gui(self, ):
+            
+    async def uni_load(self):
+        paths = await local_file_picker(os.path.abspath('.'), upper_limit=None,
+                                        multiple=True, show_hidden_files=True,
+                                        file_extensions=['.pdb', '.pdbqt', '.dlg'])
+        if paths is None:
+            return ui.notify('No file selected')
+        for path in paths:
+            if path.endswith('.pdb') or path.endswith('.pdbqt'):
+                cmd.load(path)
+            elif path.endswith('.dlg'):
+                await self.lazy_dlg.pose_page.load_dlg_file(None, path=path)
+    
+    def build_gui(self):
         with ui.header(elevated=True).style('background-color: #3874c8'):
             ui.label('LazyDock | Pymol Plugin').classes('text-h4')
             ui.space()
+            ui.button('Open', on_click=self.uni_load, icon='file_open')
             ui.button('Exit', on_click=app.shutdown, icon='power')
         with ui.splitter(value=10).classes('w-full h-full') as splitter:
             with splitter.before:
                 with ui.tabs().props('vertical').classes('w-full') as tabs:
+                    lazy_pml_tab = ui.tab('Pymol')
                     lazy_pocket_tab = ui.tab('Pocket')
                     lazy_dlg_tab = ui.tab('DLG')
                     lazy_plot_tab = ui.tab('Plot')
             with splitter.after:
-                with ui.tab_panels(tabs, value=lazy_pocket_tab) \
+                with ui.tab_panels(tabs, value=lazy_pml_tab) \
                         .props('vertical').classes('w-full h-full'):
+                    with ui.tab_panel(lazy_pml_tab):
+                        self.lazy_pml.build_gui()
                     with ui.tab_panel(lazy_pocket_tab):
                         self.lazy_pocket.build_gui()
                     with ui.tab_panel(lazy_dlg_tab):
