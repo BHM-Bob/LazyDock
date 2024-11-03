@@ -149,8 +149,10 @@ class LazyPose:
             ui.label(f'{pml_name} docked Energy: {energy:10.4f} kcal/mol')
             ui.textarea().bind_value_from(self, 'now_dlg_name', lambda x: self.dlg_pose[x].get_pose(self.now_pose_name).info_string()).classes('w-full h-full flex flex-grow')
         
-    async def load_dlg_file(self, event):
-        if hasattr(event, 'name'):
+    async def load_dlg_file(self, event, path: str = None):
+        if path is not None:
+            names, contents = [os.path.basename(path)], [open(path, 'rb')]
+        elif hasattr(event, 'name'):
             names, contents = [event.name], [event.content]
         else:
             names, contents = event.names, event.contents
@@ -159,6 +161,7 @@ class LazyPose:
             if dlg_name in self.dlg_pose:
                 continue # TODO: don't kown why, will load again on same file, cause read null at the second time
             dlg_content = decode_bits_to_str(content.read())
+            content.close()
             self.dlg_pose[dlg_name] = DlgFile(content=dlg_content,
                                               sort_pdb_line_by_res=self.sort_pdb_by_res,
                                               parse2std=self.parse2std)
