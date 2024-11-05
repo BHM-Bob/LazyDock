@@ -166,7 +166,7 @@ class DlgFile(BaseInfo):
         return len(self.pose_lst)
         
     def sort_pose(self, key: Callable[[ADModel], Any] = None,
-                  inplace: bool = True, reverse: bool = False) -> None:
+                  inplace: bool = True, reverse: bool = False) -> List[ADModel]:
         if key is None:
             key = lambda x : x.energy
         if inplace:
@@ -275,6 +275,26 @@ class DlgFile(BaseInfo):
             sse += np.sum(rmsd_mat[groups_idx==i, centers_idx[i]]**2)
             ssr += np.sum(groups_idx==i) * rmsd_mat[centers_idx[i], center_idx]**2
         return sse, ssr, ssr/(sse+ssr)
+    
+    def get_top_k_pose(self, method: str = 'energy', k: int = 1, rmsd_mat: np.ndarray = None,
+                       groups_idx: np.ndarray = None) -> List[ADModel]:
+        if method == 'energy':
+            return self.sort_pose(key=lambda x: x.energy, inplace=False)[:k]
+        elif method == 'rmsd':
+            if rmsd_mat is None:
+                rmsd_mat = self.rmsd('numpy')
+            if groups_idx is None:
+                raise ValueError("groups_idx must be provided if method is 'rmsd'")
+            rmsd_vec = rmsd_mat.sum(axis=0)
+            idx_vec = np.arange(rmsd_vec.shape[0])
+            top_poses = {}
+            for group_idx in np.unique(groups_idx):
+                sub_idx, sub_rmsd_vec = idx_vec[groups_idx==group_idx], rmsd_vec[groups_idx==group_idx]
+                idx = sub_idx[np.argsort(sub_rmsd_vec)[:k]] # increasing order
+                top_poses[group_idx] = [self.pose_lst[i] for i in idx]
+            return top_poses
+        else:
+            raise ValueError(f'Unsupported method: {method}')
 
 
 def tk_file_dialog_wrapper(*args, **kwargs):
@@ -326,7 +346,34 @@ if __name__ == '__main__':
     print(cmd.get_pdbstr('std'))
     ligand = Chem.MolFromPDBBlock(cmd.get_pdbstr('std'), removeHs=True, sanitize=False)
     
-    taskpool = TaskPool('process', 4).start()
-    dlg = DlgFile(path='data_tmp/dlg/200run.dlg', sort_pdb_line_by_res=False, parse2std=True)
-    dlg.rmsd('rdkit', taskpool=taskpool, verbose=True)
-    pass
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+    from mbapy_lite.stats import pca
+    dlg = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=True)
+    dlg.sort_pose(inplace=True)
+    energies = np.array([pose.energy for pose in dlg.pose_lst])
+    rmsd = dlg.rmsd('numpy')
+    
+    sns.clustermap(rmsd)
+    plt.show()
+    
+    np.random.seed(3407)
+    rs = []
+    for k in range(2, 7):
+        groups_idx = dlg.rmsd_cluster(k)
+        sse, ssr, r = dlg.calcu_SSE_SSR(rmsd, groups_idx)
+        rs.append(r)
+    plt.plot(list(range(2, 7)), rs)
+    plt.show()
+    
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    group_cmaps = ['Reds', 'Blues', 'Greens']
+    groups_idx = dlg.rmsd_cluster(len(group_cmaps))
+    top_poses = dlg.get_top_k_pose(method='rmsd', k=1, rmsd_mat=rmsd, groups_idx=groups_idx)
+    dots = pca(rmsd, 3)
+    for i, group_cmap in enumerate(group_cmaps):
+        ax.scatter(dots[groups_idx==i, 0], dots[groups_idx==i, 1], dots[groups_idx==i, 2],
+                   c=energies[groups_idx==i], cmap=group_cmap, alpha=0.4, s=40)
+    plt.show()
+    
