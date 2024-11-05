@@ -1,10 +1,10 @@
 '''
 Date: 2024-10-11 10:33:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-10-11 19:33:45
+LastEditTime: 2024-11-05 20:08:43
 Description: 
 '''
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,7 @@ else:
     from .interaction_utils import sort_func
     
     
-def get_atom_level_interactions(mol, receptor_chain: str, ligand_chain: str, cutoff: float = 4.):
+def get_atom_level_interactions(mol, receptor_chain: str, ligand_chain: str, mode: List[str], cutoff: float = 4.):
     """
     """
     interactions = {}
@@ -71,12 +71,17 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str],
     return interaction_df
 
 
-def calcu_receptor_poses_interaction(receptor: str, poses: List[str], cutoff: float = 4., **kwargs):
+SUPPORTED_MODE = ['Hydrophobic Interactions', 'Hydrogen Bonds', 'Water Bridges', 'Salt Bridges', 'pi-Stacking', 'pi-Cation Interactions', 'Halogen Bonds', 'Metal Complexes']
+
+
+def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Union[str, List[str]] = 'all', cutoff: float = 4., **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses using PLIP-python.
     Parameters:
         - receptor (str): receptor pymol name
         - poses (List[str]):  ligand pymol names
+        - mode (Union[str, List[str]]): interaction types to be calculated, default 'all' to include all modes., 
+            supported: Hydrophobic Interactions, Hydrogen Bonds, Water Bridges, Salt Bridges, pi-Stacking, pi-Cation Interactions, Halogen Bonds, Metal Complexes
         - cutoff (float): cutoff distance, default 4
         
     Returns:
@@ -89,6 +94,14 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], cutoff: fl
         interaction_df (pd.DataFrame): , interactions between receptor and ligand, in the format of ligand-residue-residue matrix, with the value of each cell is the interaction score between two atoms.
             interaction_df.loc[ligand_res, receptor_res] = score
     """
+    # set mode
+    if mode == 'all':
+        mode = SUPPORTED_MODE
+    elif isinstance(mode, str) and mode in SUPPORTED_MODE:
+        mode = [mode]
+    elif any(m not in SUPPORTED_MODE for m in mode):
+        raise ValueError(f'Unsupported mode: {mode}, supported: {SUPPORTED_MODE}')
+    # else: mode = mode
     # prepare interactions
     receptor_chain = cmd.get_chains(receptor)[0]
     all_interactions, interaction_df = {}, pd.DataFrame()
@@ -100,10 +113,13 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], cutoff: fl
         cmd.select(sele_complex, f'{ligand} or {receptor}')
         mol = PDBComplex()
         mol.load_pdb(cmd.get_pdbstr(sele_complex), as_string=True)
-        mol.analyze()
-        all_interactions[ligand] = get_atom_level_interactions(mol, receptor_chain, ligand_chain, cutoff)
-        # merge interactions by res
-        merge_interaction_df(all_interactions[ligand], interaction_df, cutoff)
+        try:
+            mol.analyze()
+            all_interactions[ligand] = get_atom_level_interactions(mol, receptor_chain, ligand_chain, mode, cutoff)
+            # merge interactions by res
+            merge_interaction_df(all_interactions[ligand], interaction_df, mode, cutoff)
+        except Exception as e:
+            print(f'Error in {ligand}: {e}, skip this pose.')
     if not interaction_df.empty:
         # sort res
         interaction_df.sort_index(axis=0, inplace=True, key=sort_func)
