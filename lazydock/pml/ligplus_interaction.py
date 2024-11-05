@@ -53,7 +53,7 @@ def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
     ligplus_params = os.path.join(ligplus_dir, 'lib', 'params')
     # run LigPlus in temporary directory
     with tempfile.TemporaryDirectory() as w_dir:
-        w_dir += '/'
+        w_dir += '/' # because hbplus just append file name to w_dir
         # save complex_pdbstr into w_dir
         complex_path = os.path.join(w_dir, 'complex.pdb')
         opts_file(complex_path, 'w', data=complex_pdbstr)
