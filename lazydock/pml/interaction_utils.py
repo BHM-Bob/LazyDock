@@ -1,10 +1,10 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-10-10 16:19:33
+LastEditTime: 2024-11-05 17:54:58
 Description: 
 '''
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -210,13 +210,15 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[str, str, str, 
     return interaction_df
 
 
-
 def sort_func(index: pd.Index):
     index = index.str.split(':')
     return list(map(lambda x: (x[0], int(x[1]), x[2]), index))
 
 
-def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: int = 0,
+SUPPORTED_MODE = ['bond distances', 'polar contact', 'all distance_exclusion', 'centroids', 'pi-pi and pi-cation', 'pi-pi interactions', 'pi-cation interactions', 'ratio distance_exclusion']
+
+
+def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str = 'all',
                                      cutoff: float = 4., nagetive_factor: float = -1.):
     """
     calcu interactions between one receptor and one ligand with many poses.
@@ -224,7 +226,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: int 
     Parameters:
         receptor: str, receptor pymol name
         poses: list of str, ligand pymol names
-        mode: int, mode of cmd.distance
+        mode: str or list of str, mode of cmd.distance, default is 'all', supported modes are: 'bond distances', 'polar contact', 'all distance_exclusion', 'centroids', 'pi-pi and pi-cation', 'pi-pi interactions', 'pi-cation interactions', 'ratio distance_exclusion'
         cutoff: float, cutoff of cmd.distance
         nagetive_factor: float, factor to multiply the distance value for interations between acceptor and acceptor, and donor and donor.
         
@@ -234,6 +236,15 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: int 
         interaction_df (pd.DataFrame): , interactions between receptor and ligand, in the format of ligand-residue-residue matrix, with the value of each cell is the interaction score between two atoms.
             interaction_df.loc[ligand_res, receptor_res] = score
     """
+    # set mode
+    if mode == 'all':
+        mode = 0
+    elif isinstance(mode, str):
+        if mode not in SUPPORTED_MODE:
+            raise ValueError(f'mode {mode} is not supported, supported modes are {SUPPORTED_MODE}')
+        mode = SUPPORTED_MODE.index(mode) + 1
+    else:
+        raise ValueError(f'mode {mode} is not supported, only support all or a value in {SUPPORTED_MODE}')
     # prepare interactions
     all_interactions, interaction_df = {}, pd.DataFrame()
     # select receptor
@@ -316,4 +327,5 @@ if __name__ == '__main__':
     cmd.select('sele1', 'RECEPTOR')
     cmd.select('sele2', 'LIGAND')
     atoms, xyz2atom, residues, interactions = calcu_atom_level_interactions('sele1', 'sele2')
-    calcu_receptor_poses_interaction('RECEPTOR', ['LIGAND'])
+    interactions, interaction_df = calcu_receptor_poses_interaction('RECEPTOR', ['LIGAND'], mode='polar contact')
+    pass
