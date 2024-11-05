@@ -17,16 +17,22 @@ from pymol import api, cmd
 from lazydock.pml.autodock_utils import DlgFile, MyFileDialog
 from lazydock.pml.interaction_utils import \
     calcu_receptor_poses_interaction as calc_pml_interaction
+from lazydock.pml.interaction_utils import SUPPORTED_MODE as MODE_PML
 from lazydock.pml.interaction_utils import filter_interaction_df
+from lazydock.pml.ligplus_interaction import \
+    calcu_receptor_poses_interaction as calc_ligplus_interaction
+from lazydock.pml.ligplus_interaction import SUPPORTED_MODE as MODE_LIGPLUS
 
 try:
     from lazydock.pml.plip_interaction import \
         calcu_receptor_poses_interaction as calc_plip_interaction
+    from lazydock.pml.plip_interaction import SUPPORTED_MODE as MODE_PLIP
 except ImportError:
     # if plip is not installed, use interaction_utils instead
     put_err('plip is not installed, just use pymol as plip instead')
     from lazydock.pml.interaction_utils import \
         calcu_receptor_poses_interaction as calc_plip_interaction
+    MODE_PLIP = MODE_PML
 
 from lazydock.utils import uuid4
 
@@ -357,6 +363,12 @@ class InteractionPage(LazyPose):
         self.sele_dlg = None
         # interaction
         self.interaction_method = 'pymol'
+        self.support_mode: Dict[str, List[str]] = {
+            'pymol': MODE_PML,
+            'PLIP': MODE_PLIP,
+            'LigPlus': MODE_LIGPLUS,
+        }
+        self.ui_mode = None
         self.interactions = None
         self.interaction_df = None
         self.interaction_mode = 0
@@ -396,6 +408,8 @@ class InteractionPage(LazyPose):
             calc_fn = calc_pml_interaction
         elif self.interaction_method == 'PLIP':
             calc_fn = calc_plip_interaction
+        elif self.interaction_method == 'LigPlus':
+            calc_fn = calc_ligplus_interaction
         else:
             assert False, f'Unknown interaction method: {self.interaction_method}'
         self.interactions, self.interaction_df = calc_fn(self.sele_molecule or self.sele_selection, ligands,
@@ -432,6 +446,18 @@ class InteractionPage(LazyPose):
                                     annot=True, fmt='.2f', vmax=vmax, vmin=vmin,
                                     linewidths=0.5, linecolor='black', cbar_kws={"shrink": 0.5})
                 plt.tight_layout()
+                
+    def _handle_method_change(self, e):
+        self.ui_mode.set_options(self.support_mode[self.interaction_method])
+        # set multi-select
+        if self.interaction_method in {'LigPlus', 'PLIP'}:
+            self.ui_mode.multiple = True
+            self.ui_mode.props['multiple'] = True
+            self.ui_mode.props['use-chips'] = True
+        else:
+            self.ui_mode.multiple = False
+            self.ui_mode.props['multiple'] = False
+            self.ui_mode.props['use-chips'] = False
         
     def build_gui(self):
         with ui.splitter(value = 20).classes('w-full h-full') as splitter:
@@ -454,9 +480,9 @@ class InteractionPage(LazyPose):
                 with ui.card().classes('w-full'):
                     with ui.column().classes('w-full'):
                         ui.label('interaction calculation config').classes('w-full')
-                        ui.select(['pymol', 'PLIP'], value=self.interaction_method).bind_value_to(self, 'interaction_method')
+                        ui.select(['pymol', 'PLIP', 'LigPlus'], value=self.interaction_method).bind_value_to(self, 'interaction_method').on_value_change(self._handle_method_change)
                         ui.number('distance cutoff', value=self.distance_cutoff).bind_value_to(self, 'distance_cutoff')
-                        ui.select(options = list(range(9)), value = 0).bind_value_to(self, 'interaction_mode')
+                        self.ui_mode = ui.select(options = self.support_mode[self.interaction_method]).bind_value_to(self, 'interaction_mode')
                         ui.number('nagetive factor', value=self.nagetive_factor).bind_value_to(self, 'nagetive_factor')
                 # plot config
                 with ui.card().classes('w-full'):
