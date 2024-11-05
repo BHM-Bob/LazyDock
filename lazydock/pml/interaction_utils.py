@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-05 17:54:58
+LastEditTime: 2024-11-05 21:23:41
 Description: 
 '''
 from typing import Dict, List, Tuple, Union
@@ -215,7 +215,7 @@ def sort_func(index: pd.Index):
     return list(map(lambda x: (x[0], int(x[1]), x[2]), index))
 
 
-SUPPORTED_MODE = ['bond distances', 'polar contact', 'all distance_exclusion', 'centroids', 'pi-pi and pi-cation', 'pi-pi interactions', 'pi-cation interactions', 'ratio distance_exclusion']
+SUPPORTED_MODE = ['all', 'bond distances', 'polar contact', 'all distance_exclusion', 'centroids', 'pi-pi and pi-cation', 'pi-pi interactions', 'pi-cation interactions', 'ratio distance_exclusion']
 
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str = 'all',
@@ -237,12 +237,10 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str 
             interaction_df.loc[ligand_res, receptor_res] = score
     """
     # set mode
-    if mode == 'all':
-        mode = 0
-    elif isinstance(mode, str):
+    if isinstance(mode, str):
         if mode not in SUPPORTED_MODE:
             raise ValueError(f'mode {mode} is not supported, supported modes are {SUPPORTED_MODE}')
-        mode = SUPPORTED_MODE.index(mode) + 1
+        mode = SUPPORTED_MODE.index(mode)
     else:
         raise ValueError(f'mode {mode} is not supported, only support all or a value in {SUPPORTED_MODE}')
     # prepare interactions
