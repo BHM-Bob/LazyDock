@@ -10,23 +10,24 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from mbapy_lite.base import put_err
 from mbapy_lite.file import decode_bits_to_str, opts_file
-from mbapy_lite.plot import save_show
+from mbapy_lite.plot import get_palette, save_show
+from mbapy_lite.stats import pca
 from nicegui import ui
 from pymol import api, cmd
 
 from lazydock.pml.autodock_utils import DlgFile, MyFileDialog
+from lazydock.pml.interaction_utils import SUPPORTED_MODE as MODE_PML
 from lazydock.pml.interaction_utils import \
     calcu_receptor_poses_interaction as calc_pml_interaction
-from lazydock.pml.interaction_utils import SUPPORTED_MODE as MODE_PML
 from lazydock.pml.interaction_utils import filter_interaction_df
+from lazydock.pml.ligplus_interaction import SUPPORTED_MODE as MODE_LIGPLUS
 from lazydock.pml.ligplus_interaction import \
     calcu_receptor_poses_interaction as calc_ligplus_interaction
-from lazydock.pml.ligplus_interaction import SUPPORTED_MODE as MODE_LIGPLUS
 
 try:
+    from lazydock.pml.plip_interaction import SUPPORTED_MODE as MODE_PLIP
     from lazydock.pml.plip_interaction import \
         calcu_receptor_poses_interaction as calc_plip_interaction
-    from lazydock.pml.plip_interaction import SUPPORTED_MODE as MODE_PLIP
 except ImportError:
     # if plip is not installed, use interaction_utils instead
     put_err('plip is not installed, just use pymol as plip instead')
@@ -279,19 +280,26 @@ class ResultPage(LazyPose):
         self._app = app
         self._app.ui_update_func.append(self.ui_update_ui)
         self.energy_fig = None
-        self.rmsd_fig = None
+        self.rmsd_heatmap_fig = None
+        self.cluster_fig = None
+        self.cluster_scatter_palette = None
         self.energy_data = None
-        self.rmsd_data = None
+        self.rmsd_mat = None
         # select receptor
         self.ui_dlg = None
         self.sele_dlg = None
+        # cluster
+        self.cluster_n = 2
+        self.max_cluster_n = 7
         
     def ui_update_ui(self):
         self.ui_dlg.set_options(list(self._app.lazy_dlg.pose_page.dlg_pose.keys()))
         
-    def calculate_energy_curve(self):
+    @ui.refreshable
+    def plot_energy_curve(self):
+        # calculate energy curve
         if self.sele_dlg is None:
-            return ui.notify('Please select a DLG')
+            return 
         dlg_pose: DlgFile = self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]
         idx_energy = [[pose.run_idx, pose.energy] for pose in dlg_pose.pose_lst]
         sorted_energies_by_idx = list(map(lambda x: x[1], sorted(idx_energy, key=lambda x: x[0])))
@@ -299,9 +307,7 @@ class ResultPage(LazyPose):
         pooled_energies_by_idx = [min(sorted_energies_by_idx[:i]) for i in range(1, len(sorted_energies_by_idx)+1)]
         self.energy_data = (sorted_energies_by_idx, sorted_energies, pooled_energies_by_idx)
         ui.notify(f'Energy curve calculated for {len(dlg_pose.pose_lst)} poses, [{min(sorted_energies_by_idx)} ~ {max(sorted_energies_by_idx)}]')
-        
-    @ui.refreshable
-    def plot_energy_curve(self):
+        # plot energy curve
         plt.close(self.energy_fig)
         self.energy_fig = None
         if self.energy_data is not None:
@@ -332,7 +338,71 @@ class ResultPage(LazyPose):
                 ax_histy.tick_params(axis='both', which='minor', labelsize=12)
                 ax.legend(fontsize=12)
                 plt.tight_layout()
+ 
+    async def calcu_RMSD(self):
+        if self.sele_dlg is None:
+            return ui.notify('Please select a receptor and a selection first')
+        dlg_pose: DlgFile = self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]
+        self.rmsd_mat = dlg_pose.rmsd('numpy')
+        ui.notify(f'RMSD mat calculated for {len(dlg_pose.pose_lst)} poses')
+
+    @ui.refreshable
+    def plot_cluster_curve(self):
+        if self.sele_dlg is None or self.rmsd_mat is None:
+            return 
+        dlg_pose: DlgFile = self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]
+        rs = []
+        for k in range(2, self.max_cluster_n+1):
+            groups_idx = dlg_pose.rmsd_cluster(k)
+            sse, ssr, r = dlg_pose.calcu_SSE_SSR(self.rmsd_mat, groups_idx)
+            rs.append(r)
+        plt.close(self.cluster_fig)
+        with ui.pyplot(close=False, figsize=(8, 6)) as fig:
+            self.cluster_fig = fig.fig
+            fig.fig.gca().plot(list(range(2, self.max_cluster_n+1)), rs)
+        fig.update()
+
+    @ui.refreshable
+    def plot_cluster_2d_scatter(self):
+        if self.sele_dlg is None or self.rmsd_mat is None:
+            return 
+        dlg_pose: DlgFile = self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]
+        groups_idx = dlg_pose.rmsd_cluster(int(self.cluster_n))
+        dots = pca(self.rmsd_mat, 2)
+        plt.close(self.cluster_fig)
+        with ui.pyplot(close=False, figsize=(10, 8)) as fig:
+            ax = fig.fig.gca()
+            self.cluster_fig = fig.fig
+            for i, c in zip(np.unique(groups_idx), get_palette(len(np.unique(groups_idx)), self.cluster_scatter_palette)):
+                ax.scatter(dots[groups_idx==i, 0], dots[groups_idx==i, 1], c=c, alpha=0.3, label=f'Cluster {i}')
+            ax.legend()
+            ax.set_xlabel('PC1', fontdict={'size': 14})
+            ax.set_ylabel('PC2', fontdict={'size': 14})
+            ax.tick_params(axis='both', which='major', labelsize=12)
+            ax.set_title(f'PCA of RMSD for {self.sele_dlg}', fontdict={'size': 16})
+        fig.update()
         
+    @ui.refreshable
+    def plot_cluster_3d_scatter(self):
+        if self.sele_dlg is None or self.rmsd_mat is None:
+            return 
+        dlg_pose: DlgFile = self._app.lazy_dlg.pose_page.dlg_pose[self.sele_dlg]
+        groups_idx = dlg_pose.rmsd_cluster(int(self.cluster_n))
+        dots = pca(self.rmsd_mat, 3)
+        plt.close(self.cluster_fig)
+        with ui.pyplot(close=False, figsize=(10, 8)) as fig:
+            ax = fig.fig.add_subplot(projection='3d')
+            self.cluster_fig = fig.fig
+            for i, c in zip(np.unique(groups_idx), get_palette(len(np.unique(groups_idx)), self.cluster_scatter_palette)):
+                ax.scatter(dots[groups_idx==i, 0], dots[groups_idx==i, 1], dots[groups_idx==i, 2], c=c, alpha=0.3, label=f'Cluster {i}')
+            ax.legend()
+            ax.set_xlabel('PC1', fontdict={'size': 14})
+            ax.set_ylabel('PC2', fontdict={'size': 14})
+            ax.set_zlabel('PC3', fontdict={'size': 14})
+            ax.tick_params(axis='both', which='major', labelsize=12)
+            ax.set_title(f'PCA of RMSD for {self.sele_dlg}', fontdict={'size': 16})
+        plt.show()
+            
     def build_gui(self):
         with ui.splitter(value = 20).classes('w-full h-full') as splitter:
             with splitter.before:
@@ -344,10 +414,27 @@ class ResultPage(LazyPose):
                                                 label = 'select a dlg').bind_value_to(self, 'sele_dlg').classes('w-full').props('use-chips')
             # vitualization
             with splitter.after:
-                with ui.row().classes('w-full'):
-                    ui.button('calculate energy curve', on_click=self.calculate_energy_curve).props('no-caps')
-                    ui.button('plot energy curve', on_click=self.plot_energy_curve.refresh).props('no-caps')
-                self.plot_energy_curve()
+                with ui.tabs().classes('w-full').props('align=left active-bg-color=blue') as tabs:
+                    energy_tab = ui.tab('Energy Curve').props('no-caps')
+                    cluster_tab = ui.tab('RMSD Cluster').props('no-caps')
+                with ui.tab_panels(tabs, value=energy_tab).classes('w-full'):
+                    with ui.tab_panel(energy_tab):
+                        ui.button('plot energy curve', on_click=self.plot_energy_curve.refresh).props('no-caps')
+                        self.plot_energy_curve()
+                    with ui.tab_panel(cluster_tab):
+                        with ui.row().classes('w-full flex flex-grow'):
+                            ui.button('calculate RMSD', on_click=self.calcu_RMSD).props('no-caps')
+                            ui.number(label='cluster number', value=self.cluster_n, min=2, max=10, step=1).classes('flex flex-grow').bind_value_to(self, 'cluster_n')
+                            ui.number(label='max cluster number', value=self.max_cluster_n, min=2, max=10, step=1).classes('flex flex-grow').bind_value_to(self,'max_cluster_n')
+                            avaliabel_palette = ['hls', 'Set1', 'Set2', 'Set3', 'Dark2', 'Paired', 'Pastel1', 'Pastel2', 'tab10', 'tab20', 'tab20b', 'tab20c']
+                            ui.select(label='palette', value='hls', options=avaliabel_palette).classes('flex flex-grow').bind_value_to(self, 'cluster_scatter_palette')
+                        with ui.row().classes('w-full flex flex-grow'):
+                            ui.button('plot cluster SSE/SST curve', on_click=self.plot_cluster_curve.refresh).props('no-caps')
+                            ui.button('plot cluster 2D scatter', on_click=self.plot_cluster_2d_scatter.refresh).props('no-caps')
+                            ui.button('plot cluster 3D scatter', on_click=self.plot_cluster_3d_scatter.refresh).props('no-caps')
+                        self.plot_cluster_curve()
+                        self.plot_cluster_2d_scatter()
+                        self.plot_cluster_3d_scatter()
 
 
 class InteractionPage(LazyPose):
@@ -467,23 +554,23 @@ class InteractionPage(LazyPose):
                     with ui.column().classes('w-full'):
                         ui.label('select a receptor')
                         self.ui_molecule = ui.select(self._app._now_molecule,
-                                                    label = 'select a molecule').bind_value_to(self, 'sele_molecule').classes('w-full').props('use-chips')
+                                                    label='select a molecule').bind_value_to(self, 'sele_molecule').classes('w-full').props('use-chips')
                         self.ui_sele = ui.select(self._app._now_selection,
-                                                label = 'select a selection').bind_value_to(self, 'sele_selection').classes('w-full').props('use-chips')
+                                                label='select a selection').bind_value_to(self, 'sele_selection').classes('w-full').props('use-chips')
                 # choose ligand
                 with ui.card().classes('w-full'):
                     with ui.column().classes('w-full'):
                         ui.label('select a ligand').classes('w-full')
                         self.ui_dlg = ui.select(self._app.lazy_dlg.pose_page.now_dlg_name or [],
-                                                label = 'select a dlg').bind_value_to(self, 'sele_dlg').classes('w-full').props('use-chips')
+                                                label='select a dlg').bind_value_to(self, 'sele_dlg').classes('w-full').props('use-chips')
                 # interaction calculation config
                 with ui.card().classes('w-full'):
                     with ui.column().classes('w-full'):
                         ui.label('interaction calculation config').classes('w-full')
-                        ui.select(['pymol', 'PLIP', 'LigPlus'], value=self.interaction_method).bind_value_to(self, 'interaction_method').on_value_change(self._handle_method_change)
-                        ui.number('distance cutoff', value=self.distance_cutoff).bind_value_to(self, 'distance_cutoff')
-                        self.ui_mode = ui.select(options = self.support_mode[self.interaction_method]).bind_value_to(self, 'interaction_mode')
-                        ui.number('nagetive factor', value=self.nagetive_factor).bind_value_to(self, 'nagetive_factor')
+                        ui.select(['pymol', 'PLIP', 'LigPlus'], label='method', value=self.interaction_method).classes('w-full').bind_value_to(self, 'interaction_method').on_value_change(self._handle_method_change)
+                        ui.number('distance cutoff', value=self.distance_cutoff).classes('w-full').bind_value_to(self, 'distance_cutoff')
+                        self.ui_mode = ui.select(options=self.support_mode[self.interaction_method], label='mode').classes('w-full').bind_value_to(self, 'interaction_mode')
+                        ui.number('nagetive factor', value=self.nagetive_factor).classes('w-full').bind_value_to(self, 'nagetive_factor')
                 # plot config
                 with ui.card().classes('w-full'):
                     with ui.column().classes('w-full'):
@@ -562,5 +649,5 @@ if __name__ in {"__main__", "__mp_main__"}:
     cmd.load('data_tmp/pdb/RECEPTOR.pdb', 'receptor')
     
     from main import GUILauncher
-    GUILauncher()
+    GUILauncher(None, 'process', 4)
     
