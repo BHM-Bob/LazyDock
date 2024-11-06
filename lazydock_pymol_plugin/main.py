@@ -21,7 +21,7 @@ from pymol import cmd
 
 
 class GUILauncher:
-    def __init__(self, app = None):
+    def __init__(self, app = None, n_threads=4):
         
         self._now_molecule = cmd.get_names_of_type('object:molecule') or []
         self._now_selection = cmd.get_names_of_type('selection') + ['sele']
@@ -35,6 +35,7 @@ class GUILauncher:
         
         self.build_gui()
         
+        self.taskpool = TaskPool('threads', n_threads).start()
         self.host = Thread(name = 'GUI-Host', target=ui.run,
                             kwargs = dict(title='LazyDock', host = 'localhost', port=8090, reload = False),
                             daemon=False)
@@ -75,7 +76,7 @@ class GUILauncher:
             ui.button('Exit', on_click=app.shutdown, icon='power')
         with ui.splitter(value=10).classes('w-full h-full') as splitter:
             with splitter.before:
-                with ui.tabs().props('vertical').classes('w-full') as tabs:
+                with ui.tabs().props('vertical align=left active-bg-color=blue').classes('w-full') as tabs:
                     lazy_pml_tab = ui.tab('Pymol')
                     lazy_pocket_tab = ui.tab('Pocket')
                     lazy_dlg_tab = ui.tab('DLG')
