@@ -1,7 +1,7 @@
 '''
 Date: 2024-10-11 10:33:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-05 20:08:43
+LastEditTime: 2024-11-06 10:08:24
 Description: 
 '''
 from typing import Dict, List, Tuple, Union
@@ -117,7 +117,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
             mol.analyze()
             all_interactions[ligand] = get_atom_level_interactions(mol, receptor_chain, ligand_chain, mode, cutoff)
             # merge interactions by res
-            merge_interaction_df(all_interactions[ligand], interaction_df, mode, cutoff)
+            merge_interaction_df(all_interactions[ligand], interaction_df, cutoff)
         except Exception as e:
             print(f'Error in {ligand}: {e}, skip this pose.')
     if not interaction_df.empty:
