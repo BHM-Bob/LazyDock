@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-10-31 17:00:54
+ * @LastEditTime: 2024-11-06 22:14:37
  * @Description: 
 -->
 
@@ -42,7 +42,7 @@
 
 <h2 style="text-align:center;">Get start</h2>
 
-#### install 
+## install 
 Now, lazydock only support pypi install:  
 ```
 pip install lazydock
@@ -52,8 +52,13 @@ pip install lazydock
 ## Contains
 
 ### pymol utils - pml
-- [autodock](pml/autodock_utils.md): parse autodock results to pdb pose.  
-- [interaction](pml/interaction_utils.md): calculate interactions between receptor and poses.  
+#### autodock
+- [autodock](pml/autodock_utils.md): parse autodock results to pdb pose. 
+#### interaction 
+- [pymol](pml/interaction_utils.md): calculate interactions between receptor and poses.  
+- [plip](pml/plip_interaction.md): calculate interactions between receptor and poses.
+- [ligplus](pml/ligplus_interaction.md): calculate interactions between receptor and poses.
+#### pymol utils
 - [server](pml/server.md): provide a server-client interface to communicate with pymol.  
 - [shader](pml/shader.md): provide a shader for pymol. 
 - [RRCS](pml/rrcs.md)  
@@ -65,8 +70,17 @@ pip install lazydock
 - [model_eval](web/model_eval.md): evaluate model build result.  
 - [gen_box](web/gen_box.md): generate pocket/gridbox info.
 
+### lazydock pymol plugin
+#### command line user
+- a script entry named `lazydock-pml` is provided in the python/Scripts folder.
+#### pymol user
+- install the plugin in pymol manually.
+
+
+
 
 ## release note
+- [0.6.0](release_note/0.6.0.md)
 - [0.5.0](release_note/0.5.0.md)
 - [0.4.0](release_note/0.4.0.md)
 - [0.3.0](release_note/0.3.0.md)
