@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-05 21:23:41
+LastEditTime: 2024-11-07 22:32:15
 Description: 
 '''
 from typing import Dict, List, Tuple, Union
@@ -219,16 +219,18 @@ SUPPORTED_MODE = ['all', 'bond distances', 'polar contact', 'all distance_exclus
 
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str = 'all',
-                                     cutoff: float = 4., nagetive_factor: float = -1.):
+                                     cutoff: float = 4., nagetive_factor: float = -1.,
+                                     only_return_inter: bool = False):
     """
     calcu interactions between one receptor and one ligand with many poses.
     
     Parameters:
-        receptor: str, receptor pymol name
-        poses: list of str, ligand pymol names
-        mode: str or list of str, mode of cmd.distance, default is 'all', supported modes are: 'bond distances', 'polar contact', 'all distance_exclusion', 'centroids', 'pi-pi and pi-cation', 'pi-pi interactions', 'pi-cation interactions', 'ratio distance_exclusion'
-        cutoff: float, cutoff of cmd.distance
-        nagetive_factor: float, factor to multiply the distance value for interations between acceptor and acceptor, and donor and donor.
+        - receptor: str, receptor pymol name
+        - poses: list of str, ligand pymol names
+        - mode: str or list of str, mode of cmd.distance, default is 'all', supported modes are: 'bond distances', 'polar contact', 'all distance_exclusion', 'centroids', 'pi-pi and pi-cation', 'pi-pi interactions', 'pi-cation interactions', 'ratio distance_exclusion'
+        - cutoff: float, cutoff of cmd.distance
+        - nagetive_factor: float, factor to multiply the distance value for interations between acceptor and acceptor, and donor and donor.
+        - only_return_inter: bool, whether to only return interactions in interactions dict, default is False.
         
     Returns:
         interactions (dict): interactions between receptor and ligand, in the format of {'ligand': [xyz2atom, residues, interactions]}, where xyz2atom is a dict, residues is a dict, interactions is a dict.
@@ -269,7 +271,9 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str 
         interaction_df.fillna(0, inplace=True)
     else:
         return None, None
-    return interactions, interaction_df
+    if only_return_inter:
+        all_interactions = {k: v[-1] for k, v in all_interactions.items()}
+    return all_interactions, interaction_df
 
 
 def filter_interaction_df(interaction_df: pd.DataFrame, colum_axis_min: float = None,
@@ -326,4 +330,14 @@ if __name__ == '__main__':
     cmd.select('sele2', 'LIGAND')
     atoms, xyz2atom, residues, interactions = calcu_atom_level_interactions('sele1', 'sele2')
     interactions, interaction_df = calcu_receptor_poses_interaction('RECEPTOR', ['LIGAND'], mode='polar contact')
+
+    from lazydock.pml.autodock_utils import DlgFile
+    dlg = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=True)
+    dlg.sort_pose()
+    pose_lst = []
+    for i, pose in enumerate(dlg.pose_lst[:10]):
+        pose_lst.append(f'ligand_{i}')
+        cmd.read_pdbstr(pose.as_pdb_string(), pose_lst[-1])
+        cmd.alter(f'ligand_{i}', 'type="HETATM"')
+    interactions, interaction_df = calcu_receptor_poses_interaction('RECEPTOR', pose_lst)
     pass
