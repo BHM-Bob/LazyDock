@@ -46,7 +46,7 @@ def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
     # set ligplus lib path
     if platform.platform().startswith('Windows'):
         ligplus_lib = os.path.join(ligplus_dir, 'lib', 'exe_win')
-    elif platform.platform() == 'Linux':
+    elif platform.platform().startswith('Linux'):
         ligplus_lib = os.path.join(ligplus_dir, 'lib', 'exe_linux')
     else:
         raise ValueError(f'Unsupported platform: {platform.platform()}')
