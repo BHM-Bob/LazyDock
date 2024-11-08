@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-07 22:32:15
+LastEditTime: 2024-11-08 21:29:40
 Description: 
 '''
 from typing import Dict, List, Tuple, Union
@@ -220,7 +220,7 @@ SUPPORTED_MODE = ['all', 'bond distances', 'polar contact', 'all distance_exclus
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str = 'all',
                                      cutoff: float = 4., nagetive_factor: float = -1.,
-                                     only_return_inter: bool = False):
+                                     only_return_inter: bool = False, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses.
     
