@@ -112,6 +112,9 @@ class ADModel(BaseInfo):
         if self.coords is None or only_bb != self.coords_only_bb:
             self.coords_only_bb = only_bb
             self.coords = np.array([list(map(float, line[6:9])) for line in self.pdb_atoms if line[2] in ['C', 'N', 'O', 'CA'] or not only_bb])
+        if self.coords.shape[0] == 0:
+            # considerate that atom name may not be 'C', 'N', 'O', 'CA', try to use last column
+            self.coords = np.array([list(map(float, line[6:9])) for line in self.pdb_atoms if line[-1] in ['C', 'N', 'O', 'CA'] or not only_bb])
         return self.coords
     
     def calcu_rmsd_by_coords(self, other: 'ADModel', only_bb: bool = True):
