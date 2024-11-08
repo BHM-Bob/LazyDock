@@ -113,6 +113,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
         cmd.select(sele_complex, f'{ligand} or {receptor}')
         mol = PDBComplex()
         mol.load_pdb(cmd.get_pdbstr(sele_complex), as_string=True)
+        cmd.delete(sele_complex) # this do not delete receptor and ligand, only complex
         try:
             mol.analyze()
             all_interactions[ligand] = get_atom_level_interactions(mol, receptor_chain, ligand_chain, mode, cutoff)
