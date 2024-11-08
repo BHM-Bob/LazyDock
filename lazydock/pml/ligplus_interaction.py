@@ -1,20 +1,20 @@
 import os
-import re
-import shutil
-import tempfile
-from typing import Dict, List, Optional, Tuple, Union
 import platform
+import re
+import tempfile
+import time
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
-from pymol import cmd
 from mbapy_lite.file import opts_file
 from mbapy_lite.web import TaskPool
+from pymol import cmd
 
 if __name__ == '__main__':
+    from lazydock import config
     from lazydock.pml.interaction_utils import sort_func
     from lazydock.utils import uuid4
-    from lazydock import config
 else:
     from .. import config
     from ..utils import uuid4
@@ -192,10 +192,13 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_di
     for ligand in poses:
         # calcu interaction
         all_interactions[ligand] = run_ligplus(ligplus_dir, receptor, ligand, mode=mode, cutoff=cutoff, taskpool=taskpool)
+        # wait for taskpool
+        while taskpool is not None and not taskpool.count_waiting_tasks() > 0:
+            time.sleep(0.1)
     # merge interactions by res
     for ligand in all_interactions:
         if taskpool is not None:
-            all_interactions[ligand] = taskpool.query_task(all_interactions[ligand], True, 9999)
+            all_interactions[ligand] = taskpool.query_task(all_interactions[ligand], True, 10**8)
         # merge interactions by res
         merge_interaction_df(all_interactions[ligand], interaction_df, cutoff)
     if not interaction_df.empty:
