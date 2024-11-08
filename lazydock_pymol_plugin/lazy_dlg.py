@@ -649,5 +649,5 @@ if __name__ in {"__main__", "__mp_main__"}:
     cmd.load('data_tmp/pdb/RECEPTOR.pdb', 'receptor')
     
     from main import GUILauncher
-    GUILauncher(None, 'process', 4)
+    GUILauncher(None, 4)
     
