@@ -119,6 +119,7 @@ def run_ligplus(ligplus_dir: str, receptor: str = None, ligand: str = None,
         complex_name = f'LAZYDOCK_TMP_OBJ_{uuid4()}'
         cmd.select(complex_name, f'{receptor_name} or {ligand_name}')
         complex_pdbstr = cmd.get_pdbstr(complex_name)
+        cmd.delete(complex_name) # this do not delete receptor and ligand
     else:
         raise ValueError('either complex or receptor and ligand must be provided')
     # delete temporary objects if loaded from file
