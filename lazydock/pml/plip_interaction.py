@@ -1,7 +1,7 @@
 '''
 Date: 2024-10-11 10:33:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-06 10:08:24
+LastEditTime: 2024-11-09 22:47:08
 Description: 
 '''
 from typing import Dict, List, Tuple, Union
@@ -11,6 +11,7 @@ import pandas as pd
 from plip.exchange.report import BindingSiteReport
 from plip.structure.preparation import PDBComplex
 from pymol import cmd
+from tqdm import tqdm
 
 if __name__ == '__main__':
     from lazydock.pml.interaction_utils import sort_func
@@ -74,7 +75,8 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str],
 SUPPORTED_MODE = ['Hydrophobic Interactions', 'Hydrogen Bonds', 'Water Bridges', 'Salt Bridges', 'pi-Stacking', 'pi-Cation Interactions', 'Halogen Bonds', 'Metal Complexes']
 
 
-def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Union[str, List[str]] = 'all', cutoff: float = 4., **kwargs):
+def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Union[str, List[str]] = 'all', cutoff: float = 4.,
+                                     verbose: bool = False, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses using PLIP-python.
     Parameters:
@@ -106,7 +108,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
     receptor_chain = cmd.get_chains(receptor)[0]
     all_interactions, interaction_df = {}, pd.DataFrame()
     # calcu for each ligand
-    for ligand in poses:
+    for ligand in tqdm(poses, desc=f'PLIP', disable=not verbose):
         ligand_chain = cmd.get_chains(ligand)[0]
         # calcu interaction
         sele_complex = uuid4()

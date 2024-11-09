@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-08 21:29:40
+LastEditTime: 2024-11-09 22:47:55
 Description: 
 '''
 from typing import Dict, List, Tuple, Union
@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from mbapy_lite.base import put_err
 from pymol import CmdException, cmd
+from tqdm import tqdm
 
 if __name__ == '__main__':
     from lazydock.utils import uuid4
@@ -220,7 +221,7 @@ SUPPORTED_MODE = ['all', 'bond distances', 'polar contact', 'all distance_exclus
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str = 'all',
                                      cutoff: float = 4., nagetive_factor: float = -1.,
-                                     only_return_inter: bool = False, **kwargs):
+                                     only_return_inter: bool = False, verbose: bool = False, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses.
     
@@ -251,7 +252,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str 
     sele_receptor = uuid4()
     cmd.select(sele_receptor, receptor)
     # calcu for each ligand
-    for ligand in poses:
+    for ligand in tqdm(poses, desc=f'{receptor}', disable=not verbose):
         # calcu interaction
         sele_ligand = uuid4()
         cmd.select(sele_ligand, ligand)

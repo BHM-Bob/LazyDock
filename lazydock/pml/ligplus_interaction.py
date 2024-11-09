@@ -10,6 +10,7 @@ import pandas as pd
 from mbapy_lite.file import opts_file
 from mbapy_lite.web import TaskPool
 from pymol import cmd
+from tqdm import tqdm
 
 if __name__ == '__main__':
     from lazydock import config
@@ -157,7 +158,7 @@ SUPPORTED_MODE = ['Hydrogen Bonds', 'Non-bonded Interactions']
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_dir: Optional[str] = None,
                                      mode: Union[str, List[str]] = 'Hydrogen Bonds', cutoff: float = 4.,
-                                     taskpool: TaskPool = None, **kwargs):
+                                     taskpool: TaskPool = None, verbose: bool = False, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses using LigPlus.
     Parameters:
@@ -189,7 +190,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_di
     # prepare interactions
     all_interactions, interaction_df = {}, pd.DataFrame()
     # calcu for each ligand
-    for ligand in poses:
+    for ligand in tqdm(poses, desc=f'LigPlus', disable=not verbose):
         # calcu interaction
         all_interactions[ligand] = run_ligplus(ligplus_dir, receptor, ligand, mode=mode, cutoff=cutoff, taskpool=taskpool)
         # wait for taskpool
