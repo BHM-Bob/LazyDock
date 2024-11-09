@@ -223,7 +223,14 @@ class DlgFile(BaseInfo):
             return default
     
     def parse_energies(self):
-        """calculate energies of all poses, and sort them by idx and energy"""
+        """
+        calculate energies of all poses, and sort them by idx and energy
+        
+        - self.sorted_energies_by_idx: [N_pose], sorted energies by pose run index
+        - self.sorted_energies: [N_pose], sorted energies in descending order, first is the biggest
+        - self.pooled_energies_by_idx: [N_pose], pooled energies by pose index
+        - self.mean_energy: float, mean energy of all poses
+        """
         idx_energy = [[pose.run_idx, pose.energy] for pose in self.pose_lst]
         self.sorted_energies_by_idx = list(map(lambda x: x[1], sorted(idx_energy, key=lambda x: x[0])))
         self.sorted_energies = sorted(self.sorted_energies_by_idx, reverse=True)
@@ -237,6 +244,7 @@ class DlgFile(BaseInfo):
         - plot individual energy curve
         - plot hist of individual energy
         - plot mean energy
+        - plot best energy
         
         Returns:
             - fig, ax, ax_histy
@@ -250,6 +258,8 @@ class DlgFile(BaseInfo):
         # Draw the scatter plot and marginals.
         ax.plot(self.pooled_energies_by_idx, linewidth=2, label='Minimum Energy in Run Order')
         ax.plot([self.mean_energy] * len(self.pooled_energies_by_idx), c='black', linewidth=2, label=f'Mean Energy: {self.mean_energy:.4f} kcal/mol')
+        ax.plot([self.sorted_energies[-1]] * len(self.pooled_energies_by_idx), c='gray', linestyle='--',
+                linewidth=2, label=f'Best Energy: {self.sorted_energies[-1]:.4f} kcal/mol')
         ax.scatter(list(range(len(self.sorted_energies_by_idx))), self.sorted_energies_by_idx,
                     alpha=0.4, c='green', s=50, label='Individual Energy in Run Order')
         ax.scatter(list(range(len(self.sorted_energies))), self.sorted_energies,
@@ -263,7 +273,7 @@ class DlgFile(BaseInfo):
         # minor works
         ax.tick_params(axis='both', which='major', labelsize=12)
         ax_histy.tick_params(axis='both', which='minor', labelsize=12)
-        ax.legend(fontsize=12)
+        ax.legend(fontsize=12, draggable=True, framealpha=0.8)
         plt.tight_layout()
         return fig, ax, ax_histy
         
@@ -386,6 +396,9 @@ if __name__ == '__main__':
     # load_test()
     normal = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=False, parse2std=False)
     std = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=False, parse2std=True)
+    std.parse_energies()
+    std.plot_energy_curve()
+    plt.show()
     from pymol import cmd
     from rdkit import Chem
     cmd.reinitialize()
