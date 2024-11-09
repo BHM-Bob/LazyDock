@@ -1,19 +1,19 @@
 from __future__ import absolute_import, print_function
 
-import math
 import re
 import time
 import tkinter as tk
 import tkinter.filedialog as tkFileDialog
-from typing import Any, Callable, List, Optional, Union
+from pathlib import Path
+from typing import Any, Callable, List, Optional, Tuple, Union
 
+import matplotlib.pyplot as plt
+import numpy as np
 from mbapy_lite.base import put_err
 from mbapy_lite.file import decode_bits_to_str, opts_file
 from mbapy_lite.game import BaseInfo
-from mbapy_lite.web_utils.task import TaskPool
 from mbapy_lite.stats.cluster import KMeans, KMeansBackend
-
-import numpy as np
+from mbapy_lite.web_utils.task import TaskPool
 from pymol import cmd
 from tqdm import tqdm
 
@@ -221,6 +221,51 @@ class DlgFile(BaseInfo):
             return getattr(self, prop)[pose_idx]
         else:
             return default
+    
+    def parse_energies(self):
+        """calculate energies of all poses, and sort them by idx and energy"""
+        idx_energy = [[pose.run_idx, pose.energy] for pose in self.pose_lst]
+        self.sorted_energies_by_idx = list(map(lambda x: x[1], sorted(idx_energy, key=lambda x: x[0])))
+        self.sorted_energies = sorted(self.sorted_energies_by_idx, reverse=True)
+        self.pooled_energies_by_idx = [min(self.sorted_energies_by_idx[:i]) for i in range(1, len(self.sorted_energies_by_idx)+1)]
+        self.mean_energy = np.mean(self.sorted_energies)
+        
+    def plot_energy_curve(self, figsize: Tuple[int, int] = (8, 6)):
+        """
+        plot energy curve of all pose
+        - plot pooled energy curve
+        - plot individual energy curve
+        - plot hist of individual energy
+        - plot mean energy
+        
+        Returns:
+            - fig, ax, ax_histy
+        """
+        fig = plt.figure(figsize=figsize)
+        gs = fig.add_gridspec(1, 2,  width_ratios=(4, 1), left=0.1, right=0.9, bottom=0.1, top=0.9,
+                wspace=0.05, hspace=0.05)
+        # Create the Axes.
+        ax = fig.add_subplot(gs[0, 0])
+        ax_histy = fig.add_subplot(gs[0, 1], sharey=ax)
+        # Draw the scatter plot and marginals.
+        ax.plot(self.pooled_energies_by_idx, linewidth=2, label='Minimum Energy in Run Order')
+        ax.plot([self.mean_energy] * len(self.pooled_energies_by_idx), c='black', linewidth=2, label=f'Mean Energy: {self.mean_energy:.4f} kcal/mol')
+        ax.scatter(list(range(len(self.sorted_energies_by_idx))), self.sorted_energies_by_idx,
+                    alpha=0.4, c='green', s=50, label='Individual Energy in Run Order')
+        ax.scatter(list(range(len(self.sorted_energies))), self.sorted_energies,
+                    alpha=0.2, c='red', s=30, label='Individual Energy in Descending Order')
+        ax.set_xlabel('Pose Index', fontdict={'size': 14})
+        ax.set_ylabel('Energy (kcal/mol)', fontdict={'size': 14})
+        ax.set_title(f'Energy Curve for {Path(self.path).stem}', fontdict={'size': 16})
+        # plot hist
+        ax_histy.tick_params(axis="y", labelleft=False)
+        ax_histy.hist(self.sorted_energies, bins=int(max(self.sorted_energies)-min(self.sorted_energies)), orientation='horizontal')
+        # minor works
+        ax.tick_params(axis='both', which='major', labelsize=12)
+        ax_histy.tick_params(axis='both', which='minor', labelsize=12)
+        ax.legend(fontsize=12)
+        plt.tight_layout()
+        return fig, ax, ax_histy
         
     def rmsd(self, backend: str = 'pymol', taskpool: TaskPool = None, verbose: bool = False):
         # if backend is numpy, use matrix calculation to calculate rmsd for acceleration
@@ -350,7 +395,6 @@ if __name__ == '__main__':
     ligand = Chem.MolFromPDBBlock(cmd.get_pdbstr('std'), removeHs=True, sanitize=False)
     
     import seaborn as sns
-    import matplotlib.pyplot as plt
     from mbapy_lite.stats import pca
     dlg = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=True)
     dlg.sort_pose(inplace=True)
