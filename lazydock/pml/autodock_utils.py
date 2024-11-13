@@ -21,7 +21,8 @@ from lazydock.utils import uuid4
 
 # atom-type, atom-number, atom-name, residue-name, chain-name, residue-number, x, y, z, occupancy, temperature-factor
 # ATOM      1  CA  LYS     7     136.747 133.408 135.880 -0.06 +0.10 OA
-PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) +([\+\-][\d\-\.]+) +([\+\-][\d\-\.]+) [ \.\-\+\d]+ ([A-Z]+)"
+# HETATM   79  CB  PRO     9     132.763 138.092 170.987+13.19 -0.02    +0.037 C  \n
+PDB_PATTERN = r"(ATOM|HETATM) +(\d+) +(\w+) +(\w+) +(\w+)? +(\d+) +([\d\-\.]+) +([\d\-\.]+) +([\d\-\.]+) ?([\+\-][\d\-\.]+) ?([\+\-][\d\-\.]+) [ \.\-\+\d]+ ([A-Z]+)"
 PDB_FORMAT = "{:6s}{:>5s}  {:<3s} {:>3s} {:1s}{:>4s}    {:>8s}{:>8s}{:>8s}{:>6s}{:>6s}          {:>2s}  "
 PDB_FORMAT2= "{:6s}{:>5s} {:<4s} {:>3s} {:1s}{:>4s}    {:>8s}{:>8s}{:>8s}{:>6s}{:>6s}          {:>2s}  "
 
