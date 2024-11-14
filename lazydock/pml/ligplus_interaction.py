@@ -194,7 +194,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_di
         # calcu interaction
         all_interactions[ligand] = run_ligplus(ligplus_dir, receptor, ligand, mode=mode, cutoff=cutoff, taskpool=taskpool)
         # wait for taskpool
-        while taskpool is not None and not taskpool.count_waiting_tasks() > 0:
+        while taskpool is not None and taskpool.count_waiting_tasks() > 0:
             time.sleep(0.1)
     # merge interactions by res
     for ligand in all_interactions:
