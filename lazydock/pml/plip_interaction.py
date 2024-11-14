@@ -1,26 +1,25 @@
 '''
 Date: 2024-10-11 10:33:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-09 22:47:08
+LastEditTime: 2024-11-14 15:31:48
 Description: 
 '''
+import time
 from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from mbapy_lite.base import put_err
+from mbapy_lite.web import TaskPool
 from plip.exchange.report import BindingSiteReport
 from plip.structure.preparation import PDBComplex
 from pymol import cmd
 from tqdm import tqdm
 
-if __name__ == '__main__':
-    from lazydock.pml.interaction_utils import sort_func
-    from lazydock.utils import uuid4
-else:
-    from ..utils import uuid4
-    from .interaction_utils import sort_func
-    
-    
+from lazydock.pml.interaction_utils import sort_func
+from lazydock.utils import uuid4
+
+
 def get_atom_level_interactions(mol, receptor_chain: str, ligand_chain: str, mode: List[str], cutoff: float = 4.):
     """
     """
@@ -53,6 +52,17 @@ def get_atom_level_interactions(mol, receptor_chain: str, ligand_chain: str, mod
     return interactions
 
 
+def run_plip_analysis(complex_pdbstr: str, receptor_chain: str, ligand_chain: str,
+                      mode: Union[str, List[str]] = 'all', cutoff: float = 4.):
+    mol = PDBComplex()
+    mol.load_pdb(complex_pdbstr, as_string=True)
+    try:
+        mol.analyze()
+        return get_atom_level_interactions(mol, receptor_chain, ligand_chain, mode, cutoff)
+    except Exception as e:
+        return e
+
+
 def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str], Tuple[int, str, str], float]]],
                          interaction_df: pd.DataFrame, distance_cutoff: float):
     """merge the interactions returned by calcu_atom_level_interactions to interaction_df."""
@@ -76,7 +86,7 @@ SUPPORTED_MODE = ['Hydrophobic Interactions', 'Hydrogen Bonds', 'Water Bridges',
 
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Union[str, List[str]] = 'all', cutoff: float = 4.,
-                                     verbose: bool = False, **kwargs):
+                                     taskpool: TaskPool = None, verbose: bool = False, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses using PLIP-python.
     Parameters:
@@ -113,16 +123,27 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
         # calcu interaction
         sele_complex = uuid4()
         cmd.select(sele_complex, f'{ligand} or {receptor}')
-        mol = PDBComplex()
-        mol.load_pdb(cmd.get_pdbstr(sele_complex), as_string=True)
+        if taskpool is not None:
+            all_interactions[ligand] = taskpool.add_task(None, run_plip_analysis, cmd.get_pdbstr(sele_complex), receptor_chain, ligand_chain, mode, cutoff)
+        else:
+            all_interactions[ligand] = run_plip_analysis(cmd.get_pdbstr(sele_complex), receptor_chain, ligand_chain, mode, cutoff)
         cmd.delete(sele_complex) # this do not delete receptor and ligand, only complex
-        try:
-            mol.analyze()
-            all_interactions[ligand] = get_atom_level_interactions(mol, receptor_chain, ligand_chain, mode, cutoff)
-            # merge interactions by res
-            merge_interaction_df(all_interactions[ligand], interaction_df, cutoff)
-        except Exception as e:
-            print(f'Error in {ligand}: {e}, skip this pose.')
+        # wait for taskpool
+        while taskpool is not None and taskpool.count_waiting_tasks() > 0:
+            time.sleep(0.1)
+    # merge interactions by res
+    for ligand in all_interactions:
+        if taskpool is not None:
+            result = taskpool.query_task(all_interactions[ligand], True, 10**8)
+            if isinstance(result, Exception):
+                put_err(f'Error {result} in PLIP analysis for {receptor} and {ligand}')
+                continue
+            all_interactions[ligand] = result
+        else:
+            put_err(f'Error {result} in PLIP analysis for {receptor} and {ligand}')
+            continue
+        # merge interactions by res
+        merge_interaction_df(all_interactions[ligand], interaction_df, cutoff)
     if not interaction_df.empty:
         # sort res
         interaction_df.sort_index(axis=0, inplace=True, key=sort_func)
@@ -145,4 +166,7 @@ if __name__ == '__main__':
         pose_lst.append(f'ligand_{i}')
         cmd.read_pdbstr(pose.as_pdb_string(), pose_lst[-1])
         cmd.alter(f'ligand_{i}', 'type="HETATM"')
-    calcu_receptor_poses_interaction('RECEPTOR', pose_lst)
+    taskpool = TaskPool('process', 4).start()
+    result = calcu_receptor_poses_interaction('RECEPTOR', pose_lst, taskpool=taskpool, verbose=True)
+    print(result)
+    taskpool.close()
