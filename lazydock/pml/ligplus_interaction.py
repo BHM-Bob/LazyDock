@@ -39,7 +39,8 @@ def parse_ligplus_output(result_path: str) -> Dict[str, List[Tuple[Tuple[int, st
 
     
 def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
-                             receptor_chain: str, ligand_chain: str, mode: List[str], cutoff: float):
+                             receptor_chain: str, ligand_chain: str, mode: List[str], cutoff: float,
+                             **kwargs):
     """
     run LigPlus for a complex, assume comonents.cif is in the LigPlus params directory
     command lines refer to https://github.com/eachanjohnson/dimpyplot/blob/master/dimpyplot.py
@@ -73,7 +74,11 @@ def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
             hhb_lines = parse_ligplus_output(os.path.join(w_dir, 'ligplot.hhb'))
             nnb_lines = parse_ligplus_output(os.path.join(w_dir, 'ligplot.nnb'))
         except FileNotFoundError:
-            print(f'LigPlus output file not found in {w_dir}, set result to empty')
+            if kwargs.get('is_retry', False):
+                print(f'LigPlus output file not found in {w_dir}, retry once')
+                return _run_ligplus_for_complex(ligplus_dir, complex_pdbstr, receptor_chain, ligand_chain, mode, cutoff, is_retry=True)
+            else:
+                print(f'LigPlus output file not found in {w_dir}, set result to empty')
             hhb_lines, nnb_lines = [], []
     hhb_lines = [(line[1], line[0], line[2]) if line[0][2] == ligand_chain else line for line in hhb_lines if line[2] <= cutoff]
     nnb_lines = [(line[1], line[0], line[2]) if line[0][2] == ligand_chain else line for line in nnb_lines if line[2] <= cutoff]
