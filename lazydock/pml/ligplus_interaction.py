@@ -69,8 +69,12 @@ def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
             '-prm', os.path.join(ligplus_params, 'dimplot.prm'), '-ctype', '1'
             ]))
         # parse output
-        hhb_lines = parse_ligplus_output(os.path.join(w_dir, 'ligplot.hhb'))
-        nnb_lines = parse_ligplus_output(os.path.join(w_dir, 'ligplot.nnb'))
+        try:
+            hhb_lines = parse_ligplus_output(os.path.join(w_dir, 'ligplot.hhb'))
+            nnb_lines = parse_ligplus_output(os.path.join(w_dir, 'ligplot.nnb'))
+        except FileNotFoundError:
+            print(f'LigPlus output file not found in {w_dir}, set result to empty')
+            hhb_lines, nnb_lines = [], []
     hhb_lines = [(line[1], line[0], line[2]) if line[0][2] == ligand_chain else line for line in hhb_lines if line[2] <= cutoff]
     nnb_lines = [(line[1], line[0], line[2]) if line[0][2] == ligand_chain else line for line in nnb_lines if line[2] <= cutoff]
     interactions = {'Hydrogen Bonds': hhb_lines, 'Non-bonded Interactions': nnb_lines}
