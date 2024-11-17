@@ -65,6 +65,11 @@ def draw_bounding_box(selection="(all)", padding=0.0, linewidth=2.0, r=1.0, g=1.
 
     if padding != 0 and not quiet:
         print("Box dimensions + padding (%.2f, %.2f, %.2f)" % (maxX-minX, maxY-minY, maxZ-minZ))
+        
+    return draw_box(minX, minY, minZ, maxX, maxY, maxZ, linewidth, r, g, b, _cmd)
+        
+
+def draw_box(minX, minY, minZ, maxX, maxY, maxZ, linewidth=2.0, r=1.0, g=1.0, b=1.0, _cmd = None):
 
     boundingBox = [
         LINEWIDTH, float(linewidth),
