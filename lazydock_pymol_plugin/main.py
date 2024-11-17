@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-19 10:41:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-06 21:58:12
+LastEditTime: 2024-11-17 22:49:18
 Description: 
 '''
 import os
@@ -14,10 +14,12 @@ from lazy_dlg import LazyDLG
 from lazy_plot import LazyPlot
 from lazy_pml import LazyPml
 from lazy_pocket import LazyPocket
-from mbapy_lite.file import decode_bits_to_str
+from mbapy_lite.file import decode_bits_to_str, opts_file
 from mbapy_lite.web import TaskPool
 from nicegui import app, ui
 from pymol import cmd
+
+from lazydock.pml.thirdparty.draw_bounding_box import draw_box
 
 
 class GUILauncher:
@@ -48,6 +50,17 @@ class GUILauncher:
         for fn in self.ui_update_func:
             fn()
             
+    def load_gpf(self, content: str):
+        lines = content.split('\n')
+        grid_size_line = list(filter(lambda x: x.startswith('npts'), lines))[0]
+        grid_center_line = list(filter(lambda x: x.startswith('center'), lines))[0]
+        getter_fn = lambda line: line.split(' ')[1:4]
+        grid_center = list(map(float, getter_fn(grid_center_line)))
+        grid_size = list(map(int, getter_fn(grid_size_line)))
+        min_x, min_y, min_z = [grid_center[i] - grid_size[i] / 2 for i in range(3)]
+        max_x, max_y, max_z = [grid_center[i] + grid_size[i] / 2 for i in range(3)]
+        draw_box(min_x, min_y, min_z, max_x, max_y, max_z)
+            
     async def uni_load(self, event):
         if event is None:
             paths = await local_file_picker(os.path.abspath('.'), upper_limit=None,
@@ -60,13 +73,17 @@ class GUILauncher:
                     cmd.load(path)
                 elif path.endswith('.dlg'):
                     await self.lazy_dlg.pose_page.load_dlg_file(None, path=path)
+                elif path.endswith('.gpf'):
+                    self.load_gpf(opts_file(path))
         else:
             if event.name.endswith('.pdb') or event.name.endswith('.pdbqt'):
                 pdbstr = decode_bits_to_str(event.content.read())
                 cmd.read_pdbstr(pdbstr, Path(event.name).stem)
             elif event.name.endswith('.dlg'):
                 await self.lazy_dlg.pose_page.load_dlg_file(event, path=None)
-    
+            elif event.name.endswith('.gpf'):
+                self.load_gpf(decode_bits_to_str(event.content.read()))
+                    
     def build_gui(self):
         with ui.header(elevated=True).style('background-color: #3874c8'):
             ui.label('LazyDock | Pymol Plugin').classes('text-h4')
