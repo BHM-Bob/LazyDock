@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-19 10:41:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-17 22:49:18
+LastEditTime: 2024-11-17 22:53:08
 Description: 
 '''
 import os
@@ -53,14 +53,14 @@ class GUILauncher:
     def load_gpf(self, content: str):
         lines = content.split('\n')
         grid_size_line = list(filter(lambda x: x.startswith('npts'), lines))[0]
-        grid_center_line = list(filter(lambda x: x.startswith('center'), lines))[0]
+        grid_center_line = list(filter(lambda x: x.startswith('gridcenter'), lines))[0]
         getter_fn = lambda line: line.split(' ')[1:4]
         grid_center = list(map(float, getter_fn(grid_center_line)))
         grid_size = list(map(int, getter_fn(grid_size_line)))
         min_x, min_y, min_z = [grid_center[i] - grid_size[i] / 2 for i in range(3)]
         max_x, max_y, max_z = [grid_center[i] + grid_size[i] / 2 for i in range(3)]
         draw_box(min_x, min_y, min_z, max_x, max_y, max_z)
-            
+
     async def uni_load(self, event):
         if event is None:
             paths = await local_file_picker(os.path.abspath('.'), upper_limit=None,
