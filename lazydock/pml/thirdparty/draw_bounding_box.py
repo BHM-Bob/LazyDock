@@ -70,7 +70,7 @@ def draw_bounding_box(selection="(all)", padding=0.0, linewidth=2.0, r=1.0, g=1.
         
 
 def draw_box(minX, minY, minZ, maxX, maxY, maxZ, linewidth=2.0, r=1.0, g=1.0, b=1.0, _cmd = None):
-
+    _cmd = _cmd or cmd
     boundingBox = [
         LINEWIDTH, float(linewidth),
 
