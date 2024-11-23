@@ -1,7 +1,7 @@
 '''
 Date: 2024-05-06 17:18:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-07 22:37:26
+LastEditTime: 2024-11-18 21:57:54
 Description: 
 '''
 
@@ -76,6 +76,7 @@ setup(
     entry_points={
         "console_scripts": [
             "lazydock-pml=lazydock_pymol_plugin.main:exec_from_cli",
+            "lazydock-cli=lazydock.scripts:main"
         ],
     },
     
@@ -87,4 +88,4 @@ setup(
 # pip install .
 
 # python setup.py sdist
-# twine upload dist/lazydock-0.6.1.tar.gz
+# twine upload dist/lazydock-0.6.2.tar.gz
