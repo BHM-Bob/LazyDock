@@ -1,2 +1,10 @@
 {
+    "sort_mol2_bonds":
+    {
+        "name": "sort mol2 bonds",
+        "script name": "sort_mol2_bonds",
+        "exec_names": ["sort-mol2-bonds", "sort_mol2_bonds"],
+        "brief": "tool for sort bonds order in mol2 file.",
+        "detailed": "This tool is used to sort the bonds order in a mol2 file."
+    }
 }
