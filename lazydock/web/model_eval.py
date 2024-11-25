@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-15 22:05:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-10-17 16:38:16
+LastEditTime: 2024-11-25 20:08:23
 Description: 
 '''
 import re
@@ -152,14 +152,23 @@ def get_score_from_SAVES(pdb_path: str, browser: Browser = None, timeout: int = 
     if not b.wait_element(['//*[@id="werrat"]/div/center/center/h1',
                            '//*[@id="wwhatcheck"]/div/center',
                            '//*[@id="wprocheck"]/div/center'], timeout=timeout):
-        return put_err('Timeout', {})
-    errat_text = float(b.find_elements('//*[@id="werrat"]/div/center/center/h1')[0].text.strip())
-    whatcheck_bad = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem bad"]'))
-    whatcheck_mid = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem mid"]'))
-    whatcheck_good = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem good"]'))
-    procheck_errors = int(b.find_elements('//*[@id="wprocheck"]/div/center/ul/li[1]/span')[0].text.split(':')[-1])
-    procheck_warnings = int(b.find_elements('//*[@id="wprocheck"]/div/center/ul/li[2]/span')[0].text.split(':')[-1])
-    procheck_pass = int(b.find_elements('//*[@id="wprocheck"]/div/center/ul/li[3]/span')[0].text.split(':')[-1])
+        put_err('Timeout, try gather results')
+    try:
+        errat_text = float(b.find_elements('//*[@id="werrat"]/div/center/center/h1')[0].text.strip())
+    except:
+        errat_text = ''
+    try:
+        whatcheck_bad = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem bad"]'))
+        whatcheck_mid = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem mid"]'))
+        whatcheck_good = len(b.find_elements('//*[@id="wwhatcheck"]/div/center//span[@class="wcitem good"]'))
+    except:
+        whatcheck_bad = whatcheck_mid = whatcheck_good = -1
+    try:
+        procheck_errors = int(b.find_elements('//*[@id="wprocheck"]/div/center/ul/li[1]/span')[0].text.split(':')[-1])
+        procheck_warnings = int(b.find_elements('//*[@id="wprocheck"]/div/center/ul/li[2]/span')[0].text.split(':')[-1])
+        procheck_pass = int(b.find_elements('//*[@id="wprocheck"]/div/center/ul/li[3]/span')[0].text.split(':')[-1])
+    except:
+        procheck_errors = procheck_warnings = procheck_pass = -1
     # parse whatcheck result
     return {'errat': errat_text, 'whatcheck_bad': whatcheck_bad, 'whatcheck_mid': whatcheck_mid, 'whatcheck_good': whatcheck_good,
             'procheck_errors': procheck_errors, 'procheck_warnings': procheck_warnings, 'procheck_pass': procheck_pass}
