@@ -16,7 +16,7 @@ else:
     from ..utils import uuid4
 
 
-def get_pocket_box_from_ProteinPlus(receptor_path: str, ligand_path: str,
+def get_pocket_box_from_ProteinPlus(receptor_path: str, ligand_path: str = None,
                                     browser: Browser = None):
     """
     download pocket result zip file from ProteinPlus.
@@ -30,7 +30,7 @@ def get_pocket_box_from_ProteinPlus(receptor_path: str, ligand_path: str,
         None, the pocket result zip file will be downloaded to the download_path specified in the browser.
     """
     receptor_path = str(Path(receptor_path).resolve())
-    ligand_path = str(Path(ligand_path).resolve())
+    ligand_path = str(Path(ligand_path).resolve()) if ligand_path else None
     if not browser:
         download_path = str(Path(receptor_path).resolve().parent)
         b = Browser(download_path=str(Path(receptor_path).resolve().parent))
@@ -40,8 +40,9 @@ def get_pocket_box_from_ProteinPlus(receptor_path: str, ligand_path: str,
     b.get('https://proteins.plus/')
     btn = b.find_elements('//*[@id="pdb_file_pathvar"]')[0]
     btn.send_keys(receptor_path)
-    btn = b.find_elements('//*[@id="pdb_file_userligand"]')[0]
-    btn.send_keys(ligand_path)
+    if ligand_path:
+        btn = b.find_elements('//*[@id="pdb_file_userligand"]')[0]
+        btn.send_keys(ligand_path)
     b.click(element='//*[@id="new_pdb_file"]/input[6]')
     # now in the result page
     b.click(element='//*[@id="headingTwo"]/h4/a/span')
