@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-19 10:41:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-17 23:04:11
+LastEditTime: 2024-11-27 09:56:25
 Description: 
 '''
 import os
@@ -56,9 +56,9 @@ class GUILauncher:
         grid_center_line = list(filter(lambda x: x.startswith('gridcenter'), lines))[0]
         scale_line = list(filter(lambda x: x.startswith('spacing'), lines))[0]
         scale = float(scale_line.split(' ')[1])
-        getter_fn = lambda line: list(map(lambda x: x*scale, map(float, line.split(' ')[1:4])))
-        grid_center = getter_fn(grid_center_line)
-        grid_size = getter_fn(grid_size_line)
+        getter_fn = lambda line, scale: list(map(lambda x: x*scale, map(float, line.split(' ')[1:4])))
+        grid_center = getter_fn(grid_center_line, 1)
+        grid_size = getter_fn(grid_size_line, scale)
         min_x, min_y, min_z = [grid_center[i] - grid_size[i] / 2 for i in range(3)]
         max_x, max_y, max_z = [grid_center[i] + grid_size[i] / 2 for i in range(3)]
         draw_box(min_x, min_y, min_z, max_x, max_y, max_z)
