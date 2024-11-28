@@ -1,7 +1,7 @@
 '''
 Date: 2024-10-11 10:33:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-14 15:31:48
+LastEditTime: 2024-11-28 11:44:52
 Description: 
 '''
 import time
@@ -139,9 +139,6 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
                 put_err(f'Error {result} in PLIP analysis for {receptor} and {ligand}')
                 continue
             all_interactions[ligand] = result
-        else:
-            put_err(f'Error {result} in PLIP analysis for {receptor} and {ligand}')
-            continue
         # merge interactions by res
         merge_interaction_df(all_interactions[ligand], interaction_df, cutoff)
     if not interaction_df.empty:
