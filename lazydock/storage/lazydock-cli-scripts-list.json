@@ -6,5 +6,21 @@
         "exec_names": ["sort-mol2-bonds", "sort_mol2_bonds"],
         "brief": "tool for sort bonds order in mol2 file.",
         "detailed": "This tool is used to sort the bonds order in a mol2 file."
+    },
+    "get_pocket":
+    {
+        "name": "get pocket",
+        "script name": "get_pocket",
+        "exec_names": ["get-pocket", "get_pocket"],
+        "brief": "Get pocket residues from ProteinPlus web server.",
+        "detailed": "This tool is used to get pocket residues from ProteinPlus web server."
+    },
+    "ana_interaction":
+    {
+        "name": "analyze interaction",
+        "script name": "ana_interaction",
+        "exec_names": ["ana-interaction", "ana_interaction"],
+        "brief": "Analyze interaction between receptor and ligand.",
+        "detailed": "This tool is used to analyze interaction between receptor and ligand."
     }
 }
