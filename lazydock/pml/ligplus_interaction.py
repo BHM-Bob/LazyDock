@@ -40,7 +40,7 @@ def parse_ligplus_output(result_path: str) -> Dict[str, List[Tuple[Tuple[int, st
     
 def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
                              receptor_chain: str, ligand_chain: str, mode: List[str], cutoff: float,
-                             force_cwd: bool = False, **kwargs) -> Dict[str, List[Tuple[Tuple[int, str, str], Tuple[int, str, str], float]]]:
+                             force_cwd: bool = False, w_dir: str = None, **kwargs) -> Dict[str, List[Tuple[Tuple[int, str, str], Tuple[int, str, str], float]]]:
     """
     run LigPlus for a complex, assume comonents.cif is in the LigPlus params directory
     command lines refer to https://github.com/eachanjohnson/dimpyplot/blob/master/dimpyplot.py
@@ -56,9 +56,16 @@ def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
         raise ValueError(f'Unsupported platform: {platform.platform()}')
     ligplus_params = os.path.join(ligplus_dir, 'lib', 'params')
     # run LigPlus in temporary directory
-    w_dir_handle = tempfile.TemporaryDirectory()
-    w_dir = w_dir_handle.name + '/' # because hbplus just append file name to w_dir
+    w_dir_handle = None
+    if w_dir is None:
+        w_dir_handle = tempfile.TemporaryDirectory()
+        w_dir = w_dir_handle.name + '/' # because hbplus just append file name to w_dir
+    else:
+        w_dir = os.path.abspath(w_dir) + '/'
+        os.makedirs(w_dir, exist_ok=True)
+    cwd_cmd = f'cd "{w_dir}" && {pwd_cmd} &&'
     if force_cwd:
+        cwd_cmd = ''
         now_wd = os.getcwd()
         os.chdir(w_dir)
         print(f'force change working directory to {w_dir}')
@@ -66,12 +73,12 @@ def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
     complex_path = os.path.join(w_dir, 'complex.pdb')
     opts_file(complex_path, 'w', data=complex_pdbstr)
     # Run HBadd
-    os.system(' '.join([f'cd "{w_dir}" && {pwd_cmd} &&', os.path.join(ligplus_lib, "hbadd"), complex_path, os.path.join(ligplus_params, 'components.cif'), '-wkdir', w_dir]))
-    os.system(' '.join([f'cd "{w_dir}" && {pwd_cmd} &&', os.path.join(ligplus_lib, "hbplus"), '-L', '-h', '2.90', '-d', '3.90', '-N', complex_path, '-wkdir', w_dir]))
-    os.system(' '.join([f'cd "{w_dir}" && {pwd_cmd} &&', os.path.join(ligplus_lib, "hbplus"), '-L', '-h', '2.70', '-d', '3.35', complex_path, '-wkdir', w_dir]))
-    os.system(' '.join([f'cd "{w_dir}" && {pwd_cmd} &&', os.path.join(ligplus_lib, "dimer"), complex_path, receptor_chain, ligand_chain]))
-    os.system(' '.join([f'cd "{w_dir}" && {pwd_cmd} &&', os.path.join(ligplus_lib, "dimhtml"), 'none', '-dimp', '-dir', w_dir, '-flip', '-ctype', '1']))
-    os.system(' '.join([f'cd "{w_dir}" && {pwd_cmd} &&',
+    os.system(' '.join([cwd_cmd, os.path.join(ligplus_lib, "hbadd"), complex_path, os.path.join(ligplus_params, 'components.cif'), '-wkdir', w_dir]))
+    os.system(' '.join([cwd_cmd, os.path.join(ligplus_lib, "hbplus"), '-L', '-h', '2.90', '-d', '3.90', '-N', complex_path, '-wkdir', w_dir]))
+    os.system(' '.join([cwd_cmd, os.path.join(ligplus_lib, "hbplus"), '-L', '-h', '2.70', '-d', '3.35', complex_path, '-wkdir', w_dir]))
+    os.system(' '.join([cwd_cmd, os.path.join(ligplus_lib, "dimer"), complex_path, receptor_chain, ligand_chain]))
+    os.system(' '.join([cwd_cmd, os.path.join(ligplus_lib, "dimhtml"), 'none', '-dimp', '-dir', w_dir, '-flip', '-ctype', '1']))
+    os.system(' '.join([cwd_cmd,
         os.path.join(ligplus_lib, "ligplot"), os.path.join(w_dir, 'dimplot.pdb'), '-wkdir', w_dir,
         '-prm', os.path.join(ligplus_params, 'dimplot.prm'), '-ctype', '1'
         ]))
@@ -87,10 +94,11 @@ def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
             print(f'LigPlus output file not found in {w_dir}, set result to empty')
         hhb_lines, nnb_lines = [], []
     # try to close temporary directory
-    try:
-        w_dir_handle.cleanup()
-    except Exception as e:
-        print(f'Error when cleaning up temporary directory: {e}, skip')
+    if w_dir_handle is not None:
+        try:
+            w_dir_handle.cleanup()
+        except Exception as e:
+            print(f'Error when cleaning up temporary directory: {e}, skip')
     if force_cwd:
         os.chdir(now_wd)
         print(f'change working directory back to {now_wd}')
@@ -102,7 +110,8 @@ def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
     
 def run_ligplus(ligplus_dir: str, receptor: str = None, ligand: str = None,
                 complex: str = None, receptor_chain: str = None, ligand_chain: str = None,
-                mode: List[str] = None, cutoff: float = 4., taskpool: TaskPool = None, force_cwd: bool = False) -> Dict[str, List[Tuple[Tuple[int, str, str], Tuple[int, str, str], float]]]:
+                mode: List[str] = None, cutoff: float = 4., taskpool: TaskPool = None,
+                force_cwd: bool = False, w_dir: str = None, **kwargs) -> Dict[str, List[Tuple[Tuple[int, str, str], Tuple[int, str, str], float]]]:
     """
     run LigPlus to get atom-level interactions between receptor and ligand.
     Parameters:
@@ -152,9 +161,9 @@ def run_ligplus(ligplus_dir: str, receptor: str = None, ligand: str = None,
             cmd.delete(mol)
     # run LigPlus
     if taskpool is None:
-        return _run_ligplus_for_complex(ligplus_dir, complex_pdbstr, receptor_chain, ligand_chain, mode, cutoff, force_cwd)
+        return _run_ligplus_for_complex(ligplus_dir, complex_pdbstr, receptor_chain, ligand_chain, mode, cutoff, force_cwd, w_dir)
     else:
-        return taskpool.add_task(None, _run_ligplus_for_complex, ligplus_dir, complex_pdbstr, receptor_chain, ligand_chain, mode, cutoff, force_cwd)
+        return taskpool.add_task(None, _run_ligplus_for_complex, ligplus_dir, complex_pdbstr, receptor_chain, ligand_chain, mode, cutoff, force_cwd, w_dir)
 
 
 def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str], Tuple[int, str, str], float]]],
@@ -181,7 +190,8 @@ SUPPORTED_MODE = ['Hydrogen Bonds', 'Non-bonded Interactions']
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_dir: Optional[str] = None,
                                      mode: Union[str, List[str]] = 'Hydrogen Bonds', cutoff: float = 4.,
-                                     taskpool: TaskPool = None, verbose: bool = False, force_cwd: bool = False, **kwargs):
+                                     taskpool: TaskPool = None, verbose: bool = False,
+                                     force_cwd: bool = False, w_dir: str = None, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses using LigPlus.
     Parameters:
@@ -215,7 +225,8 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_di
     # calcu for each ligand
     for ligand in tqdm(poses, desc=f'LigPlus', disable=not verbose):
         # calcu interaction
-        all_interactions[ligand] = run_ligplus(ligplus_dir, receptor, ligand, mode=mode, cutoff=cutoff, taskpool=taskpool, force_cwd=force_cwd)
+        all_interactions[ligand] = run_ligplus(ligplus_dir, receptor, ligand, mode=mode, cutoff=cutoff, taskpool=taskpool,
+                                               force_cwd=force_cwd, w_dir=w_dir)
         # wait for taskpool
         while taskpool is not None and taskpool.count_waiting_tasks() > 0:
             time.sleep(0.1)
@@ -250,5 +261,5 @@ if __name__ == '__main__':
     result = run_ligplus(config.configs.named_paths['ligplus_dir'],
                          receptor='RECEPTOR', ligand=pose_lst[0], mode='Hydrogen Bonds')
     taskpool = TaskPool('threads', n_worker=4).start()
-    interactions, interaction_df = calcu_receptor_poses_interaction('RECEPTOR', pose_lst, cutoff=4, taskpool=None)
+    interactions, interaction_df = calcu_receptor_poses_interaction('RECEPTOR', pose_lst, cutoff=4, taskpool=None, w_dir='data_tmp/dlg')
     print(interactions)
