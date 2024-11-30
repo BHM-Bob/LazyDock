@@ -158,6 +158,8 @@ class DlgFile(BaseInfo):
             self.content = decode_bits_to_str(opts_file(path, 'rb'))
         elif content is not None:
             self.content = content
+        else:
+            self.content = None
         # decode content to pose_lst
         if self.content is not None:
             self.pose_lst: List[ADModel] = self.decode_content()
@@ -168,6 +170,16 @@ class DlgFile(BaseInfo):
         
     def __len__(self):
         return len(self.pose_lst)
+    
+    def merge(self, other: 'DlgFile', inplace: bool = True):
+        """only merge poses, not content or other attributes"""
+        if not inplace:
+            new_dlg = DlgFile()
+            new_dlg.pose_lst = self.pose_lst + other.pose_lst
+            return new_dlg
+        else:
+            self.pose_lst += other.pose_lst
+            return self
         
     def sort_pose(self, key: Callable[[ADModel], Any] = None,
                   inplace: bool = True, reverse: bool = False) -> List[ADModel]:
@@ -354,6 +366,15 @@ class DlgFile(BaseInfo):
             return top_poses
         else:
             raise ValueError(f'Unsupported method: {method}')
+
+
+def merge_dlg(dlg_lst: List[DlgFile]) -> DlgFile:
+    if not dlg_lst:
+        return put_err('Empty input list, return None')
+    new_dlg = DlgFile()
+    for dlg in dlg_lst:
+        new_dlg.merge(dlg, inplace=True)
+    return new_dlg
 
 
 def tk_file_dialog_wrapper(*args, **kwargs):
