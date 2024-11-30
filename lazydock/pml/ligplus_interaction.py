@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from mbapy_lite.base import put_err
 from mbapy_lite.file import opts_file
 from mbapy_lite.web import TaskPool
 from pymol import cmd
@@ -53,7 +54,7 @@ def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
     elif platform.platform().startswith('Linux'):
         ligplus_lib = os.path.join(ligplus_dir, 'lib', 'exe_linux')
     else:
-        raise ValueError(f'Unsupported platform: {platform.platform()}')
+        put_err(f'Unsupported platform: {platform.platform()}', _exit=True)
     ligplus_params = os.path.join(ligplus_dir, 'lib', 'params')
     # run LigPlus in temporary directory
     w_dir_handle = None
@@ -137,15 +138,15 @@ def run_ligplus(ligplus_dir: str, receptor: str = None, ligand: str = None,
         elif mol in cmd.get_names():
             return mol, cmd.get_chains(mol)[0]
         else:
-            raise ValueError(f'{mol} not found in pymol or file path')
+            put_err(f'{mol} not found in pymol or file path', _exit=True)
     # load receptor and ligand, make complex
     if complex is not None:
         if receptor_chain is None or ligand_chain is None:
-            raise ValueError('receptor_chain and ligand_chain must be provided when complex is provided')
+            put_err('receptor_chain and ligand_chain must be provided when complex is provided', _exit=True)
         if (os.path.exists(complex) and os.path.isfile(complex)) or (complex in cmd.get_names()):
             complex_pdbstr = opts_file(complex_name)
         else:
-            raise ValueError(f'{complex} not found in pymol or file path')
+            put_err(f'{complex} not found in pymol or file path', _exit=True)
     elif receptor is not None and ligand is not None:
         receptor_name, receptor_chain = load_mol(receptor)
         ligand_name, ligand_chain = load_mol(ligand)
@@ -154,7 +155,7 @@ def run_ligplus(ligplus_dir: str, receptor: str = None, ligand: str = None,
         complex_pdbstr = cmd.get_pdbstr(complex_name)
         cmd.delete(complex_name) # this do not delete receptor and ligand
     else:
-        raise ValueError('either complex or receptor and ligand must be provided')
+        put_err('either complex or receptor and ligand must be provided', _exit=True)
     # delete temporary objects if loaded from file
     for mol in [receptor_name, ligand_name]:
         if mol.startswith('LAZYDOCK_TMP_OBJ_'):
@@ -219,7 +220,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_di
     if ligplus_dir is None:
         ligplus_dir = config.configs.named_paths['ligplus_dir']
         if ligplus_dir is None:
-            raise ValueError('LigPlus directory not provided and not found in config.json')
+            put_err('LigPlus directory not provided and not found in config.json', _exit=True)
     # prepare interactions
     all_interactions, interaction_df = {}, pd.DataFrame()
     # calcu for each ligand
