@@ -1,7 +1,7 @@
 '''
 Date: 2024-10-11 10:33:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-28 11:44:52
+LastEditTime: 2024-11-30 17:29:27
 Description: 
 '''
 import time
@@ -112,7 +112,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
     elif isinstance(mode, str) and mode in SUPPORTED_MODE:
         mode = [mode]
     elif any(m not in SUPPORTED_MODE for m in mode):
-        raise ValueError(f'Unsupported mode: {mode}, supported: {SUPPORTED_MODE}')
+        put_err(f'Unsupported mode: {mode}, supported: {SUPPORTED_MODE}', _exit=True)
     # else: mode = mode
     # prepare interactions
     receptor_chain = cmd.get_chains(receptor)[0]
@@ -136,7 +136,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
         if taskpool is not None:
             result = taskpool.query_task(all_interactions[ligand], True, 10**8)
             if isinstance(result, Exception):
-                put_err(f'Error {result} in PLIP analysis for {receptor} and {ligand}')
+                put_err(f'Error {result} in PLIP analysis for {receptor} and {ligand}, skip')
                 continue
             all_interactions[ligand] = result
         # merge interactions by res
