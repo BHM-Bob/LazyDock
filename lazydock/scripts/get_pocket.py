@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:01:54
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-27 20:52:47
+LastEditTime: 2024-12-02 17:00:54
 Description: 
 '''
 import argparse
@@ -56,15 +56,18 @@ def main(sys_args: List[str] = None):
         output_dir.mkdir(exist_ok=True, parents=True)
         shutil.copy(receptor_path, output_dir) # so that the zip file is in the same dir with pdb file
         # get pocket box
-        get_pocket_box_from_ProteinPlus(receptor_path, ligand_path=args.ligand)
+        get_pocket_box_from_ProteinPlus(os.path.join(output_dir, Path(receptor_path).name), ligand_path=args.ligand)
         # parse pocket box
         zip_path = get_paths_with_extension(output_dir, ['.zip'], recursive=False)[0]
         for index in [[0], [1], [2], [0, 1], [0, 1, 2]]:
             idx_str = ','.join(map(str, index))
-            df, pocket = parse_pocket_box_from_ProteinPlus(zip_path, index, True, method=args.method)
+            if args.method == 'extend':
+                pocket = parse_pocket_box_from_ProteinPlus(zip_path, index, True, method=args.method)
+            elif args.method == 'mean':
+                df, pocket = parse_pocket_box_from_ProteinPlus(zip_path, index, True, method=args.method)
+                df.to_excel(output_dir / f"pocket_{idx_str}_box.xlsx", index=False)
             # save pocket residues
             opts_file(output_dir / f"pocket_{idx_str}_residues.json", 'w', way='json', data=pocket)
-            df.to_excel(output_dir / f"pocket_{idx_str}_box.xlsx", index=False)
             cmd.save(output_dir / f"pocket_{idx_str}_box.pse")
             print(f'Pocket residues saved to {output_dir}.')
 
