@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-30 20:41:25
+LastEditTime: 2024-12-02 22:50:36
 Description: 
 '''
 import argparse
@@ -64,6 +64,8 @@ class simple_analysis(Command):
                           help=f'interaction mode, multple modes can be separated by comma, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nligplus: {",".join(ligplus_mode)}\nplip: {",".join(plip_mode)}')
         args.add_argument('--cutoff', type = float, default=4,
                           help='distance cutoff for interaction calculation, default is %(default)s.')
+        args.add_argument('--hydrogen-atom-only', default=False, action='store_true',
+                          help='only consider hydrogen bond acceptor and donor atoms, this only works when method is pymol, default is %(default)s.')
         args.add_argument('--output-style', type = str, default='receptor', choices=['receptor'],
                           help='output style\n receptor: resn resi distance')
         return args
@@ -107,7 +109,7 @@ class simple_analysis(Command):
             
     @staticmethod
     def calc_interaction_from_dlg(receptor_path: str, dlg_path: str, method: str, mode: List[str], cutoff: float,
-                                  output_formater: Callable) -> None:
+                                  output_formater: Callable, hydrogen_atom_only: bool = True) -> None:
         bar = tqdm(desc='Calculating interaction', leave=False)
         root = os.path.abspath(os.path.dirname(dlg_path))
         w_dir = os.path.join(root, 'ligplus') if method == 'ligplus' else root
@@ -131,7 +133,7 @@ class simple_analysis(Command):
         # calcu interactions
         fn, _ = simple_analysis.METHODS[method]
         bar.set_description(f'performing {method} calculation')
-        interactions, _ = fn(receptor_name, pose_names, mode=mode, cutoff=cutoff, verbose=True, force_cwd=True, w_dir=w_dir)
+        interactions, _ = fn(receptor_name, pose_names, mode=mode, cutoff=cutoff, verbose=True, force_cwd=True, w_dir=w_dir, hydrogen_atom_only=hydrogen_atom_only)
         if method == 'pymol':
             interactions = {k:v[-1] for k,v in interactions.items()}
         bar.set_description(f'{method} interactions calculated')
@@ -171,7 +173,8 @@ class simple_analysis(Command):
             wdir = os.path.dirname(l_path)
             bar.set_description(f"{wdir}: {os.path.basename(r_path)} and {os.path.basename(l_path)}")
             self.calc_interaction_from_dlg(r_path, l_path, method, mode, self.args.cutoff,
-                                           getattr(self, f'output_fromater_{self.args.output_style}'))
+                                           getattr(self, f'output_fromater_{self.args.output_style}'),
+                                           self.args.hydrogen_atom_only)
             bar.update(1)
 
 _str2func = {
@@ -188,4 +191,4 @@ def main(sys_args: List[str] = None):
 
 
 if __name__ == "__main__":
-    main(r'simple-analysis -r receptor.pdbqt -l dock.pdbqt -bd data_tmp\docking --method ligplus --mode '.split() + ['all'])
+    main(r'simple-analysis -r receptor.pdbqt -l dock.pdbqt -bd data_tmp/docking --method pymol --mode '.split() + ['polar contact'])
