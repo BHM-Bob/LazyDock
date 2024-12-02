@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-09 22:47:55
+LastEditTime: 2024-12-02 22:49:17
 Description: 
 '''
 from typing import Dict, List, Tuple, Union
@@ -74,7 +74,7 @@ def get_distance_info(dist_name: str, state = 1, selection = 'all', xyz2atom = N
 
     if xyz2atom is None:
         xyz2atom = {}
-        cmd.iterate_state(state, selection, 'xyz2idx[x,y,z] = (model,chain,resn,resi,elem,index)',
+        cmd.iterate_state(state, selection, 'xyz2atom[x,y,z] = (model,chain,resn,resi,elem,index)',
                         space=locals())
 
     r = []
@@ -170,6 +170,28 @@ def calcu_atom_level_interactions(sele1: str, sele2: str, mode = 0, cutoff=3.6, 
     return atoms, xyz2atom, residues, interactions
 
 
+def calcu_atom_level_interactions_without_AD(sele1: str, sele2: str, mode = 0, cutoff=3.6, xyz2atom: Dict = None):
+    """
+    calcu distances between atoms set sele1 and sele2 using cmd.distance, without hydrogen bonds acceptor and donor selection.
+    
+    Parameters:
+        - sele1: str, selection 1 of atoms
+        - sele2: str, selection 2 of atoms
+        - mode:int, mode of cmd.distance
+        - cutoff:float, cutoff of cmd.distance
+        - xyz2atom:dict, mapping of xyz coordinates to atom info: {(x,y,z): (model, chain, resn, resi, elem, index)}
+
+    Returns:
+        - interactions: dict, interactions between atoms in each selection, in the format of [(('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3.4605595828662383),...]
+    """
+    dist_name = f'DIST_{uuid4()}'
+    cmd.distance(dist_name, sele1, sele2, cutoff=cutoff, mode=mode)
+    # get distances and build interactions
+    dist_info = get_distance_info(dist_name, xyz2atom=xyz2atom)
+    cmd.delete(dist_name)
+    return dist_info
+
+
 def sort_atom_level_interactions(interactions: Dict[str, List[Tuple[Tuple[str, str, str, str, str, float],
                                                          Tuple[str, str, str, str, str, float], float]]],
                                 model1: str, model2: str):
@@ -184,16 +206,24 @@ def sort_atom_level_interactions(interactions: Dict[str, List[Tuple[Tuple[str, s
     return interactions
 
 
-
 def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[str, str, str, str, str, float],
                                                             Tuple[str, str, str, str, str, float], float]]],
                          interaction_df: pd.DataFrame,
-                         distance_cutoff: float, nagetive_factor: float):
-    """merge the interactions returned by calcu_atom_level_interactions to interaction_df."""
+                         distance_cutoff: float, nagetive_factor: float, hydrogen_atom_only: bool = True):
+    """
+    merge the interactions returned by calcu_atom_level_interactions to interaction_df.
+    
+    Parameters:
+        - interaction: dict, interactions between atoms in each selection, in the format of {'aa': [(('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3.4605595828662383),...], 'ad': [(('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3.4605595828662383),...], 'da': [(('receptor', 'A', 'LYS', '108', 'O', 459), ('ligand', '', 'TYR', '1', 'N', 48), 3
+        - interaction_df: pd.DataFrame, interactions between receptor and ligand, in the format of ligand-residue-residue matrix, with the value of each cell is the interaction score between two atoms.
+        - distance_cutoff: float, distance cutoff for interactions.
+        - nagetive_factor: float, factor to multiply the distance value for interations between acceptor and acceptor, and donor and donor.
+        - hydrogen_atom_only: bool, whether to only consider hydrogen acceptor and donor atoms, default is True.
+    """
     # index format: CHAIN_ID:RESI:RESN
     def set_points(ty: str, points: float, nagetive_factor: float):
         points = distance_cutoff - points
-        if ty in {'ad', 'da'}:
+        if not hydrogen_atom_only or ty in {'ad', 'da'}:
             return points
         return nagetive_factor * points
     for interaction_type, values in interaction.items():
@@ -221,7 +251,8 @@ SUPPORTED_MODE = ['all', 'bond distances', 'polar contact', 'all distance_exclus
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str = 'all',
                                      cutoff: float = 4., nagetive_factor: float = -1.,
-                                     only_return_inter: bool = False, verbose: bool = False, **kwargs):
+                                     only_return_inter: bool = False, verbose: bool = False,
+                                     hydrogen_atom_only: bool = True, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses.
     
@@ -232,6 +263,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str 
         - cutoff: float, cutoff of cmd.distance
         - nagetive_factor: float, factor to multiply the distance value for interations between acceptor and acceptor, and donor and donor.
         - only_return_inter: bool, whether to only return interactions in interactions dict, default is False.
+        - hydrogen_atom_only: bool, whether to only consider hydrogen acceptor and donor atoms, default is True.
         
     Returns:
         interactions (dict): interactions between receptor and ligand, in the format of {'ligand': [xyz2atom, residues, interactions]}, where xyz2atom is a dict, residues is a dict, interactions is a dict.
@@ -243,7 +275,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str 
     if isinstance(mode, str):
         if mode not in SUPPORTED_MODE:
             raise ValueError(f'mode {mode} is not supported, supported modes are {SUPPORTED_MODE}')
-        mode = SUPPORTED_MODE.index(mode)
+        mode_code = SUPPORTED_MODE.index(mode)
     else:
         raise ValueError(f'mode {mode} is not supported, only support all or a value in {SUPPORTED_MODE}')
     # prepare interactions
@@ -256,14 +288,17 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str 
         # calcu interaction
         sele_ligand = uuid4()
         cmd.select(sele_ligand, ligand)
-        _, xyz2atom, residues, interactions = calcu_atom_level_interactions(sele_receptor, sele_ligand,
-                                                                            mode, cutoff)
+        if hydrogen_atom_only:
+            _, xyz2atom, residues, interactions = calcu_atom_level_interactions(sele_receptor, sele_ligand, mode_code, cutoff)
+        else:
+            xyz2atom, residues = {}, {}
+            interactions = {mode: calcu_atom_level_interactions_without_AD(sele_receptor, sele_ligand, mode_code, cutoff)}
         interactions = sort_atom_level_interactions(interactions, receptor, ligand)
         # NOTE: do not save atoms, because pymol.editing._AtomProxy class can't be pickled
         all_interactions[ligand] = [xyz2atom, residues, interactions]
         cmd.delete(sele_ligand)
         # merge interactions by res
-        merge_interaction_df(interactions, interaction_df, cutoff, nagetive_factor)
+        merge_interaction_df(interactions, interaction_df, cutoff, nagetive_factor, hydrogen_atom_only)
     cmd.delete(sele_receptor)
     if not interaction_df.empty:
         # sort res
@@ -332,13 +367,16 @@ if __name__ == '__main__':
     atoms, xyz2atom, residues, interactions = calcu_atom_level_interactions('sele1', 'sele2')
     interactions, interaction_df = calcu_receptor_poses_interaction('RECEPTOR', ['LIGAND'], mode='polar contact')
 
+    cmd.reinitialize()
     from lazydock.pml.autodock_utils import DlgFile
-    dlg = DlgFile(path='data_tmp/dlg/1000run.dlg', sort_pdb_line_by_res=True, parse2std=True)
-    dlg.sort_pose()
+    cmd.load('data_tmp/docking/receptor.pdb', 'receptor')
+    cmd.alter('receptor', 'chain="A"')
+    dlg = DlgFile(path='data_tmp/docking/dock.pdbqt', sort_pdb_line_by_res=True, parse2std=True)
     pose_lst = []
-    for i, pose in enumerate(dlg.pose_lst[:10]):
+    for i, pose in enumerate(dlg.pose_lst):
         pose_lst.append(f'ligand_{i}')
         cmd.read_pdbstr(pose.as_pdb_string(), pose_lst[-1])
         cmd.alter(f'ligand_{i}', 'type="HETATM"')
-    interactions, interaction_df = calcu_receptor_poses_interaction('RECEPTOR', pose_lst)
+        cmd.alter(f'ligand_{i}', 'chain="Z"')
+    interactions, interaction_df = calcu_receptor_poses_interaction('receptor', pose_lst, 'polar contact', 4, hydrogen_atom_only=False)
     pass
