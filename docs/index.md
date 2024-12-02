@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-11-07 22:38:21
+ * @LastEditTime: 2024-12-02 17:05:08
  * @Description: 
 -->
 
@@ -76,7 +76,8 @@ pip install lazydock
 #### pymol user
 - install the plugin in pymol manually.
 
-
+### lazydock-cli
+- [get_pocket](scripts/get_pocket.md): get pocket info from ProteinPlus.
 
 
 ## release note
