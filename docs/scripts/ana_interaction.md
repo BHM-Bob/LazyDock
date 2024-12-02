@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-11-30 20:44:04
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-11-30 20:47:08
+ * @LastEditTime: 2024-12-02 22:51:59
  * @Description: 
 -->
 ## Command: simple-analysis
@@ -21,6 +21,7 @@ The `simple-analysis` command is designed to perform a simple analysis on dockin
   - plip: 'all', 'Hydrophobic Interactions', 'Hydrogen Bonds', 'Water Bridges', 'Salt Bridges', 'pi-Stacking', 'pi-Cation Interactions', 'Halogen Bonds', 'Metal Complexes'  
 - `--cutoff` (float): The distance cutoff for interaction calculation. Default is 4.
 - `--output-style` (str): The output style. Currently, only 'receptor' is supported, which outputs in the format 'resn resi distance'.
+- `--hydrogen-atom-only` (flag): only consider hydrogen bond acceptor and donor atoms, this only works when method is pymol. Default is False.
 
 ### Behavior
 The `simple-analysis` command processes the input receptor and ligand files or directories, calculates the interactions based on the specified method and mode, and outputs the results in the specified format. If a batch directory is provided, it will process all sub-folders containing docking result files.
