@@ -2,7 +2,7 @@
  * @Author: BHM-Bob 2262029386@qq.com
  * @Date: 2022-10-19 22:16:22
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-09-29 09:30:19
+ * @LastEditTime: 2024-12-02 22:59:34
  * @Description: 
 -->
 
@@ -49,4 +49,4 @@ pip install lazydock
 ```
 
 ## Docs
-- [lazydock.rtfd.io](lazydock.rtfd.io)
+- [read the docs: lazydock.rtfd.io](https://lazydock.rtfd.io)
