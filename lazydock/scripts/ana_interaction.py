@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-02 22:50:36
+LastEditTime: 2024-12-02 22:57:27
 Description: 
 '''
 import argparse
@@ -191,4 +191,6 @@ def main(sys_args: List[str] = None):
 
 
 if __name__ == "__main__":
-    main(r'simple-analysis -r receptor.pdbqt -l dock.pdbqt -bd data_tmp/docking --method pymol --mode '.split() + ['polar contact'])
+    # main(r'simple-analysis -r receptor.pdbqt -l dock.pdbqt -bd data_tmp/docking --method pymol --mode '.split() + ['polar contact'])
+    
+    main()
