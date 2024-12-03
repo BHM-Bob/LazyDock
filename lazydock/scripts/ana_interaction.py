@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-02 22:57:27
+LastEditTime: 2024-12-03 15:49:16
 Description: 
 '''
 import argparse
@@ -100,9 +100,11 @@ class simple_analysis(Command):
     def output_fromater_receptor(inter_value: Dict[str, float], method: str):
         # pymol: [('receptor', '', 'GLY', '300', 'O', 2817), ('LIGAND_0', 'Z', 'UNK', '1', 'N', 74), 2.8066137153155943]
         if method == 'pymol':
-            return ';'.join(f'{v[0][2]}{v[0][3]}-{v[2]:.2f}' for v in inter_value)
+            inter_value = sorted(inter_value, key=lambda x: int(x[0][3]))
+            return '; '.join(f'{v[0][2]}{v[0][3]}-{v[2]:.2f}' for v in inter_value)
         elif method in {'ligplus', 'plip'}:
-            return ';'.join(f'{v[0][1]}{v[0][0]}-{v[2]:.2f}' for v in inter_value)
+            inter_value = sorted(inter_value, key=lambda x: int(x[0][0]))
+            return '; '.join(f'{v[0][1]}{v[0][0]}-{v[2]:.2f}' for v in inter_value)
         else:
             put_err(f"Unsupported method: {method}, exit.")
             exit(1)
