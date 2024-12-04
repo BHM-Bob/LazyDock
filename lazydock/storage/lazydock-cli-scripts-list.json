@@ -22,5 +22,13 @@
         "exec_names": ["ana-interaction", "ana_interaction"],
         "brief": "Analyze interaction between receptor and ligand.",
         "detailed": "This tool is used to analyze interaction between receptor and ligand."
+    },
+    "dock":
+    {
+        "name": "dock",
+        "script name": "dock",
+        "exec_names": ["dock"],
+        "brief": "perform molecular docking using AutoDock Vina or other docking software.",
+        "detailed": "This tool is used to perform molecular docking using AutoDock Vina or other docking software."
     }
 }
