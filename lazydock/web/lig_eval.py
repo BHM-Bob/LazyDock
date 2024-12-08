@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-07 21:04:01
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-08 10:36:58
+LastEditTime: 2024-12-08 11:08:58
 Description: 
 '''
 
@@ -25,8 +25,13 @@ def get_score_from_SwissADME(lig_SMILES: str, result_dir: str, browser: Browser 
     b.execute_script("arguments[0].removeAttribute('disabled')", b.find_elements(element='//*[@id="submitButton"]')[0])
     b.click(element='//*[@id="submitButton"]')
     xpath_result_img1 = '//*[@id="content"]/div[11]/div[1]/div[3]/div[2]/img'
-    if not b.wait_element(xpath_result_img1, timeout=timeout):
+    xpath_limit_err = '//*[@id="content"]'
+    if not b.wait_element([xpath_result_img1, xpath_limit_err], timeout=timeout, check_fn=any):
         return put_err('Timeout', {})
+    err_info = b.find_elements(xpath_limit_err)
+    err_text = 'You are submitting molecules that are too large'
+    if err_info and err_text in err_info[0].text:
+        return put_err('Too large', {'ERROR': err_text})
     # download img1
     img1_url = b.find_elements(xpath_result_img1)[0].get_attribute('src')
     img1_path = os.path.join(result_dir, 'SwissADME_img1.png')
@@ -60,8 +65,13 @@ def get_score_from_SwissTargetPrediction(lig_SMILES: str, result_dir: str, brows
     b.execute_script("arguments[0].removeAttribute('disabled')", b.find_elements(element='//*[@id="submitButton"]')[0])
     b.click(element='//*[@id="submitButton"]')
     xpath_result_img1 = '//*[@id="content"]/div[3]/img'
-    if not b.wait_element(xpath_result_img1, timeout=timeout):
+    xpath_limit_err = '//*[@id="content"]'
+    if not b.wait_element([xpath_result_img1, xpath_limit_err], timeout=timeout, check_fn=any):
         return put_err('Timeout', {})
+    err_info = b.find_elements(xpath_limit_err)
+    err_text = 'You are submitting molecules that are too large'
+    if err_info and err_text in err_info[0].text:
+        return put_err('Too large', {'ERROR': err_text})
     # download img1
     img1_url = b.find_elements(xpath_result_img1)[0].get_attribute('src')
     img1_path = os.path.join(result_dir, 'SwissTargetPrediction_img1.png')
@@ -77,6 +87,8 @@ def get_score_from_SwissTargetPrediction(lig_SMILES: str, result_dir: str, brows
 
 
 if __name__ == '__main__':
-    lig_SMILES = 'CC1=C(C2=C3N1[C@@H](COC3=CC=C2)CN4CCOCC4)C(=O)C5=CC=CC6=CC=CC=C65'
+    from mbapy.base import Configs
+    b = Browser(options = [f"--user-agent={Configs.web.chrome_driver_path}"], download_path='data_tmp/web')
+    lig_SMILES = '[H]N[C@H](C(N1CCC[C@H]1C(N[C@H](C(N2CCC[C@H]2C(N[C@@H](C(C)C)C(N[C@@H](CC(N)=O)C(N[C@H](C(N[C@@H](CCCCN)C(N[C@@H](CC(C)C)C(N[C@@H](CC(C)C)C(N[C@@H](CO)C(N[C@H](C(N)=O)CC3=CN=CN3)=O)=O)=O)=O)=O)CC4=CC=CC=C4)=O)=O)=O)=O)CC5=CC=CC=C5)=O)=O)CC6=CC=C(O)C=C6'
     result_dir = 'data_tmp/web'
-    get_score_from_SwissTargetPrediction(lig_SMILES, result_dir)
+    get_score_from_SwissTargetPrediction(lig_SMILES, result_dir, browser=b, timeout=1200)
