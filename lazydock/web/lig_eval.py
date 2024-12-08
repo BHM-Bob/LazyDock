@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-07 21:04:01
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-07 22:18:50
+LastEditTime: 2024-12-08 10:36:58
 Description: 
 '''
 
@@ -29,12 +29,12 @@ def get_score_from_SwissADME(lig_SMILES: str, result_dir: str, browser: Browser 
         return put_err('Timeout', {})
     # download img1
     img1_url = b.find_elements(xpath_result_img1)[0].get_attribute('src')
-    img1_path = os.path.join(result_dir, 'img1.png')
+    img1_path = os.path.join(result_dir, 'SwissADME_img1.png')
     opts_file(img1_path, 'wb', data=requests.get(img1_url).content)
     # cap img2
     b.click(element='//*[@id="content"]/div[8]/span[1]/button')
     img2 = b.find_elements('//*[@id="placeholder"]/canvas[2]')[0].screenshot_as_png
-    img2_path = os.path.join(result_dir, 'img2.png')
+    img2_path = os.path.join(result_dir, 'SwissADME_img2.png')
     opts_file(img2_path, 'wb', data=img2)
     # download scv file
     csv_link = b.find_elements('//*[@id="content"]/div[7]/a[1]')[0].get_attribute('href')
@@ -64,13 +64,13 @@ def get_score_from_SwissTargetPrediction(lig_SMILES: str, result_dir: str, brows
         return put_err('Timeout', {})
     # download img1
     img1_url = b.find_elements(xpath_result_img1)[0].get_attribute('src')
-    img1_path = os.path.join(result_dir, 'img1.png')
+    img1_path = os.path.join(result_dir, 'SwissTargetPrediction_img1.png')
     opts_file(img1_path, 'wb', data=requests.get(img1_url).content)
-    # cap img2
+    # download img2
     img2_url = b.find_elements('//*[@id="placePieChart"]/a/img')[0].get_attribute('src')
-    img2_path = os.path.join(result_dir, 'img2.png')
+    img2_path = os.path.join(result_dir, 'SwissTargetPrediction_img2.png')
     opts_file(img2_path, 'wb', data=requests.get(img2_url).content)
-    # download scv file
+    # download csv file
     b.click(element='//*[@id="exportButtons"]/div/button[2]')
     b.click(element='//*[@id="exportButtons"]/div/button[3]')
     return {'img1_path': img1_path, 'img2_path': img2_path}
