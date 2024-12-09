@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-07 20:06:35
+LastEditTime: 2024-12-09 19:03:11
 Description: 
 '''
 
@@ -29,8 +29,8 @@ class vina(Command):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-c', '--config', type = str, default='.',
-                                help='config file path or directory contains config files (named "config.txt"), each sub-directory is a task. Default is %(default)s.')
+        args.add_argument('-d', '--dir', type = str, default='.',
+                                help='config file directory contains config files (named "config.txt"), each sub-directory is a task. Default is %(default)s.')
         args.add_argument('-v', '--vina-name', type = str, default='vina',
                                 help='vina executable name to call. Default is %(default)s.')
         args.add_argument('-n', '--n-workers', type=int, default=1,
@@ -38,7 +38,7 @@ class vina(Command):
         return args
     
     def process_args(self):
-        self.args.config = clean_path(self.args.config)
+        self.args.dir = clean_path(self.args.dir)
         if self.args.n_workers <= 0:
             put_err(f'n_workers must be positive integer, got {self.args.n_workers}, exit.', _exit=True)
         self.taskpool = TaskPool('threads', self.args.n_workers).start()
@@ -52,12 +52,10 @@ class vina(Command):
         os.system(f'cd "{config_path.absolute().parent}" && {vina_name} --config ./config.txt --log ./log.txt')
         
     def main_process(self):
-        if os.path.isfile(self.args.config):
-            configs_path = [self.args.config]
-        elif os.path.isdir(self.args.config):
-            configs_path = get_paths_with_extension(self.args.config, ['.txt'], name_substr='config')
+        if os.path.isdir(self.args.dir):
+            configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr='config')
         else:
-            put_err(f'config file or directory not found: {self.args.config}, exit.', _exit=True)
+            put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
         print(f'get {len(configs_path)} config(s) for docking')
         tasks = []
         for config_path in tqdm(configs_path, total=len(configs_path)):
