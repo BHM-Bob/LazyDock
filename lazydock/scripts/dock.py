@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-09 20:03:51
+LastEditTime: 2024-12-09 20:29:23
 Description: 
 '''
 
@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from lazydock.pml.autodock_utils import DlgFile
 from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
-from lazydock.web.hdock import run_dock_on_HDOCK
+from lazydock.web.hdock import run_dock_on_HDOCK, run_dock_on_HPEPDOCK
 
 
 class vina(Command):
@@ -153,6 +153,28 @@ class hdock(Command):
             random_sleep(300, 180) # sleep 3~5 minutes to avoid overloading the server
 
 
+
+class hpepdock(hdock):
+    def __init__(self, args, printf = print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args = hdock.make_args(args)
+        # make sure hpepdock only support web method
+        args._remove_action(list(filter(lambda x: x.dest == 'method', args._actions))[0])
+        args.add_argument('-m', '--method', type = str, default='web', choices=['web'],
+                          help='docking method. Currently support "web". Default is %(default)s.')
+        return args
+    
+    @staticmethod
+    @hdock_run_fn_warpper
+    def run_hdock_web(config_path: Path, parameters: Dict[str, str] = None, email=None):
+        w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).parent
+        run_dock_on_HPEPDOCK(receptor_path=parameters['receptor_path'], ligand_path=parameters['ligand_path'],
+                             w_dir=config_path.parent)
+
+
 def convert_result_run_convert(input_path: Path, output_path: Path, method: str):
     if method in {'lazydock', 'obabel'}:
         getattr(convert_result, f'run_convert_{method}')(input_path, output_path)
@@ -220,6 +242,7 @@ class convert_result(Command):
 _str2func = {
     'vina': vina,
     'hdock': hdock,
+    'hpepdock': hpepdock,
     'convert-result': convert_result,
 }
 
@@ -228,7 +251,8 @@ def main(sys_args: List[str] = None):
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
 
     vina_args = vina.make_args(subparsers.add_parser('vina', description='perform vina molecular docking.'))
-    hdock_args = hdock.make_args(subparsers.add_parser('hdock', description='perform hdock molecular docking.'))
+    hdock_args = hdock.make_args(subparsers.add_parser('hdock', description='perform HDOCK molecular docking.'))
+    hpepdock_args = hpepdock.make_args(subparsers.add_parser('hpepdock', description='perform HPEPDOCK molecular docking.'))
     convert_result_args = convert_result.make_args(subparsers.add_parser('convert-result', description='convert docking result file to pdb format.'))
 
     excute_command(args_paser, sys_args, _str2func)
