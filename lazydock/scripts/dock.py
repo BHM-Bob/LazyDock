@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-09 19:03:11
+LastEditTime: 2024-12-09 19:49:10
 Description: 
 '''
 
@@ -72,12 +72,24 @@ def hdock_run_fn_warpper(func):
         config_path = args[0] if len(args) > 0 else kwargs.get('config_path', None)
         if config_path is None:
             put_err('config_path is required, exit.', _exit=True)
-        if (config_path.parent / 'HDOCK_all_results.tar.gz').exists():
-            return print(f'{config_path.parent} has done, skip')
-        print(f'current: {config_path}')
-        parameters = hdock.get_paramthers_from_config(config_path)
-        parameters['receptor_path'] = config_path.parent / 'receptor.pdbqt'
-        parameters['ligand_path'] = config_path.parent / 'ligand.pdbqt'
+        # get parameters from config file
+        if isinstance(config_path, Path):
+            root = config_path.parent
+            parameters = hdock.get_paramthers_from_config(config_path)
+            parameters['receptor_path'] = config_path.parent / parameters['receptor']
+            parameters['ligand_path'] = config_path.parent / parameters['ligand']
+        # OR get parameters from receptor and ligand path in tuple
+        elif isinstance(config_path, tuple):
+            root = Path(config_path[0]).parent
+            parameters = {'receptor_path': config_path[0], 'ligand_path': config_path[1]}
+        # un-expected type
+        else:
+            put_err(f'config_path type not support: {type(config_path)}, exit.', _exit=True)
+        # check if done
+        if (root / 'HDOCK_all_results.tar.gz').exists():
+            return print(f'{root} has done, skip')
+        # perform docking
+        print(f'current: {root}')
         ret =  func(*args, parameters=parameters, **kwargs)
         return ret
     return core_wrapper
@@ -91,6 +103,10 @@ class hdock(Command):
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-d', '--dir', type = str, default='.',
                           help='vina config file directory contains config files (named "config.txt"), each sub-directory is a task. Default is %(default)s.')
+        args.add_argument('-r', '--receptor', type = str, default=None,
+                          help="receptor pdb file name, optional. If provided, will ignore config.txt.")
+        args.add_argument('-l', '--ligand', type = str, default=None,
+                          help="ligand pdb file name, optional. If provided, will ignore config.txt.")
         args.add_argument('-m', '--method', type = str, default='web', choices=['web'],
                           help='docking method. Currently support "web". Default is %(default)s.')
         args.add_argument('--email', type = str, default=None,
@@ -115,14 +131,24 @@ class hdock(Command):
         raise NotImplementedError('local docking not implemented yet.')
 
     def main_process(self):
-        if os.path.isdir(self.args.dir):
-            configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr='config')
-        else:
+        if not os.path.isdir(self.args.dir):
             put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
+        if self.args.receptor is not None and self.args.ligand is not None:
+            r_paths = get_paths_with_extension(self.args.dir, [], name_substr=self.args.receptor)
+            l_paths = get_paths_with_extension(self.args.dir, [], name_substr=self.args.ligand)
+            if len(r_paths) != len(l_paths):
+                r_roots = [os.path.dirname(p) for p in r_paths]
+                l_roots = [os.path.dirname(p) for p in l_paths]
+                roots_count = {root: r_roots.count(root)+l_roots.count(root) for root in (set(r_roots) | set(l_roots))}
+                invalid_roots = '\n'.join([root for root, count in roots_count.items() if count != 2])
+                return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:{invalid_roots}")
+            configs_path = [(r, l) for r, l in zip(r_paths, l_paths)]
+        else:
+            configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr='config')
         print(f'get {len(configs_path)} config(s) for docking')
         dock_fn = getattr(self, f'run_hdock_{self.args.method}')
         for config_path in tqdm(configs_path, total=len(configs_path)):
-            dock_fn(Path(config_path), email=self.args.email)
+            dock_fn(Path(config_path) if isinstance(config_path, str) else config_path, email=self.args.email)
             random_sleep(300, 180) # sleep 3~5 minutes to avoid overloading the server
 
 
@@ -209,6 +235,6 @@ def main(sys_args: List[str] = None):
 
 if __name__ == "__main__":
     # main('convert-result -d data_tmp/docking/ligand1 -m lazydock --n-workers 1'.split())
-    # main('hdock -d data_tmp/docking/ligand1 -m web'.split())
+    # main('hdock -d data_tmp/docking/ligand1 -m web -r receptor.pdbqt -l ligand.pdbqt'.split())
     
     main()
