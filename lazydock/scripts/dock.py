@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-09 19:49:10
+LastEditTime: 2024-12-09 20:03:51
 Description: 
 '''
 
@@ -10,7 +10,7 @@ import os
 import time
 from functools import wraps
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple, Union
 
 from mbapy_lite.base import put_err
 from mbapy_lite.file import get_paths_with_extension, opts_file
@@ -121,13 +121,14 @@ class hdock(Command):
 
     @staticmethod
     @hdock_run_fn_warpper
-    def run_hdock_web(config_path: Path, parameters: Dict[str, str] = None, email=None):
+    def run_hdock_web(config_path: Union[Path, Tuple[str, str]], parameters: Dict[str, str] = None, email=None):
+        w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).parent
         run_dock_on_HDOCK(receptor_path=parameters['receptor_path'], ligand_path=parameters['ligand_path'],
-                          w_dir=config_path.parent)
+                          w_dir=w_dir)
 
     @staticmethod
     @hdock_run_fn_warpper
-    def run_hdock_local(config_path: Path, parameters: Dict[str, str] = None, **kwargs):
+    def run_hdock_local(config_path: Union[Path, Tuple[str, str]], parameters: Dict[str, str] = None, **kwargs):
         raise NotImplementedError('local docking not implemented yet.')
 
     def main_process(self):
