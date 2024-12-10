@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-10 09:57:30
+LastEditTime: 2024-12-10 11:18:27
 Description: 
 '''
 
@@ -66,33 +66,34 @@ class vina(Command):
         self.taskpool.close()
         
         
-def hdock_run_fn_warpper(func):
-    @wraps(func)
-    def core_wrapper(*args, **kwargs):
-        config_path = args[0] if len(args) > 0 else kwargs.get('config_path', None)
-        if config_path is None:
-            put_err('config_path is required, exit.', _exit=True)
-        # get parameters from config file
-        if isinstance(config_path, Path):
-            root = config_path.parent
-            parameters = hdock.get_paramthers_from_config(config_path)
-            parameters['receptor_path'] = config_path.parent / parameters['receptor']
-            parameters['ligand_path'] = config_path.parent / parameters['ligand']
-        # OR get parameters from receptor and ligand path in tuple
-        elif isinstance(config_path, tuple):
-            root = Path(config_path[0]).parent
-            parameters = {'receptor_path': config_path[0], 'ligand_path': config_path[1]}
-        # un-expected type
-        else:
-            put_err(f'config_path type not support: {type(config_path)}, exit.', _exit=True)
-        # check if done
-        if (root / 'HDOCK_all_results.tar.gz').exists():
-            return print(f'{root} has done, skip')
-        # perform docking
-        print(f'current: {root}')
-        ret =  func(*args, parameters=parameters, **kwargs)
-        return ret
-    return core_wrapper
+def hdock_run_fn_warpper(result_prefix: str = 'HDOCK'):
+    def ret_warpper(func):
+        def core_wrapper(*args, **kwargs):
+            config_path = args[0] if len(args) > 0 else kwargs.get('config_path', None)
+            if config_path is None:
+                put_err('config_path is required, exit.', _exit=True)
+            # get parameters from config file
+            if isinstance(config_path, Path):
+                root = config_path.parent
+                parameters = hdock.get_paramthers_from_config(config_path)
+                parameters['receptor_path'] = config_path.parent / parameters['receptor']
+                parameters['ligand_path'] = config_path.parent / parameters['ligand']
+            # OR get parameters from receptor and ligand path in tuple
+            elif isinstance(config_path, tuple):
+                root = Path(config_path[0]).parent
+                parameters = {'receptor_path': config_path[0], 'ligand_path': config_path[1]}
+            # un-expected type
+            else:
+                put_err(f'config_path type not support: {type(config_path)}, exit.', _exit=True)
+            # check if done
+            if (root / f'{result_prefix}_all_results.tar.gz').exists():
+                return print(f'{root} has done, skip')
+            # perform docking
+            print(f'current: {root}')
+            ret =  func(*args, parameters=parameters, **kwargs)
+            return ret
+        return core_wrapper
+    return ret_warpper
 
 
 class hdock(Command):
@@ -120,14 +121,14 @@ class hdock(Command):
         return {k:v[:v.find('#')] for k,v in paramthers.items()}
 
     @staticmethod
-    @hdock_run_fn_warpper
+    @hdock_run_fn_warpper('HDOCK')
     def run_hdock_web(config_path: Union[Path, Tuple[str, str]], parameters: Dict[str, str] = None, email=None):
         w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).parent
         run_dock_on_HDOCK(receptor_path=parameters['receptor_path'], ligand_path=parameters['ligand_path'],
                           w_dir=w_dir)
 
     @staticmethod
-    @hdock_run_fn_warpper
+    @hdock_run_fn_warpper('HDOCK')
     def run_hdock_local(config_path: Union[Path, Tuple[str, str]], parameters: Dict[str, str] = None, **kwargs):
         raise NotImplementedError('local docking not implemented yet.')
 
@@ -168,9 +169,9 @@ class hpepdock(hdock):
         return args
     
     @staticmethod
-    @hdock_run_fn_warpper
+    @hdock_run_fn_warpper('HPEPDOCK')
     def run_hdock_web(config_path: Path, parameters: Dict[str, str] = None, email=None):
-        w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).parent
+        w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).resolve().parent
         run_dock_on_HPEPDOCK(receptor_path=parameters['receptor_path'], ligand_path=parameters['ligand_path'],
                              w_dir=config_path.parent)
 
@@ -260,6 +261,6 @@ def main(sys_args: List[str] = None):
 
 if __name__ == "__main__":
     # main('convert-result -d data_tmp/docking/ligand1 -m lazydock --n-workers 1'.split())
-    # main('hdock -d data_tmp/docking/ligand1 -m web -r receptor.pdbqt -l ligand.pdbqt'.split())
+    # main('hpepdock -d data_tmp/docking/ligand2 -m web -r rec.pdb -l ligand.pdb'.split())
     
     main()
