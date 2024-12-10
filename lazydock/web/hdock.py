@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-07 20:24:12
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-09 20:10:45
+LastEditTime: 2024-12-10 10:09:30
 Description: 
 '''
 import os
@@ -37,6 +37,7 @@ def run_dock_on_HDOCK(receptor_path: str, ligand_path: str, w_dir: str = None,
     xpath_result_url = '/html/body/center/table[1]/tbody/tr/td/div/a[25]'
     while not b.find_elements(xpath_result_url):
         random_sleep(100)
+        b.browser.refresh()
     # download result
     result_url = b.browser.current_url + 'all_results.tar.gz'
     result_path = os.path.join(w_dir, 'HDOCK_all_results.tar.gz')
@@ -70,6 +71,7 @@ def run_dock_on_HPEPDOCK(receptor_path: str, ligand_path: str, w_dir: str = None
     xpath_result_url = '/html/body/center/table[1]/tbody/tr/td/div/a[24]'
     while not b.find_elements(xpath_result_url):
         random_sleep(100)
+        b.browser.refresh()
     # download result
     result_url = b.browser.current_url + 'all_results.tar.gz'
     result_path = os.path.join(w_dir, 'HPEPDOCK_all_results.tar.gz')
