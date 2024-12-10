@@ -173,7 +173,7 @@ class hpepdock(hdock):
     def run_hdock_web(config_path: Path, parameters: Dict[str, str] = None, email=None):
         w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).resolve().parent
         run_dock_on_HPEPDOCK(receptor_path=parameters['receptor_path'], ligand_path=parameters['ligand_path'],
-                             w_dir=config_path.parent)
+                             w_dir=w_dir)
 
 
 def convert_result_run_convert(input_path: Path, output_path: Path, method: str):
