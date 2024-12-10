@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-09 20:29:23
+LastEditTime: 2024-12-10 09:57:30
 Description: 
 '''
 
@@ -142,7 +142,7 @@ class hdock(Command):
                 l_roots = [os.path.dirname(p) for p in l_paths]
                 roots_count = {root: r_roots.count(root)+l_roots.count(root) for root in (set(r_roots) | set(l_roots))}
                 invalid_roots = '\n'.join([root for root, count in roots_count.items() if count != 2])
-                return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:{invalid_roots}")
+                return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:\n{invalid_roots}")
             configs_path = [(r, l) for r, l in zip(r_paths, l_paths)]
         else:
             configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr='config')
@@ -153,7 +153,6 @@ class hdock(Command):
             random_sleep(300, 180) # sleep 3~5 minutes to avoid overloading the server
 
 
-
 class hpepdock(hdock):
     def __init__(self, args, printf = print):
         super().__init__(args, printf)
@@ -162,9 +161,10 @@ class hpepdock(hdock):
     def make_args(args: argparse.ArgumentParser):
         args = hdock.make_args(args)
         # make sure hpepdock only support web method
-        args._remove_action(list(filter(lambda x: x.dest == 'method', args._actions))[0])
-        args.add_argument('-m', '--method', type = str, default='web', choices=['web'],
-                          help='docking method. Currently support "web". Default is %(default)s.')
+        method_arg_idx = args._actions.index(list(filter(lambda x: x.dest =='method', args._actions))[0])
+        args._actions[method_arg_idx].choices = ['web']
+        args._actions[method_arg_idx].default = 'web'
+        args._actions[method_arg_idx].help = 'docking method. Currently support "web". Default is %(default)s.'
         return args
     
     @staticmethod
