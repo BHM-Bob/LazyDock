@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-10 11:18:27
+LastEditTime: 2024-12-11 10:05:58
 Description: 
 '''
 
@@ -12,7 +12,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-from mbapy_lite.base import put_err
+from mbapy_lite.base import put_err, Configs
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from mbapy_lite.web import TaskPool, random_sleep
 from tqdm import tqdm
@@ -112,6 +112,8 @@ class hdock(Command):
                           help='docking method. Currently support "web". Default is %(default)s.')
         args.add_argument('--email', type = str, default=None,
                           help='email address for HDOCK web server. Default is %(default)s.')
+        args.add_argument('-gui', '--gui', action='store_true', default=False,
+                          help='show browser GUI. Default is %(default)s.')
         return args
     
     @staticmethod
@@ -122,10 +124,10 @@ class hdock(Command):
 
     @staticmethod
     @hdock_run_fn_warpper('HDOCK')
-    def run_hdock_web(config_path: Union[Path, Tuple[str, str]], parameters: Dict[str, str] = None, email=None):
+    def run_hdock_web(config_path: Union[Path, Tuple[str, str]], parameters: Dict[str, str] = None, email=None, browser=None):
         w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).parent
         run_dock_on_HDOCK(receptor_path=parameters['receptor_path'], ligand_path=parameters['ligand_path'],
-                          w_dir=w_dir)
+                          w_dir=w_dir, email=email, browser=browser)
 
     @staticmethod
     @hdock_run_fn_warpper('HDOCK')
@@ -148,9 +150,16 @@ class hdock(Command):
         else:
             configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr='config')
         print(f'get {len(configs_path)} config(s) for docking')
+        # allow browser gui
+        if self.args.gui:
+            from mbapy_lite.web import Browser
+            browser = Browser(options=[f"--user-agent={Configs.web.chrome_driver_path}"])
+        else:
+            browser = None
+        # perform docking
         dock_fn = getattr(self, f'run_hdock_{self.args.method}')
         for config_path in tqdm(configs_path, total=len(configs_path)):
-            dock_fn(Path(config_path) if isinstance(config_path, str) else config_path, email=self.args.email)
+            dock_fn(Path(config_path) if isinstance(config_path, str) else config_path, email=self.args.email, browser=browser)
             random_sleep(300, 180) # sleep 3~5 minutes to avoid overloading the server
 
 
@@ -170,10 +179,10 @@ class hpepdock(hdock):
     
     @staticmethod
     @hdock_run_fn_warpper('HPEPDOCK')
-    def run_hdock_web(config_path: Path, parameters: Dict[str, str] = None, email=None):
+    def run_hdock_web(config_path: Path, parameters: Dict[str, str] = None, email=None, browser=None):
         w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).resolve().parent
         run_dock_on_HPEPDOCK(receptor_path=parameters['receptor_path'], ligand_path=parameters['ligand_path'],
-                             w_dir=w_dir)
+                             w_dir=w_dir, email=email, browser=browser)
 
 
 def convert_result_run_convert(input_path: Path, output_path: Path, method: str):
