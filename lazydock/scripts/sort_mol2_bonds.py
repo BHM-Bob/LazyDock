@@ -11,10 +11,10 @@ from typing import Dict, List
 from mbapy_lite.file import get_paths_with_extension, opts_file
 
 if __name__ == '__main__':
-    from lazydock.gmx.sort_mol2_bonds import sort_bonds
+    from lazydock.gmx.thirdparty.sort_mol2_bonds import sort_bonds
     from lazydock.scripts._script_utils_ import clean_path, show_args
 else:
-    from ..gmx.sort_mol2_bonds import sort_bonds
+    from ..gmx.thirdparty.sort_mol2_bonds import sort_bonds
     from ._script_utils_ import clean_path, show_args
     
 
