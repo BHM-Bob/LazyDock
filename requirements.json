@@ -5,6 +5,7 @@
         "pyteomics",
         "pygame",
         "nicegui",
-        "openbabel-wheel"
+        "openbabel-wheel",
+        "compas"
     ]
 }
