@@ -30,5 +30,13 @@
         "exec_names": ["dock"],
         "brief": "perform molecular docking using AutoDock Vina or other docking software.",
         "detailed": "This tool is used to perform molecular docking using AutoDock Vina or other docking software."
+    },
+    "align_pose_to_axis":
+    {
+        "name": "align_pose_to_axis",
+        "script name": "align_pose_to_axis",
+        "exec_names": ["align_pose_to_axis", "align-pose-to-axis"],
+        "brief": "align pose to axis.",
+        "detailed": "This tool is used to align pose to axis."
     }
 }
