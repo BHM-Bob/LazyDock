@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-15 19:25:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-15 19:45:19
+LastEditTime: 2024-12-15 21:04:11
 Description: 
 '''
 
@@ -18,8 +18,8 @@ def start_lazydock_server(host: str = 'localhost', port: int = 8085, quiet: int 
 cmd.extend('start_lazydock_server', start_lazydock_server)
 
 
-def align_pose_to_axis_warp(pml_name: str, fixed: Union[List[float], str] = 'center', state: int = 0, move_method: str = 'pymol'):
+def align_pose_to_axis_warp(pml_name: str, fixed: Union[List[float], str] = 'center', state: int = 0, move_method: str = 'pymol', dss: int = 1):
     from lazydock.pml.align_to_axis import align_pose_to_axis
-    align_pose_to_axis(pml_name, fixed, state, move_method)
+    align_pose_to_axis(pml_name, fixed, state, move_method, dss)
 
 cmd.extend('align_pose_to_axis', align_pose_to_axis_warp)

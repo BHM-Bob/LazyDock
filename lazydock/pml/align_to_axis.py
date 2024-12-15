@@ -3,7 +3,7 @@ from typing import List, Union
 import numpy as np
 from compas.geometry import oriented_bounding_box_numpy
 from mbapy.base import put_err, split_list
-from pymol import cmd
+from pymol import cmd, editing
 
 
 def sort_vertices(vertices):
@@ -76,7 +76,7 @@ def align_bounding_box_to_axis(coords: np.ndarray, bounding_box_vertices: np.nda
     return rotated_points, rotated_box, rotation_matrix, fixed_coords
 
 
-def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center', state: int = 0, move_method: str = 'transform'):
+def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center', state: int = 0, move_method: str = 'transform', dss: bool = True):
     """
     TODO: RMS is rigth(=0), but second structure all trun to raandom coil.
     """
@@ -88,22 +88,25 @@ def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center',
     else:
         fixed_coords = fixed
     aligned_coords, aligned_box, rotation_matrix, fixed_coords = align_bounding_box_to_axis(coords, sorted_vertices, fixed_coords=fixed_coords)
+    # create pymol rotation matrix
+    pml_mat = np.zeros((4, 4))
+    pml_mat[:3, :3] = rotation_matrix.T # np is matmul, but pymol is dot product
+    pml_mat[-1, :] = list(-fixed_coords) + [1]
+    pml_mat[:, -1] = list(fixed_coords) + [1]
     # move to aligned position
     if move_method == 'transform':
-        # create pymol rotation matrix
-        pml_mat = np.zeros((4, 4))
-        pml_mat[:3, :3] = rotation_matrix.T # np is matmul, but pymol is dot product
-        pml_mat[-1, :] = list(-fixed_coords) + [1]
-        pml_mat[:, -1] = list(fixed_coords) + [1]
         cmd.transform_selection(pml_name, pml_mat.flatten().tolist(), homogenous=0)
     elif move_method == 'alter':
         cmd.alter_state(state, pml_name, 'x = aligned_coords[index2coords[index], 0]', space=locals())
         cmd.alter_state(state, pml_name, 'y = aligned_coords[index2coords[index], 1]', space=locals())
         cmd.alter_state(state, pml_name, 'z = aligned_coords[index2coords[index], 2]', space=locals())
         cmd.sort(pml_name)
-        cmd.rebuild(pml_name)
     else:
         put_err(f'Unsupported move_method: {move_method}, only support transform and alter, skip transform.')
+    if dss:
+        editing.dss(pml_name)
+    cmd.rebuild(pml_name)
+    print(f'pymol transform matrix: {pml_mat.flatten().tolist()}')
     return aligned_coords, aligned_box, rotation_matrix, fixed_coords
 
 def set_axes_equal(ax):
