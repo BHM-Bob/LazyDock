@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-16 09:36:38
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-15 19:18:57
+LastEditTime: 2024-12-15 19:25:00
 Description: LazyDock Pymol Plugin
 '''
 
@@ -14,8 +14,9 @@ import sys
 
 sys.path.append(os.path.dirname(__file__))
 
-from main import GUILauncher
 from pymol import cmd
+
+from lazydock.pml_plugin.main import GUILauncher
 
 
 def __init__(self):

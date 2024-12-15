@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-19 10:41:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-15 19:13:32
+LastEditTime: 2024-12-15 19:27:13
 Description: 
 '''
 import os
@@ -20,12 +20,13 @@ class GUILauncher:
         
     def init_run_self_in_background(self, n_threads: int):
         print('Lazydock pymol Plugin: initializing GUI plugin...')
-        from lazy_dlg import LazyDLG
-        from lazy_plot import LazyPlot
-        from lazy_pml import LazyPml
-        from lazy_pocket import LazyPocket
         from mbapy_lite.web import TaskPool
         from nicegui import app, ui
+
+        from lazydock.pml_plugin.lazy_dlg import LazyDLG
+        from lazydock.pml_plugin.lazy_plot import LazyPlot
+        from lazydock.pml_plugin.lazy_pml import LazyPml
+        from lazydock.pml_plugin.lazy_pocket import LazyPocket
         
         self._now_molecule = cmd.get_names_of_type('object:molecule') or []
         self._now_selection = cmd.get_names_of_type('selection') + ['sele']
@@ -70,7 +71,8 @@ class GUILauncher:
         from nicegui import app, ui
         
         if event is None:
-            from _nicegui.local_file_picker import local_file_picker
+            from lazydock.pml_plugin._nicegui.local_file_picker import \
+                local_file_picker
             paths = await local_file_picker(os.path.abspath('.'), upper_limit=None,
                                             multiple=True, show_hidden_files=True,
                                             file_extensions=['.pdb', '.pdbqt', '.dlg'])
