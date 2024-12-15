@@ -97,7 +97,7 @@ def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center',
     pml_mat[:, -1] = list(fixed_coords) + [1]
     # move to aligned position
     if move_method == 'transform':
-        cmd.transform_selection(pml_name, pml_mat.flatten().tolist(), homogenous=1)
+        cmd.transform_selection(pml_name, pml_mat.flatten().tolist(), homogenous=0)
     elif move_method == 'alter':
         cmd.alter_state(state, pml_name, 'x = aligned_coords[index2coords[index], 0]', space=locals())
         cmd.alter_state(state, pml_name, 'y = aligned_coords[index2coords[index], 1]', space=locals())
