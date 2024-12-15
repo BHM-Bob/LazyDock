@@ -1,11 +1,12 @@
 '''
 Date: 2024-08-16 09:36:38
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-14 21:45:28
+LastEditTime: 2024-12-15 19:18:57
 Description: LazyDock Pymol Plugin
 '''
 
 import os
+from typing import List, Union
 
 os.environ['MBAPY_FAST_LOAD'] = 'True'
 
@@ -15,9 +16,6 @@ sys.path.append(os.path.dirname(__file__))
 
 from main import GUILauncher
 from pymol import cmd
-
-from lazydock.pml.server import VServer
-from lazydock.pml.align_to_axis import align_pose_to_axis
 
 
 def __init__(self):
@@ -33,9 +31,15 @@ def __init__(self):
 
 
 def start_lazydock_server(host: str = 'localhost', port: int = 8085, quiet: int = 1):
+    from lazydock.pml.server import VServer
     print(f'Starting LazyDock server on {host}:{port}, quiet={quiet}')
     VServer(host, port, not bool(quiet))
-    
-    
+
 cmd.extend('start_lazydock_server', start_lazydock_server)
-cmd.extend('align_pose_to_axis', align_pose_to_axis)
+
+
+def align_pose_to_axis_warp(pml_name: str, fixed: Union[List[float], str] = 'center', state: int = 0):
+    from lazydock.pml.align_to_axis import align_pose_to_axis
+    align_pose_to_axis(pml_name, fixed, state, warp=True)
+
+cmd.extend('align_pose_to_axis', align_pose_to_axis_warp)

@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-19 10:41:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-27 09:56:25
+LastEditTime: 2024-12-15 19:13:32
 Description: 
 '''
 import os
@@ -9,21 +9,23 @@ from functools import partial
 from pathlib import Path
 from threading import Thread
 
-from _nicegui.local_file_picker import local_file_picker
-from lazy_dlg import LazyDLG
-from lazy_plot import LazyPlot
-from lazy_pml import LazyPml
-from lazy_pocket import LazyPocket
-from mbapy_lite.file import decode_bits_to_str, opts_file
-from mbapy_lite.web import TaskPool
-from nicegui import app, ui
 from pymol import cmd
-
-from lazydock.pml.thirdparty.draw_bounding_box import draw_box
 
 
 class GUILauncher:
     def __init__(self, app = None, n_threads=4):
+        self.host = Thread(name = 'GUI-Host', target=self.init_run_self_in_background,
+                           kwargs = dict(n_threads=n_threads), daemon=False)
+        self.host.start()
+        
+    def init_run_self_in_background(self, n_threads: int):
+        print('Lazydock pymol Plugin: initializing GUI plugin...')
+        from lazy_dlg import LazyDLG
+        from lazy_plot import LazyPlot
+        from lazy_pml import LazyPml
+        from lazy_pocket import LazyPocket
+        from mbapy_lite.web import TaskPool
+        from nicegui import app, ui
         
         self._now_molecule = cmd.get_names_of_type('object:molecule') or []
         self._now_selection = cmd.get_names_of_type('selection') + ['sele']
@@ -38,10 +40,9 @@ class GUILauncher:
         self.build_gui()
         
         self.taskpool = TaskPool('threads', n_threads).start()
-        self.host = Thread(name = 'GUI-Host', target=ui.run,
-                            kwargs = dict(title='LazyDock', host = 'localhost', port=8090, reload = False),
-                            daemon=False)
-        self.host.start()
+        print('Lazydock pymol Plugin: GUI plugin initialized.')
+        ui.run(title='LazyDock', host='localhost', port=8090, reload=False)
+        
         
     def ui_update_content_from_pymol(self, ):
         self._now_molecule = cmd.get_names_of_type('object:molecule')
@@ -51,6 +52,7 @@ class GUILauncher:
             fn()
             
     def load_gpf(self, content: str):
+        from lazydock.pml.thirdparty.draw_bounding_box import draw_box
         lines = content.split('\n')
         grid_size_line = list(filter(lambda x: x.startswith('npts'), lines))[0]
         grid_center_line = list(filter(lambda x: x.startswith('gridcenter'), lines))[0]
@@ -64,7 +66,11 @@ class GUILauncher:
         draw_box(min_x, min_y, min_z, max_x, max_y, max_z)
 
     async def uni_load(self, event):
+        from mbapy_lite.file import decode_bits_to_str, opts_file
+        from nicegui import app, ui
+        
         if event is None:
+            from _nicegui.local_file_picker import local_file_picker
             paths = await local_file_picker(os.path.abspath('.'), upper_limit=None,
                                             multiple=True, show_hidden_files=True,
                                             file_extensions=['.pdb', '.pdbqt', '.dlg'])
@@ -87,6 +93,7 @@ class GUILauncher:
                 self.load_gpf(decode_bits_to_str(event.content.read()))
                     
     def build_gui(self):
+        from nicegui import app, ui
         with ui.header(elevated=True).style('background-color: #3874c8'):
             ui.label('LazyDock | Pymol Plugin').classes('text-h4')
             ui.space()
