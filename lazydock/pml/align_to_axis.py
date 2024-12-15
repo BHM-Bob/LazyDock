@@ -25,15 +25,16 @@ def sort_vertices(vertices):
 
 
 def calcu_bounding_box(pml_name: str = None, coords: np.ndarray = None, state: int = 0):
+    index2coords = {}
     if coords is None:
-        coords = []
-        cmd.iterate_state(state, pml_name, 'coords.append([x, y, z])', space=locals())
-        coords = np.array(coords)
+        cmd.iterate_state(state, pml_name, 'index2coords[index] = [x, y, z]', space=locals())
+        coords = np.array(list(index2coords.values()))
+        index2coords = {index: i for i, index in enumerate(list(index2coords.keys()))}
     if not coords.any():
         return put_err('No coordinates found in selection, return None.', None)
     bounding_box_vertices = oriented_bounding_box_numpy(coords)
     sorted_vertices = sort_vertices(bounding_box_vertices)
-    return coords, sorted_vertices
+    return coords, index2coords, sorted_vertices
 
 
 def align_bounding_box_to_axis(coords: np.ndarray, bounding_box_vertices: np.ndarray,
@@ -75,8 +76,11 @@ def align_bounding_box_to_axis(coords: np.ndarray, bounding_box_vertices: np.nda
     return rotated_points, rotated_box, rotation_matrix, fixed_coords
 
 
-def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center', state: int = 0):
-    coords, sorted_vertices = calcu_bounding_box(pml_name, state=state)
+def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center', state: int = 0, move_method: str = 'transform'):
+    """
+    TODO: RMS is rigth(=0), but second structure all trun to raandom coil.
+    """
+    coords, index2coords, sorted_vertices = calcu_bounding_box(pml_name, state=state)
     if isinstance(fixed, str) and fixed != 'center':
         fixed_coords = []
         cmd.iterate_state(state, fixed, 'fixed_coords.append([x, y, z])', space=locals())
@@ -84,13 +88,23 @@ def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center',
     else:
         fixed_coords = fixed
     aligned_coords, aligned_box, rotation_matrix, fixed_coords = align_bounding_box_to_axis(coords, sorted_vertices, fixed_coords=fixed_coords)
-    # create pymol rotation matrix
-    pml_mat = np.zeros((4, 4))
-    pml_mat[:3, :3] = rotation_matrix.T # np is matmul, but pymol is dot product
-    pml_mat[-1, :] = list(-fixed_coords) + [1]
-    pml_mat[:, -1] = list(fixed_coords) + [1]
-    cmd.transform_selection(pml_name, pml_mat.flatten().tolist(), homogenous=0)
-    return aligned_coords, aligned_box, rotation_matrix, fixed_coords, pml_mat
+    # move to aligned position
+    if move_method == 'transform':
+        # create pymol rotation matrix
+        pml_mat = np.zeros((4, 4))
+        pml_mat[:3, :3] = rotation_matrix.T # np is matmul, but pymol is dot product
+        pml_mat[-1, :] = list(-fixed_coords) + [1]
+        pml_mat[:, -1] = list(fixed_coords) + [1]
+        cmd.transform_selection(pml_name, pml_mat.flatten().tolist(), homogenous=0)
+    elif move_method == 'alter':
+        cmd.alter_state(state, pml_name, 'x = aligned_coords[index2coords[index], 0]', space=locals())
+        cmd.alter_state(state, pml_name, 'y = aligned_coords[index2coords[index], 1]', space=locals())
+        cmd.alter_state(state, pml_name, 'z = aligned_coords[index2coords[index], 2]', space=locals())
+        cmd.sort(pml_name)
+        cmd.rebuild(pml_name)
+    else:
+        put_err(f'Unsupported move_method: {move_method}, only support transform and alter, skip transform.')
+    return aligned_coords, aligned_box, rotation_matrix, fixed_coords
 
 def set_axes_equal(ax):
     """
@@ -146,11 +160,11 @@ if __name__ == '__main__':
     cmd.reinitialize()
     cmd.load('data_tmp/pdb/RECEPTOR.pdb', 'receptor')
     cmd.select('receptor_CA', 'name CA and receptor')
-    coords, vertics = calcu_bounding_box('receptor_CA')
+    coords, _, vertics = calcu_bounding_box('receptor_CA')
     aligned_coords, aligned_box, rotation_matrix, fixed_coords = align_bounding_box_to_axis(coords, vertics)
-    _, aligned_vertics = calcu_bounding_box(coords=aligned_coords)
+    _, _, aligned_vertics = calcu_bounding_box(coords=aligned_coords)
     
-    aligned_coords, aligned_box, rotation_matrix, fixed_coords, pml_mat = align_pose_to_axis('receptor')
+    aligned_coords, aligned_box, rotation_matrix, fixed_coords = align_pose_to_axis('receptor', move_method='alter')
     draw_bounding_box('receptor')
     cmd.save('data_tmp/pdb/RECEPTOR_bounding_box.pse')
     
