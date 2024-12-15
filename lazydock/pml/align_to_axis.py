@@ -80,6 +80,7 @@ def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center',
     """
     TODO: RMS is rigth(=0), but second structure all trun to raandom coil.
     """
+    # get coords
     coords, index2coords, sorted_vertices = calcu_bounding_box(pml_name, state=state)
     if isinstance(fixed, str) and fixed != 'center':
         fixed_coords = []
@@ -87,6 +88,7 @@ def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center',
         fixed_coords = np.array(fixed_coords).mean(axis=0)
     else:
         fixed_coords = fixed
+    # align bounding box
     aligned_coords, aligned_box, rotation_matrix, fixed_coords = align_bounding_box_to_axis(coords, sorted_vertices, fixed_coords=fixed_coords)
     # create pymol rotation matrix
     pml_mat = np.zeros((4, 4))
@@ -95,7 +97,7 @@ def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center',
     pml_mat[:, -1] = list(fixed_coords) + [1]
     # move to aligned position
     if move_method == 'transform':
-        cmd.transform_selection(pml_name, pml_mat.flatten().tolist(), homogenous=0)
+        cmd.transform_selection(pml_name, pml_mat.flatten().tolist(), homogenous=1)
     elif move_method == 'alter':
         cmd.alter_state(state, pml_name, 'x = aligned_coords[index2coords[index], 0]', space=locals())
         cmd.alter_state(state, pml_name, 'y = aligned_coords[index2coords[index], 1]', space=locals())
