@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-16 15:32:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-16 16:07:36
+LastEditTime: 2024-12-16 17:51:35
 Description: 
 '''
 import argparse
@@ -36,7 +36,7 @@ def asign_chain_code(pdb_path: str, save_path: str, name: str, code: str):
 
 
 def main(sys_args: List[str] = None):
-    SUPPORT_SERVERS = ['ProQ', 'VoroMQA', 'ProSA', 'MolProbity', 'ProQ3', 'SAVES']
+    SUPPORT_SERVERS = ['ProQ', 'VoroMQA', 'ProSA', 'MolProbity', 'ProQ3', 'SAVES', 'QMEANDisCo', 'QMEAN']
     args_paser = argparse.ArgumentParser(description = 'Run model evaluation on web servers.')
     args_paser.add_argument('-d', '--dir', type = str, default='.',
                             help='input directory. Default is %(default)s.')
@@ -72,7 +72,7 @@ def main(sys_args: List[str] = None):
     tasks = []
     taskpool = TaskPool('threads', args.n_workers).start()
     for path in tqdm(paths, total=len(paths), desc='Running tasks'):
-        chain_alter_path = path.parent / f'{path.stem}_chain_alter.{path.suffix}'
+        chain_alter_path = path.parent / f'{path.stem}_chain_alter{path.suffix}'
         result_path = os.path.join(args.dir, f'{chain_alter_path}.pkl')
         if not args.disable_cache and os.path.exists(result_path):
             print(f'Skip {path}, result file exists: {result_path}.')
@@ -94,7 +94,7 @@ def main(sys_args: List[str] = None):
         for server, result in data.items():
             for name, value in result.items():
                 if is_jsonable(value):
-                    df.loc[path, f'{name}'] = value
+                    df.loc[path, f'{server}:{name}'] = value
     df.sort_index(inplace=True)
     df.to_excel(os.path.join(args.dir, f'eval_{get_fmt_time()}.xlsx'))
 
