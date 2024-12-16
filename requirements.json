@@ -6,6 +6,7 @@
         "pygame",
         "nicegui",
         "openbabel-wheel",
-        "compas"
+        "compas",
+        "networkx>=3"
     ]
 }
