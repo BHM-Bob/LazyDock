@@ -38,5 +38,13 @@
         "exec_names": ["align_pose_to_axis", "align-pose-to-axis"],
         "brief": "align pose to axis.",
         "detailed": "This tool is used to align pose to axis."
+    },
+    "eval_modeling":
+    {
+        "name": "eval_modeling",
+        "script name": "eval_modeling",
+        "exec_names": ["eval_modeling", "eval-modeling"],
+        "brief": "evaluate protein modeling via web server.",
+        "detailed": "This tool is used to evaluate protein modeling via web server."
     }
 }
