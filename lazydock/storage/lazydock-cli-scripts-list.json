@@ -46,5 +46,13 @@
         "exec_names": ["eval_modeling", "eval-modeling"],
         "brief": "evaluate protein modeling via web server.",
         "detailed": "This tool is used to evaluate protein modeling via web server."
+    },
+    "gmx":
+    {
+        "name": "gmx",
+        "script name": "gmx",
+        "exec_names": ["gmx"],
+        "brief": "GROMACS tools.",
+        "detailed": "GROMACS tools."
     }
 }
