@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-11 10:05:58
+LastEditTime: 2024-12-17 22:56:54
 Description: 
 '''
 
@@ -59,7 +59,7 @@ class vina(Command):
         print(f'get {len(configs_path)} config(s) for docking')
         tasks = []
         for config_path in tqdm(configs_path, total=len(configs_path)):
-            tasks.append(self.taskpool.add_task(None, self.run_vina, Path(config_path)))
+            tasks.append(self.taskpool.add_task(None, self.run_vina, Path(config_path), self.args.vina_name))
             while self.taskpool.count_waiting_tasks() > 1:
                 time.sleep(1)
         self.taskpool.wait_till_tasks_done(tasks)
