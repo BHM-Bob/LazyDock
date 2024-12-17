@@ -1,3 +1,4 @@
+import itertools
 from typing import List, Union
 
 import numpy as np
@@ -6,22 +7,48 @@ from mbapy.base import put_err, split_list
 from pymol import cmd, editing
 
 
-def sort_vertices(vertices):
+def sort_vertices(vertices, sort_orders=[(0, 1, 2), (1, 2, 0), (2, 0, 1)], tolerance=0.1):
     """
     对顶点进行排序，以匹配plot_bounding_box中的顺序。
     
     参数:
     vertices (numpy.ndarray): 8个顶点的坐标，形状为 (8, 3)。
+    sort_orders (list of tuples): 排序顺序的列表，每个元组包含三个索引，表示XYZ的排序顺序。
     
     返回:
-    list: 排序后的顶点列表。
+    list: [P0, P0-x, ...] 或 None（如果所有排序顺序都失败）。
     """
-    for i, j in zip(range(3), [8, 4, 2]):
-        tmp = []
-        for sub in split_list(vertices, j):
-            tmp.extend(sorted(sub, key=lambda v: v[i]))
-        vertices = tmp
-    return vertices
+    neighbors = {
+        0: [1, 2, 4], 1: [0, 3, 5], 2: [0, 3, 6], 3: [1, 2, 7], 4: [0, 5, 6], 5: [1, 4, 7], 6: [2, 4, 7], 7: [3, 5, 6]
+    }
+    def is_orthogonal(v1, v2, tolerance=1e-6):
+        """检查两个向量是否正交，包含指定的误差容许"""
+        _v1, _v2 = v1 / np.linalg.norm(v1), v2 / np.linalg.norm(v2)
+        return abs(np.dot(_v1, _v2)) < tolerance
+
+    def check_orthogonality(points, tolerance=1e-6):
+        """检查所有顶点的三条棱是否正交"""
+        for i in range(8):
+            vectors = []
+            for j in neighbors[i]:
+                vectors.append(np.array(points[j]) - np.array(points[i]))
+            for v1, v2 in itertools.combinations(vectors, 2):
+                if not is_orthogonal(v1, v2, tolerance):
+                    return False
+        return True
+
+    for sort_order in sort_orders:
+        vertices_copy = vertices.copy()
+        for i, j in zip(sort_order, [4, 2, 1]):
+            tmp = []
+            for sub in split_list(vertices_copy, j):
+                tmp.extend(sorted(sub, key=lambda v: v[i]))
+            vertices_copy = tmp
+        
+        if check_orthogonality(vertices_copy, tolerance):
+            return vertices_copy
+    
+    raise ValueError("No valid sorting order found for the given vertices.")
 
 
 def calcu_bounding_box(pml_name: str = None, coords: np.ndarray = None, state: int = 0):
