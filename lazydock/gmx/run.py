@@ -65,11 +65,16 @@ class Gromacs(BaseInfo):
         # just run the command if no expect actions
         if expect_actions is None or not expect_actions:
             return os.system(cmd)
+        # save cmd to bash file
+        scripts_dir = os.path.join(self.working_dir, 'LazyDock_gmx_scripts')
+        os.makedirs(scripts_dir, exist_ok=True)
+        bash_path = os.path.join(scripts_dir, f'{get_fmt_time("%Y-%m-%d-%H-%M-%S.%f")}.sh')
+        opts_file(bash_path, 'w', data=cmd)
         # create expect script
         expect_settings = expect_settings or {}
         expect_lines = []
         expect_lines.append(f'set timeout {expect_settings.get("start_timeout", -1)}')
-        expect_lines.append(f'spawn {cmd}')
+        expect_lines.append(f'spawn bash {bash_path}')
         for action in expect_actions:
             expect_lines.append('expect {')
             for key, value in action.items():
@@ -81,8 +86,6 @@ class Gromacs(BaseInfo):
         expect_lines.append('interact')
         expect_script = '\n'.join(expect_lines)
         # save expect script to file and run it
-        scripts_dir = os.path.join(self.working_dir, 'LazyDock_gmx_scripts')
-        os.makedirs(scripts_dir, exist_ok=True)
         script_path = os.path.join(scripts_dir, f'{get_fmt_time("%Y-%m-%d-%H-%M-%S.%f")}.exp')
         opts_file(script_path, 'w', data=expect_script)
         put_log(f'Running expect script: {script_path}', head='LazyDock')
