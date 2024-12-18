@@ -11,7 +11,7 @@ from pymol import cmd
 if __name__ == '__main__':
     from lazydock.utils import uuid4
 else:
-    from .utils import uuid4
+    from ..utils import uuid4
 
 def get_seq(pose: str, fasta: bool = False):
     if os.path.isfile(pose):
