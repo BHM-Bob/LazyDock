@@ -69,6 +69,19 @@ class prepare_complex(Command):
     def process_args(self):
         self.args.dir = clean_path(self.args.dir)
         
+    def insert_content(self, content: str, before: str, new_content: str):
+        is_file, path = False, None
+        if os.path.isfile(content):
+            is_file, path = True, content
+            content = opts_file(content)
+        idx1 = content.find(before)
+        if idx1 == -1:
+            return put_err(f'{before} not found, skip.')
+        content = content[:idx1+len(before)] + new_content + content[idx1+len(before):]
+        if is_file:
+            opts_file(path, 'w', data=content)
+        return content
+        
     def main_process(self):
         if os.path.isdir(self.args.dir):
             complexs_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.complex_name)
@@ -90,7 +103,6 @@ class prepare_complex(Command):
             if not os.path.exists(opath):
                 cmd.load(ipath, 'complex')
                 align_pose_to_axis('complex')
-                cmd.h_add('complex')
                 cmd.save(opath, 'complex')
                 cmd.reinitialize()
             # STEP 1: extract receptor and ligand from complex.pdb.
@@ -104,6 +116,7 @@ class prepare_complex(Command):
                         put_err(f'{mol} chain {chain} has zero atom in {complex_path}, skip this complex.')
                         success = False
                     else:
+                        cmd.h_add(mol)
                         cmd.save(opath, mol)
             if not success:
                 continue
@@ -143,29 +156,35 @@ class prepare_complex(Command):
             if not os.path.exists(opath_itp):
                 run_transform('LIG', ipath_mol2, ipath_str, self.args.ff_dir)
             # STEP 7: Prepare the Protein Topology
-            ipath, opath_gro = opath_r, str(complex_path.parent / f'{complex_path.stem}_receptor.gro')
-            if not os.path.exists(opath_gro):
+            ipath, opath_rgro = opath_r, str(complex_path.parent / f'{complex_path.stem}_receptor.gro')
+            if not os.path.exists(opath_rgro):
                 receptor_n_term = '1' if get_seq(opath_r, fasta=False)[0] == 'P' else '0'
                 if receptor_n_term == '1':
                     put_log(f'using NH2 as N ternimal because the first residue of receptor is PRO.')
-                gmx.run_command_with_expect(f'gmx pdb2gmx -f {Path(ipath).name} -o {Path(opath_gro).name} -ter', [{')': '1\r'}, {'None': '1\r'}, {'None': f'{receptor_n_term}\r'}, {'None': '1\r'}])
-            # STEP 8: Prepare the Complex Topology
-            ipath_r, ipath_l, opath_t, opath_g = opath_r, opath, str(complex_path.parent / f'{complex_path.stem}_complex.top'), str(complex_path.parent / f'{complex_path.stem}_complex.gro')
-            if not os.path.exists(opath_t) or not os.path.exists(opath_g):
-                pass
-            # STEP 9: run solve, ion
-            ipath_t, ipath_g, opath_t, opath_g = opath_t, opath_g, str(complex_path.parent / f'{complex_path.stem}_complex_solv.top'), str(complex_path.parent / f'{complex_path.stem}_complex_solv.gro')
-            if not os.path.exists(opath_t) or not os.path.exists(opath_g):
-                pass
-            # STEP 10: make select index file and add restraints to complex.top and complex.gro
-            ipath_t, ipath_g, opath_t, opath_g = opath_t, opath_g, str(complex_path.parent / f'{complex_path.stem}_complex_solv_index.ndx'), str(complex_path.parent / f'{complex_path.stem}_complex_solv_restr.top'), str(complex_path.parent / f'{complex_path.stem}_complex_solv_restr.gro')
-            if not os.path.exists(opath_t) or not os.path.exists(opath_g):
-                pass
-            # STEP 11: run last MDS
-            ipath_t, ipath_g, opath_t, opath_g = opath_t, opath_g, str(complex_path.parent / f'{complex_path.stem}_complex_solv_restr_index.ndx'), str(complex_path.parent / f'{complex_path.stem}_complex_solv_restr_final.top'), str(complex_path.parent / f'{complex_path.stem}_complex_solv_restr_final.gro')
-            if not os.path.exists(opath_t) or not os.path.exists(opath_g):
-                pass
-            
+                gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} -ter',
+                                            [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{receptor_n_term}\r'}, {'None': '0\r'}])
+            # STEP 8: Prepare the Ligand Topology
+            opath_lgro = str(complex_path.parent / 'lig.gro')
+            if not os.path.exists(opath_lgro):
+                gmx.run_command_with_expect('editconf -f lig_ini.pdb -o lig.gro')
+            # STEP 9: Prepare the Complex Topology
+            opath_cgro, opath_top = str(complex_path.parent / 'complex.gro'), str(complex_path.parent / 'topol.top')
+            if not os.path.exists(opath_cgro):
+                # merge receptor and ligand gro into complex.gro
+                receptor_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(opath_rgro, 'r', way='lines')))
+                lig_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(opath_lgro, 'r', way='lines')))
+                complex_gro_lines = receptor_gro_lines[:-1] + lig_gro_lines[2:-1] + receptor_gro_lines[-1:]
+                complex_gro_lines[1] = f'{int(receptor_gro_lines[1]) + int(lig_gro_lines[1])}\n'
+                opts_file(opath_cgro, 'w', way='lines', data=complex_gro_lines)
+                # inset ligand paramters in topol.top
+                topol = opts_file(opath_top)
+                topol = self.insert_content(topol, '#include "posre.itp"\n#endif\n',
+                                            '\n; Include ligand topology\n#include "lig.itp"\n')
+                topol = self.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',
+                                            '\n; Include ligand parameters\n#include "lig.prm"\n')
+                topol += 'LIG                 1'
+                opts_file(opath_top, 'w', data=topol)
+
 
 _str2func = {
     'prepare-complex': prepare_complex,
@@ -182,6 +201,6 @@ def main(sys_args: List[str] = None):
 
 if __name__ == "__main__":
     # pass
-    main(r'prepare-complex -d data_tmp/gmx/complex -n complex.pdb --receptor-chain-name A --ligand-chain-name Z --ff-dir data_tmp/gmx/charmm36-jul2022.ff'.split())
+    # main(r'prepare-complex -d data_tmp/gmx/complex -n complex.pdb --receptor-chain-name A --ligand-chain-name Z --ff-dir data_tmp/gmx/charmm36-jul2022.ff'.split())
     
     main()
