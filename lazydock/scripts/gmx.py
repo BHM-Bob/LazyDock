@@ -141,7 +141,7 @@ class prepare_complex(Command):
             if not ff_dir.exists():
                 shutil.copytree(os.path.abspath(self.args.ff_dir), ff_dir, dirs_exist_ok=True)
             if not os.path.exists(opath_itp):
-                run_transform('LIG', ipath_mol2, ipath_str, r"Z:\USERS\BHM\PROGS\MPN12\pdb\ligand_MDS\MPN12\DOR\LazyDock\charmm36.ff")
+                run_transform('LIG', ipath_mol2, ipath_str, self.args.ff_dir)
             # STEP 7: Prepare the Protein Topology
             ipath, opath_gro = opath_r, str(complex_path.parent / f'{complex_path.stem}_receptor.gro')
             if not os.path.exists(opath_gro):
