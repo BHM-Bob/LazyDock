@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-24 22:24:47
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-16 15:26:54
+LastEditTime: 2024-12-18 21:18:18
 Description: 
 '''
 # Configuration file for the Sphinx documentation builder.
@@ -12,8 +12,8 @@ project = 'LazyDock'
 copyright = '2024, BHM-Bob'
 author = 'BHM-Bob G'
 
-release = '0.9.0'
-version = '0.9.0'
+release = '0.9.1'
+version = '0.9.1'
 
 # -- General configuration
 

@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-12-16 15:24:48
+ * @LastEditTime: 2024-12-18 21:17:27
  * @Description: 
 -->
 
@@ -80,9 +80,12 @@ pip install lazydock
 - [get_pocket](scripts/get_pocket.md): get pocket info from ProteinPlus.
 - [ana_interaction](scripts/ana_interaction.md): analyze interaction between receptor and poses.
 - [dock](scripts/dock.md): perform batch molecular docking.
+- [sort_mol2_bonds](scripts/sort_mol2_bonds.md): sort mol2 bonds.
+- [eval_modeling](scripts/eval_modeling.md): evaluate modeling result.
 
 
 ## release note
+- [0.9.1](release_note/0.9.1.md)
 - [0.9.0](release_note/0.9.0.md)
 - [0.8.0](release_note/0.8.0.md)
 - [0.7.0](release_note/0.7.0.md)
