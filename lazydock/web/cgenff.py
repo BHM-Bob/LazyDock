@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 16:17:09
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-13 20:16:23
+LastEditTime: 2024-12-19 18:49:29
 Description: 
 '''
 
@@ -14,7 +14,7 @@ from mbapy_lite.web import Browser, random_sleep
 
 
 def get_login_browser(username: str, password: str, b: Browser = None, download_dir: str = None, timeout: float = 300.0) -> Browser:
-    b = b or Browser(options = [f"--user-agent={Configs.web.chrome_driver_path}"], download_path=download_dir, use_undetected=True)
+    b = b or Browser(download_path=download_dir, use_undetected=True)
     # TODO: set popup blocker
     b.get('https://app.cgenff.com/login')
     b.find_elements('//*[@id="email"]')[0].send_keys(username)
