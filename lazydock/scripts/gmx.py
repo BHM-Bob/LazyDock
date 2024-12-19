@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-18 19:03:01
+LastEditTime: 2024-12-19 11:16:09
 Description: 
 '''
 
@@ -43,11 +43,9 @@ class prepare_complex(Command):
     4. sort mol2 bonds by lazydock.
     5. retrive str file from CGenFF.
     6. transfer str file to top and gro file by cgenff_charmm2gmx.py
-    7. make receptor.top
-    8. build complex.top and complex.gro
-    9. run solve, ion
-    10. make select index file and add restraints to complex.top and complex.gro
-    11. run last MDS
+    7. prepare protein topology.
+    8. prepare ligand topology.
+    9. merge receptor and ligand gro into complex.gro, prepare topol.top.
     """
     def __init__(self, args, printf = print):
         super().__init__(args, printf)
@@ -69,7 +67,19 @@ class prepare_complex(Command):
     def process_args(self):
         self.args.dir = clean_path(self.args.dir)
         
-    def insert_content(self, content: str, before: str, new_content: str):
+    @staticmethod
+    def extract_receptor_ligand(ipath: str, receptor_chain_name: str, ligand_chain_name: str, opath_r: str, opath_l: str):
+        cmd.load(ipath, 'complex')
+        for mol, opath, chain in zip(['receptor', 'ligand'], [opath_r, opath_l], [receptor_chain_name, ligand_chain_name]):
+            if cmd.select(mol, f'complex and chain {chain}') == 0:
+                put_err(f'{mol} chain {chain} has zero atom in {ipath}, skip this complex.')
+                return False
+            else:
+                cmd.save(opath, mol)
+        return True
+        
+    @staticmethod
+    def insert_content(content: str, before: str, new_content: str):
         is_file, path = False, None
         if os.path.isfile(content):
             is_file, path = True, content
@@ -81,6 +91,35 @@ class prepare_complex(Command):
         if is_file:
             opts_file(path, 'w', data=content)
         return content
+    
+    @staticmethod
+    def fix_name_in_mol2(ipath: str, opath: str):
+        lines = opts_file(ipath, way='lines')
+        lines[1] = 'LIG\n'
+        get_idx_fn = lambda content: lines.index(list(filter(lambda x: x.startswith(content), lines))[0])
+        atom_st, atom_ed = get_idx_fn('@<TRIPOS>ATOM')+1, get_idx_fn('@<TRIPOS>BOND')
+        for i in range(atom_st, atom_ed):
+            resn = lines[i].split()[7].strip()
+            resn_idx = lines[i].index(resn)
+            lines[i] = lines[i][:resn_idx] + 'LIG' + ' '*(min(0, len(resn) - 3)) + lines[i][resn_idx+len(resn):]
+        opts_file(opath, 'w', way='lines', data=lines)
+        
+    @staticmethod
+    def prepare_complex_topol(ipath_rgro: str, ipath_lgro: str, ipath_top: str, opath_cgro: str, opath_top: str):
+        # merge receptor and ligand gro into complex.gro
+        receptor_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(ipath_rgro, 'r', way='lines')))
+        lig_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(ipath_lgro, 'r', way='lines')))
+        complex_gro_lines = receptor_gro_lines[:-1] + lig_gro_lines[2:-1] + receptor_gro_lines[-1:]
+        complex_gro_lines[1] = f'{int(receptor_gro_lines[1]) + int(lig_gro_lines[1])}\n'
+        opts_file(opath_cgro, 'w', way='lines', data=complex_gro_lines)
+        # inset ligand paramters in topol.top
+        topol = opts_file(ipath_top)
+        topol = prepare_complex.insert_content(topol, '#include "posre.itp"\n#endif\n',
+                                    '\n; Include ligand topology\n#include "lig.itp"\n')
+        topol = prepare_complex.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',
+                                    '\n; Include ligand parameters\n#include "lig.prm"\n')
+        topol += 'LIG                 1'
+        opts_file(opath_top, 'w', data=topol)
         
     def main_process(self):
         if os.path.isdir(self.args.dir):
@@ -106,20 +145,10 @@ class prepare_complex(Command):
                 cmd.save(opath, 'complex')
                 cmd.reinitialize()
             # STEP 1: extract receptor and ligand from complex.pdb.
-            success = True
             ipath, opath_r, opath_l = opath, str(complex_path.parent / f'1_{complex_path.stem}_receptor.pdb'), str(complex_path.parent / f'1_{complex_path.stem}_ligand.pdb')
             if not os.path.exists(opath_r) or not os.path.exists(opath_l):
-                cmd.load(ipath, 'complex')
-                for mol, opath in zip(['receptor', 'ligand'], [opath_r, opath_l]):
-                    chain = getattr(self.args, f'{mol}_chain_name')
-                    if cmd.select(mol, f'complex and chain {chain}') == 0:
-                        put_err(f'{mol} chain {chain} has zero atom in {complex_path}, skip this complex.')
-                        success = False
-                    else:
-                        cmd.h_add(mol)
-                        cmd.save(opath, mol)
-            if not success:
-                continue
+                if not self.extract_receptor_ligand(ipath, self.args.receptor_chain_name, self.args.ligand_chain_name, opath_r, opath_l):
+                    continue
             # STEP 2: transfer ligand.pdb to mol2 by obabel.
             ipath, opath = opath_l, str(complex_path.parent / f'2_{complex_path.stem}_ligand.mol2')
             if not os.path.exists(opath):
@@ -127,15 +156,7 @@ class prepare_complex(Command):
             # STEP 3: fix ligand name and residue name in mol2 file.
             ipath, opath = opath, str(complex_path.parent / f'3_{complex_path.stem}_ligand_named.mol2')
             if not os.path.exists(opath):
-                lines = opts_file(ipath, way='lines')
-                lines[1] = 'LIG\n'
-                get_idx_fn = lambda content: lines.index(list(filter(lambda x: x.startswith(content), lines))[0])
-                atom_st, atom_ed = get_idx_fn('@<TRIPOS>ATOM')+1, get_idx_fn('@<TRIPOS>BOND')
-                for i in range(atom_st, atom_ed):
-                    resn = lines[i].split()[7].strip()
-                    resn_idx = lines[i].index(resn)
-                    lines[i] = lines[i][:resn_idx] + 'LIG' + ' '*(min(0, len(resn) - 3)) + lines[i][resn_idx+len(resn):]
-                opts_file(opath, 'w', way='lines', data=lines)
+                self.fix_name_in_mol2(ipath, opath)
             # STEP 4: sort mol2 bonds by lazydock.
             ipath, opath = opath, str(complex_path.parent / f'4_{complex_path.stem}_ligand_sorted.mol2')
             if not os.path.exists(opath):
@@ -170,20 +191,7 @@ class prepare_complex(Command):
             # STEP 9: Prepare the Complex Topology
             opath_cgro, opath_top = str(complex_path.parent / 'complex.gro'), str(complex_path.parent / 'topol.top')
             if not os.path.exists(opath_cgro):
-                # merge receptor and ligand gro into complex.gro
-                receptor_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(opath_rgro, 'r', way='lines')))
-                lig_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(opath_lgro, 'r', way='lines')))
-                complex_gro_lines = receptor_gro_lines[:-1] + lig_gro_lines[2:-1] + receptor_gro_lines[-1:]
-                complex_gro_lines[1] = f'{int(receptor_gro_lines[1]) + int(lig_gro_lines[1])}\n'
-                opts_file(opath_cgro, 'w', way='lines', data=complex_gro_lines)
-                # inset ligand paramters in topol.top
-                topol = opts_file(opath_top)
-                topol = self.insert_content(topol, '#include "posre.itp"\n#endif\n',
-                                            '\n; Include ligand topology\n#include "lig.itp"\n')
-                topol = self.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',
-                                            '\n; Include ligand parameters\n#include "lig.prm"\n')
-                topol += 'LIG                 1'
-                opts_file(opath_top, 'w', data=topol)
+                self.prepare_complex_topol(opath_rgro, opath_lgro, opath_top, opath_cgro, opath_top)
 
 
 _str2func = {
