@@ -1,24 +1,23 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-19 11:16:09
+LastEditTime: 2024-12-19 19:02:11
 Description: 
 '''
 
 import argparse
 import os
 import shutil
-import time
-from functools import wraps
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
 from mbapy_lite.base import Configs, put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
-from mbapy_lite.web import TaskPool, random_sleep
+from mbapy_lite.web import Browser, TaskPool, random_sleep
 from pymol import cmd
 from tqdm import tqdm
 
+from lazydock.config import CONFIG_FILE_PATH, GlobalConfig
 from lazydock.gmx.run import Gromacs
 from lazydock.gmx.thirdparty.cgenff_charmm2gmx import run_transform
 from lazydock.gmx.thirdparty.sort_mol2_bonds import sort_bonds
@@ -49,6 +48,7 @@ class prepare_complex(Command):
     """
     def __init__(self, args, printf = print):
         super().__init__(args, printf)
+        self.browser = None
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
@@ -62,6 +62,8 @@ class prepare_complex(Command):
                           help='ligand chain name.')
         args.add_argument('--ff-dir', type = str,
                           help='force field files directory.')
+        args.add_argument('--disable-browser', action='store_true',
+                          help='whether to disable browser for CGenFF.')
         return args
     
     def process_args(self):
@@ -105,6 +107,21 @@ class prepare_complex(Command):
         opts_file(opath, 'w', way='lines', data=lines)
         
     @staticmethod
+    def get_login_browser(download_dir: str):
+        put_log(f'getting CGenFF aacount from {CONFIG_FILE_PATH}')
+        email, password = GlobalConfig.named_accounts['CGenFF']['email'], GlobalConfig.named_accounts['CGenFF']['password']
+        if email is None or password is None:
+            return put_err('CGenFF email or password not found in config file, skip.')
+        return get_login_browser(email, password, download_dir=download_dir)
+        
+    @staticmethod
+    def get_str_from_CGenFF(mol2_path: str, zip_path: str, browser: Browser) -> Union[str, None]:
+        put_log(f'getting str file from CGenFF for {mol2_path}')
+        get_result_from_CGenFF(mol2_path, b=browser)
+        download_path = Path(browser.download_path).parent / Path(mol2_path).with_suffix('.zip').name
+        shutil.move(str(download_path), zip_path)
+
+    @staticmethod
     def prepare_complex_topol(ipath_rgro: str, ipath_lgro: str, ipath_top: str, opath_cgro: str, opath_top: str):
         # merge receptor and ligand gro into complex.gro
         receptor_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(ipath_rgro, 'r', way='lines')))
@@ -122,15 +139,18 @@ class prepare_complex(Command):
         opts_file(opath_top, 'w', data=topol)
         
     def main_process(self):
+        # allocate browser for CGenFF
+        if not self.args.disable_browser:
+            self.browser = self.get_login_browser(str(self.args.dir))
+        # get complex paths
         if os.path.isdir(self.args.dir):
             complexs_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.complex_name)
         else:
             put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
         put_log(f'get {len(complexs_path)} complex(s)')
+        # process each complex
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
             complex_path = Path(complex_path).resolve()
-            result_dir = complex_path.parent / f'_prepare_complex_{complex_path.stem}'
-            os.makedirs(result_dir, exist_ok=True)
             gmx = Gromacs(working_dir=str(complex_path.parent))
             cmd.reinitialize()
             # STEP 0.1: center complex.pdb by obabel.
@@ -165,7 +185,7 @@ class prepare_complex(Command):
             ipath, opath_str, opath_mol2 = opath, str(complex_path.parent / f'5_{complex_path.stem}_ligand_sorted.str'), str(complex_path.parent / f'5_{complex_path.stem}_ligand_sorted.mol2')
             cgenff_path = Path(ipath).with_suffix('.zip')
             if not os.path.exists(cgenff_path):
-                pass
+                self.get_str_from_CGenFF(ipath, cgenff_path, browser=self.browser)
             if not os.path.exists(opath_str) or not os.path.exists(opath_mol2):
                 for file_name, content in opts_file(cgenff_path, 'r', way='zip').items():
                     opts_file(cgenff_path.parent / file_name.replace('4_', '5_'), 'wb', data=content)
@@ -209,6 +229,6 @@ def main(sys_args: List[str] = None):
 
 if __name__ == "__main__":
     # pass
-    # main(r'prepare-complex -d data_tmp/gmx/complex -n complex.pdb --receptor-chain-name A --ligand-chain-name Z --ff-dir data_tmp/gmx/charmm36-jul2022.ff'.split())
+    main(r'prepare-complex -d data_tmp/gmx/complex -n complex.pdb --receptor-chain-name A --ligand-chain-name Z --ff-dir data_tmp/gmx/charmm36-jul2022.ff'.split())
     
     main()
