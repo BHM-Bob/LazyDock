@@ -218,7 +218,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_di
         mode = SUPPORTED_MODE
     # set ligplus_dir
     if ligplus_dir is None:
-        ligplus_dir = config.configs.named_paths['ligplus_dir']
+        ligplus_dir = config.GlobalConfig.named_paths['ligplus_dir']
         if ligplus_dir is None:
             put_err('LigPlus directory not provided and not found in config.json', _exit=True)
     # prepare interactions
@@ -259,7 +259,7 @@ if __name__ == '__main__':
         pose_lst.append(f'ligand_{i}')
         cmd.read_pdbstr(pose.as_pdb_string(), pose_lst[-1])
         cmd.alter(f'ligand_{i}', 'type="HETATM"')
-    result = run_ligplus(config.configs.named_paths['ligplus_dir'],
+    result = run_ligplus(config.GlobalConfig.named_paths['ligplus_dir'],
                          receptor='RECEPTOR', ligand=pose_lst[0], mode='Hydrogen Bonds')
     taskpool = TaskPool('threads', n_worker=4).start()
     interactions, interaction_df = calcu_receptor_poses_interaction('RECEPTOR', pose_lst, cutoff=4, taskpool=None, w_dir='data_tmp/dlg')
