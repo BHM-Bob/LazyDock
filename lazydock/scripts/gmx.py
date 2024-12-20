@@ -56,6 +56,8 @@ class prepare_complex(Command):
                           help='complex directory. Default is %(default)s.')
         args.add_argument('-n', '--complex-name', type = str,
                           help='complex name in each sub-directory.')
+        args.add_argument('--max-step', type = int, default=9,
+                          help='max step to do. Default is %(default)s.')
         args.add_argument('--receptor-chain-name', type = str,
                           help='receptor chain name.')
         args.add_argument('--ligand-chain-name', type = str,
@@ -68,6 +70,8 @@ class prepare_complex(Command):
     
     def process_args(self):
         self.args.dir = clean_path(self.args.dir)
+        if self.args.max_step < 1:
+            return put_err('max step should be greater or equal to 1.', _exit=True)
         
     @staticmethod
     def extract_receptor_ligand(ipath: str, receptor_chain_name: str, ligand_chain_name: str, opath_r: str, opath_l: str):
@@ -166,39 +170,39 @@ class prepare_complex(Command):
                 cmd.reinitialize()
             # STEP 1: extract receptor and ligand from complex.pdb.
             ipath, opath_r, opath_l = opath, str(complex_path.parent / f'1_{complex_path.stem}_receptor.pdb'), str(complex_path.parent / f'1_{complex_path.stem}_ligand.pdb')
-            if not os.path.exists(opath_r) or not os.path.exists(opath_l):
+            if self.args.max_step >= 1 and (not os.path.exists(opath_r) or not os.path.exists(opath_l)):
                 if not self.extract_receptor_ligand(ipath, self.args.receptor_chain_name, self.args.ligand_chain_name, opath_r, opath_l):
                     continue
             # STEP 2: transfer ligand.pdb to mol2 by obabel.
             ipath, opath = opath_l, str(complex_path.parent / f'2_{complex_path.stem}_ligand.mol2')
-            if not os.path.exists(opath):
+            if self.args.max_step >= 2 and (not os.path.exists(opath)):
                 os.system(f'obabel -ipdb {ipath} -omol2 -O {opath}')
             # STEP 3: fix ligand name and residue name in mol2 file.
             ipath, opath = opath, str(complex_path.parent / f'3_{complex_path.stem}_ligand_named.mol2')
-            if not os.path.exists(opath):
+            if self.args.max_step >= 3 and (not os.path.exists(opath)):
                 self.fix_name_in_mol2(ipath, opath)
             # STEP 4: sort mol2 bonds by lazydock.
             ipath, opath = opath, str(complex_path.parent / f'4_{complex_path.stem}_ligand_sorted.mol2')
-            if not os.path.exists(opath):
+            if self.args.max_step >= 4 and (not os.path.exists(opath)):
                 opts_file(opath, 'w', data=sort_bonds(ipath))
             # STEP 5: retrive str file from CGenFF.
             ipath, opath_str, opath_mol2 = opath, str(complex_path.parent / f'5_{complex_path.stem}_ligand_sorted.str'), str(complex_path.parent / f'5_{complex_path.stem}_ligand_sorted.mol2')
             cgenff_path = Path(ipath).with_suffix('.zip')
-            if not os.path.exists(cgenff_path):
+            if self.args.max_step >= 5 and (not os.path.exists(cgenff_path)):
                 self.get_str_from_CGenFF(ipath, cgenff_path, browser=self.browser)
-            if not os.path.exists(opath_str) or not os.path.exists(opath_mol2):
+            if self.args.max_step >= 5 and (not os.path.exists(opath_str) or not os.path.exists(opath_mol2)):
                 for file_name, content in opts_file(cgenff_path, 'r', way='zip').items():
                     opts_file(cgenff_path.parent / file_name.replace('4_', '5_'), 'wb', data=content)
             # STEP 6: transfer str file to top and gro file by cgenff_charmm2gmx.py
             ipath_str, ipath_mol2, opath_itp = opath_str, opath_mol2, str(complex_path.parent / f'lig.itp')
             ff_dir = complex_path.parent / Path(self.args.ff_dir).name
-            if not ff_dir.exists():
+            if self.args.max_step >= 6 and (not ff_dir.exists()):
                 shutil.copytree(os.path.abspath(self.args.ff_dir), ff_dir, dirs_exist_ok=True)
-            if not os.path.exists(opath_itp):
+            if self.args.max_step >= 6 and (not os.path.exists(opath_itp)):
                 run_transform('LIG', ipath_mol2, ipath_str, self.args.ff_dir)
             # STEP 7: Prepare the Protein Topology
             ipath, opath_rgro = opath_r, str(complex_path.parent / f'{complex_path.stem}_receptor.gro')
-            if not os.path.exists(opath_rgro):
+            if self.args.max_step >= 7 and (not os.path.exists(opath_rgro)):
                 receptor_n_term = '1' if get_seq(opath_r, fasta=False)[0] == 'P' else '0'
                 if receptor_n_term == '1':
                     put_log(f'using NH2 as N ternimal because the first residue of receptor is PRO.')
@@ -206,11 +210,11 @@ class prepare_complex(Command):
                                             [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{receptor_n_term}\r'}, {'None': '0\r'}])
             # STEP 8: Prepare the Ligand Topology
             opath_lgro = str(complex_path.parent / 'lig.gro')
-            if not os.path.exists(opath_lgro):
+            if self.args.max_step >= 8 and (not os.path.exists(opath_lgro)):
                 gmx.run_command_with_expect('editconf -f lig_ini.pdb -o lig.gro')
             # STEP 9: Prepare the Complex Topology
             opath_cgro, opath_top = str(complex_path.parent / 'complex.gro'), str(complex_path.parent / 'topol.top')
-            if not os.path.exists(opath_cgro):
+            if self.args.max_step >= 9 and (not os.path.exists(opath_cgro)):
                 self.prepare_complex_topol(opath_rgro, opath_lgro, opath_top, opath_cgro, opath_top)
 
 
