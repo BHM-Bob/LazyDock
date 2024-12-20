@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-19 19:02:11
+LastEditTime: 2024-12-20 18:39:01
 Description: 
 '''
 
@@ -27,7 +27,206 @@ from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
 from lazydock.web.cgenff import get_login_browser, get_result_from_CGenFF
 
 
-class prepare_complex(Command):
+class prepare_protein(Command):
+    HELP = """
+    prepare single protein for GROMACS MDS.
+    
+    STEPS:
+    0. center complex.pdb by obabel, align with xyz axes by lazydock.
+    1. prepare protein topology.
+    """
+    def __init__(self, args, printf = print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '--dir', type = str, default='.',
+                          help='protein directory. Default is %(default)s.')
+        args.add_argument('-n', '--protein-name', type = str,
+                          help='protein file name in each sub-directory.')
+        args.add_argument('--ff-dir', type = str,
+                          help='force field files directory.')
+        return args
+    
+    def process_args(self):
+        self.args.dir = clean_path(self.args.dir)
+        
+    def main_process(self):
+        # get protein paths
+        if os.path.isdir(self.args.dir):
+            proteins_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.protein_name)
+        else:
+            put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
+        put_log(f'get {len(proteins_path)} protein(s)')
+        # process each complex
+        for protein_path in tqdm(proteins_path, total=len(proteins_path)):
+            protein_path = Path(protein_path).resolve()
+            gmx = Gromacs(working_dir=str(protein_path.parent))
+            # STEP 0.1: center complex.pdb by obabel.
+            ipath, opath = str(protein_path), str(protein_path.parent / f'0.1_{protein_path.stem}_center.pdb')
+            if not os.path.exists(opath):
+                os.system(f'obabel -ipdb {ipath} -opdb -O {opath} -c')
+            # step 0.2: align complex.pdb with xyz axes by lazydock.
+            ipath, opath = opath, str(protein_path.parent / f'0.2_{protein_path.stem}_center_align_axis.pdb')
+            if not os.path.exists(opath):
+                cmd.load(ipath, 'protein')
+                align_pose_to_axis('protein')
+                cmd.save(opath, 'protein')
+                cmd.reinitialize()
+            # STEP 1: Prepare the Protein Topology
+            ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}_receptor.gro')
+            if not os.path.exists(opath_rgro):
+                receptor_n_term = '1' if get_seq(ipath, fasta=False)[0] == 'P' else '0'
+                if receptor_n_term == '1':
+                    put_log(f'using NH2 as N ternimal because the first residue of receptor is PRO.')
+                gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} -ter',
+                                            [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{receptor_n_term}\r'}, {'None': '0\r'}])
+
+
+class prepare_ligand(Command):
+    HELP = """
+    prepare single ligand for GROMACS MDS.
+    
+    STEPS:
+    0. center ligand.pdb by obabel
+    1. align with xyz axes by lazydock.
+    2. transfer ligand.pdb to mol2 by obabel.
+    3. fix ligand name in mol2 file.
+    4. sort mol2 bonds by lazydock.
+    5. retrive str file from CGenFF.
+    6. transfer str file to top and gro file by cgenff_charmm2gmx.py
+    7. prepare ligand topology.
+    """
+    def __init__(self, args, printf = print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '--dir', type = str, default='.',
+                          help='protein directory. Default is %(default)s.')
+        args.add_argument('-n', '--ligand-name', type = str,
+                          help='protein file name in each sub-directory.')
+        args.add_argument('--ff-dir', type = str,
+                          help='force field files directory.')
+        args.add_argument('--max-step', type = int, default=7,
+                          help='max step to do. Default is %(default)s.')
+        args.add_argument('--disable-browser', action='store_true',
+                          help='whether to disable browser for CGenFF.')
+        return args
+
+    def process_args(self):
+        self.args.dir = clean_path(self.args.dir)
+
+    @staticmethod
+    def insert_content(content: str, before: str, new_content: str):
+        is_file, path = False, None
+        if os.path.isfile(content):
+            is_file, path = True, content
+            content = opts_file(content)
+        idx1 = content.find(before)
+        if idx1 == -1:
+            return put_err(f'{before} not found, skip.')
+        content = content[:idx1+len(before)] + new_content + content[idx1+len(before):]
+        if is_file:
+            opts_file(path, 'w', data=content)
+        return content
+
+    @staticmethod
+    def fix_name_in_mol2(ipath: str, opath: str):
+        lines = opts_file(ipath, way='lines')
+        lines[1] = 'LIG\n'
+        get_idx_fn = lambda content: lines.index(list(filter(lambda x: x.startswith(content), lines))[0])
+        atom_st, atom_ed = get_idx_fn('@<TRIPOS>ATOM')+1, get_idx_fn('@<TRIPOS>BOND')
+        for i in range(atom_st, atom_ed):
+            resn = lines[i].split()[7].strip()
+            resn_idx = lines[i].index(resn)
+            lines[i] = lines[i][:resn_idx] + 'LIG' + ' '*(min(0, len(resn) - 3)) + lines[i][resn_idx+len(resn):]
+        opts_file(opath, 'w', way='lines', data=lines)
+
+    @staticmethod
+    def get_login_browser(download_dir: str):
+        put_log(f'getting CGenFF account from {CONFIG_FILE_PATH}')
+        email, password = GlobalConfig.named_accounts['CGenFF']['email'], GlobalConfig.named_accounts['CGenFF']['password']
+        if email is None or password is None:
+            return put_err('CGenFF email or password not found in config file, skip.')
+        return get_login_browser(email, password, download_dir=download_dir)
+
+    @staticmethod
+    def get_str_from_CGenFF(mol2_path: str, zip_path: str, browser: Browser) -> Union[str, None]:
+        put_log(f'getting str file from CGenFF for {mol2_path}')
+        get_result_from_CGenFF(mol2_path, b=browser)
+        download_path = Path(browser.download_path) / Path(mol2_path).with_suffix('.zip').name
+        shutil.move(str(download_path), zip_path)
+        
+    def prepare_ligand(self, ligand_path: str, main_path: Path):
+        # STEP 2: transfer ligand.pdb to mol2 by obabel.
+        ipath, opath = ligand_path, str(main_path.parent / f'2_{main_path.stem}_ligand.mol2')
+        if self.args.max_step >= 2 and (not os.path.exists(opath)):
+            os.system(f'obabel -ipdb {ipath} -omol2 -O {opath}')
+        # STEP 3: fix ligand name and residue name in mol2 file.
+        ipath, opath = opath, str(main_path.parent / f'3_{main_path.stem}_ligand_named.mol2')
+        if self.args.max_step >= 3 and (not os.path.exists(opath)):
+            self.fix_name_in_mol2(ipath, opath)
+        # STEP 4: sort mol2 bonds by lazydock.
+        ipath, opath = opath, str(main_path.parent / f'4_{main_path.stem}_ligand_sorted.mol2')
+        if self.args.max_step >= 4 and (not os.path.exists(opath)):
+            opts_file(opath, 'w', data=sort_bonds(ipath))
+        # STEP 5: retrive str file from CGenFF.
+        ipath, opath_str, opath_mol2 = opath, str(main_path.parent / f'5_{main_path.stem}_ligand_sorted.str'), str(main_path.parent / f'5_{main_path.stem}_ligand_sorted.mol2')
+        cgenff_path = Path(ipath).with_suffix('.zip')
+        if self.args.max_step >= 5 and (not os.path.exists(cgenff_path)):
+            self.get_str_from_CGenFF(ipath, cgenff_path, browser=self.browser)
+        if self.args.max_step >= 5 and (not os.path.exists(opath_str) or not os.path.exists(opath_mol2)):
+            for file_name, content in opts_file(cgenff_path, 'r', way='zip').items():
+                opts_file(cgenff_path.parent / file_name.replace('4_', '5_'), 'wb', data=content)
+        # STEP 6: transfer str file to top and gro file by cgenff_charmm2gmx.py
+        ipath_str, ipath_mol2, opath_itp = opath_str, opath_mol2, str(main_path.parent / f'lig.itp')
+        ff_dir = main_path.parent / Path(self.args.ff_dir).name
+        if self.args.max_step >= 6 and (not ff_dir.exists()):
+            shutil.copytree(os.path.abspath(self.args.ff_dir), ff_dir, dirs_exist_ok=True)
+        if self.args.max_step >= 6 and (not os.path.exists(opath_itp)):
+            run_transform('LIG', ipath_mol2, ipath_str, self.args.ff_dir)
+
+    def main_process(self):
+        # allocate browser for CGenFF
+        if not self.args.disable_browser:
+            self.browser = self.get_login_browser(str(self.args.dir))
+        # get ligand paths
+        if os.path.isdir(self.args.dir):
+            ligands_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.ligand_name)
+        else:
+            put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
+        put_log(f'get {len(ligands_path)} ligand(s)')
+        # process each ligand
+        for ligand_path in tqdm(ligands_path, total=len(ligands_path)):
+            ligand_path = Path(ligand_path).resolve()
+            gmx = Gromacs(working_dir=str(ligand_path.parent))
+            cmd.reinitialize()
+            # STEP 0: center complex.pdb by obabel.
+            ipath, opath = str(ligand_path), str(ligand_path.parent / f'0_{ligand_path.stem}_center.pdb')
+            if not os.path.exists(opath):
+                os.system(f'obabel -ipdb {ipath} -opdb -O {opath} -c')
+            # step 1: align complex.pdb with xyz axes by lazydock.
+            ipath, opath_l = opath, str(ligand_path.parent / f'1_{ligand_path.stem}_center_align_axis.pdb')
+            if not os.path.exists(opath_l):
+                cmd.load(ipath, 'ligand')
+                align_pose_to_axis('ligand')
+                cmd.save(opath_l, 'ligand')
+                cmd.reinitialize()
+            # STEP 2 ~ 6: prepare ligand topology.
+            self.prepare_ligand(opath_l, ligand_path)
+            # STEP 7: Prepare the ligand Topology
+            ipath, opath_gro = str(ligand_path.parent / f'lig_ini.pdb'), str(ligand_path.parent / f'lig.gro')
+            if self.args.max_step >= 7 and (not os.path.exists(opath_gro)):
+                # because may do not have Gromacs installed, so just try
+                try:
+                    gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_gro).name} -ter',
+                                                [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'0\r'}, {'None': '0\r'}])
+                except Exception as e:
+                    put_err(f'pdb2gmx failed: {e}, skip.')
+
+
+class prepare_complex(prepare_ligand):
     HELP = """
     prepare complex for GROMACS MDS.
     - input complex.pdb should have two chains, one for receptor and one for ligand.
@@ -83,47 +282,6 @@ class prepare_complex(Command):
             else:
                 cmd.save(opath, mol)
         return True
-        
-    @staticmethod
-    def insert_content(content: str, before: str, new_content: str):
-        is_file, path = False, None
-        if os.path.isfile(content):
-            is_file, path = True, content
-            content = opts_file(content)
-        idx1 = content.find(before)
-        if idx1 == -1:
-            return put_err(f'{before} not found, skip.')
-        content = content[:idx1+len(before)] + new_content + content[idx1+len(before):]
-        if is_file:
-            opts_file(path, 'w', data=content)
-        return content
-    
-    @staticmethod
-    def fix_name_in_mol2(ipath: str, opath: str):
-        lines = opts_file(ipath, way='lines')
-        lines[1] = 'LIG\n'
-        get_idx_fn = lambda content: lines.index(list(filter(lambda x: x.startswith(content), lines))[0])
-        atom_st, atom_ed = get_idx_fn('@<TRIPOS>ATOM')+1, get_idx_fn('@<TRIPOS>BOND')
-        for i in range(atom_st, atom_ed):
-            resn = lines[i].split()[7].strip()
-            resn_idx = lines[i].index(resn)
-            lines[i] = lines[i][:resn_idx] + 'LIG' + ' '*(min(0, len(resn) - 3)) + lines[i][resn_idx+len(resn):]
-        opts_file(opath, 'w', way='lines', data=lines)
-        
-    @staticmethod
-    def get_login_browser(download_dir: str):
-        put_log(f'getting CGenFF aacount from {CONFIG_FILE_PATH}')
-        email, password = GlobalConfig.named_accounts['CGenFF']['email'], GlobalConfig.named_accounts['CGenFF']['password']
-        if email is None or password is None:
-            return put_err('CGenFF email or password not found in config file, skip.')
-        return get_login_browser(email, password, download_dir=download_dir)
-        
-    @staticmethod
-    def get_str_from_CGenFF(mol2_path: str, zip_path: str, browser: Browser) -> Union[str, None]:
-        put_log(f'getting str file from CGenFF for {mol2_path}')
-        get_result_from_CGenFF(mol2_path, b=browser)
-        download_path = Path(browser.download_path).parent / Path(mol2_path).with_suffix('.zip').name
-        shutil.move(str(download_path), zip_path)
 
     @staticmethod
     def prepare_complex_topol(ipath_rgro: str, ipath_lgro: str, ipath_top: str, opath_cgro: str, opath_top: str):
@@ -173,33 +331,8 @@ class prepare_complex(Command):
             if self.args.max_step >= 1 and (not os.path.exists(opath_r) or not os.path.exists(opath_l)):
                 if not self.extract_receptor_ligand(ipath, self.args.receptor_chain_name, self.args.ligand_chain_name, opath_r, opath_l):
                     continue
-            # STEP 2: transfer ligand.pdb to mol2 by obabel.
-            ipath, opath = opath_l, str(complex_path.parent / f'2_{complex_path.stem}_ligand.mol2')
-            if self.args.max_step >= 2 and (not os.path.exists(opath)):
-                os.system(f'obabel -ipdb {ipath} -omol2 -O {opath}')
-            # STEP 3: fix ligand name and residue name in mol2 file.
-            ipath, opath = opath, str(complex_path.parent / f'3_{complex_path.stem}_ligand_named.mol2')
-            if self.args.max_step >= 3 and (not os.path.exists(opath)):
-                self.fix_name_in_mol2(ipath, opath)
-            # STEP 4: sort mol2 bonds by lazydock.
-            ipath, opath = opath, str(complex_path.parent / f'4_{complex_path.stem}_ligand_sorted.mol2')
-            if self.args.max_step >= 4 and (not os.path.exists(opath)):
-                opts_file(opath, 'w', data=sort_bonds(ipath))
-            # STEP 5: retrive str file from CGenFF.
-            ipath, opath_str, opath_mol2 = opath, str(complex_path.parent / f'5_{complex_path.stem}_ligand_sorted.str'), str(complex_path.parent / f'5_{complex_path.stem}_ligand_sorted.mol2')
-            cgenff_path = Path(ipath).with_suffix('.zip')
-            if self.args.max_step >= 5 and (not os.path.exists(cgenff_path)):
-                self.get_str_from_CGenFF(ipath, cgenff_path, browser=self.browser)
-            if self.args.max_step >= 5 and (not os.path.exists(opath_str) or not os.path.exists(opath_mol2)):
-                for file_name, content in opts_file(cgenff_path, 'r', way='zip').items():
-                    opts_file(cgenff_path.parent / file_name.replace('4_', '5_'), 'wb', data=content)
-            # STEP 6: transfer str file to top and gro file by cgenff_charmm2gmx.py
-            ipath_str, ipath_mol2, opath_itp = opath_str, opath_mol2, str(complex_path.parent / f'lig.itp')
-            ff_dir = complex_path.parent / Path(self.args.ff_dir).name
-            if self.args.max_step >= 6 and (not ff_dir.exists()):
-                shutil.copytree(os.path.abspath(self.args.ff_dir), ff_dir, dirs_exist_ok=True)
-            if self.args.max_step >= 6 and (not os.path.exists(opath_itp)):
-                run_transform('LIG', ipath_mol2, ipath_str, self.args.ff_dir)
+            # STEP 2 ~ 6: prepare ligand topology.
+            self.prepare_ligand(opath_l, complex_path)
             # STEP 7: Prepare the Protein Topology
             ipath, opath_rgro = opath_r, str(complex_path.parent / f'{complex_path.stem}_receptor.gro')
             if self.args.max_step >= 7 and (not os.path.exists(opath_rgro)):
@@ -219,6 +352,8 @@ class prepare_complex(Command):
 
 
 _str2func = {
+    'prepare-protein': prepare_protein,
+    'prepare-ligand': prepare_ligand,
     'prepare-complex': prepare_complex,
 }
 
@@ -226,6 +361,8 @@ def main(sys_args: List[str] = None):
     args_paser = argparse.ArgumentParser(description = 'tools for GROMACS.')
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
 
+    prepare_protein_args = prepare_protein.make_args(subparsers.add_parser('prepare-protein', description=prepare_complex.HELP))
+    prepare_ligand_args = prepare_ligand.make_args(subparsers.add_parser('prepare-ligand', description=prepare_complex.HELP))
     prepare_complex_args = prepare_complex.make_args(subparsers.add_parser('prepare-complex', description=prepare_complex.HELP))
 
     excute_command(args_paser, sys_args, _str2func)
@@ -233,6 +370,6 @@ def main(sys_args: List[str] = None):
 
 if __name__ == "__main__":
     # pass
-    main(r'prepare-complex -d data_tmp/gmx/complex -n complex.pdb --receptor-chain-name A --ligand-chain-name Z --ff-dir data_tmp/gmx/charmm36-jul2022.ff'.split())
+    # main(r'prepare-complex -d data_tmp/gmx/complex -n complex.pdb --receptor-chain-name A --ligand-chain-name Z --ff-dir data_tmp/gmx/charmm36-jul2022.ff'.split())
     
     main()
