@@ -213,12 +213,29 @@ def rotate_bounding_box_to_axis(bounding_box_vertices: np.ndarray):
     return angles1.tolist(), [angle2, 0, 0]
 
 
-def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center', state: int = 0,
+def align_pose_to_axis(pml_name: str, move_name: str = None, fixed: Union[List[float], str] = 'center', state: int = 0,
                        move_method: str = 'rotate', dss: bool = True, quite: int = 1):
     """
-    TODO: RMS is rigth(=0), but second structure all trun to raandom coil, fixed by rotate method.
-    TODO: in rotate method, apply angles1 gets right result, but apply angles2 gets wrong result, pymol is fine.
+    Parameters:
+        - pml_name (str): pymol object name to calculate minimum bounding box and tranformation matrix.
+        - move_name (str): pymol object name to move to aligned position.
+        - fixed (Union[List[float], str]): fixed point to align with, not works when move_method is 'rotate'.
+        - state (int): pml state to calculate minimum bounding box.
+        - move_method (str): method to move to aligned position, support 'transform', 'alter' and 'rotate'.
+        - dss (bool): whether to apply dss to pml object.
+        - quite (int): whether to print log information.
+    
+    Returns:
+        - aligned_coords (numpy.ndarray): aligned coordinates.
+        - aligned_box (numpy.ndarray): aligned bounding box.
+        - rotation_matrix (numpy.ndarray): rotation matrix to align with.
+        - fixed_coords (numpy.ndarray): fixed point to align with.
+
+    Notes:
+        - TODO: RMS is rigth(=0), but second structure all trun to raandom coil, fixed by rotate method.
+        - TODO: in rotate method, apply angles1 gets right result, but apply angles2 gets wrong result, pymol is fine.
     """
+    move_name = move_name or pml_name
     # get coords
     coords, index2coords, sorted_vertices = calcu_bounding_box(pml_name, state=state)
     if isinstance(fixed, str) and fixed != 'center':
@@ -242,27 +259,27 @@ def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center',
         angles1, angles2 = rotate_bounding_box_to_axis(sorted_vertices)
         if not quite:
             print(f'Rotate angles1: {angles1}, angles2: {angles2}')
+    else:
+        return put_err(f'Unsupported move_method: {move_method}, only support transform and alter, skip transform.')
     # move to aligned position
     if move_method == 'transform':
-        cmd.transform_selection(pml_name, pml_mat.flatten().tolist(), homogenous=0)
+        cmd.transform_selection(move_name, pml_mat.flatten().tolist(), homogenous=0)
     elif move_method == 'alter':
-        cmd.alter_state(state, pml_name, 'x = aligned_coords[index2coords[index], 0]', space=locals())
-        cmd.alter_state(state, pml_name, 'y = aligned_coords[index2coords[index], 1]', space=locals())
-        cmd.alter_state(state, pml_name, 'z = aligned_coords[index2coords[index], 2]', space=locals())
-        cmd.sort(pml_name)
+        cmd.alter_state(state, move_name, 'x = aligned_coords[index2coords[index], 0]', space=locals())
+        cmd.alter_state(state, move_name, 'y = aligned_coords[index2coords[index], 1]', space=locals())
+        cmd.alter_state(state, move_name, 'z = aligned_coords[index2coords[index], 2]', space=locals())
+        cmd.sort(move_name)
     elif move_method == 'rotate':
         for angles in [angles1, angles2]:
             for axis, angle in zip(['x', 'y', 'z'], angles):
                 if angle != 0:
-                    cmd.rotate(axis, angle, pml_name)
+                    cmd.rotate(axis, angle, move_name)
             aligned_coords = apply_rotation(coords, angles)
             aligned_box = apply_rotation(sorted_vertices, angles)
         rotation_matrix = None
-    else:
-        put_err(f'Unsupported move_method: {move_method}, only support transform and alter, skip transform.')
     if dss:
-        editing.dss(pml_name)
-    cmd.rebuild(pml_name)
+        editing.dss(move_name)
+    cmd.rebuild(move_name)
     return aligned_coords, aligned_box, rotation_matrix, fixed_coords
 
 def set_axes_equal(ax):
