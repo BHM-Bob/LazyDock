@@ -103,9 +103,121 @@ def align_bounding_box_to_axis(coords: np.ndarray, bounding_box_vertices: np.nda
     return rotated_points, rotated_box, rotation_matrix, fixed_coords
 
 
-def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center', state: int = 0, move_method: str = 'transform', dss: bool = True):
+def normalize(v):
+    """归一化向量"""
+    norm = np.linalg.norm(v)
+    if norm == 0:
+        return v
+    return v / norm
+
+def angle_between(v1, v2):
+    """计算两个向量之间的夹角（弧度）"""
+    cos_theta = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+    return np.arccos(np.clip(cos_theta, -1.0, 1.0))
+
+def rotation_matrix_from_vectors(v1, v2):
+    """计算从向量v1旋转到向量v2的旋转矩阵"""
+    v1 = normalize(v1)
+    v2 = normalize(v2)
+    v = np.cross(v1, v2)
+    s = np.linalg.norm(v)
+    c = np.dot(v1, v2)
+    vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    if s == 0:
+        # 如果v1和v2同向或反向，不需要旋转
+        return np.eye(3)
+    R = np.eye(3) + vx + np.dot(vx, vx) * ((1 - c) / (s ** 2))
+    return R
+
+def rotation_matrix_x(angle):
+    """绕X轴旋转的旋转矩阵"""
+    c = np.cos(np.radians(angle))
+    s = np.sin(np.radians(angle))
+    return np.array([[1, 0, 0],
+                     [0, c, -s],
+                     [0, s, c]])
+
+def rotation_matrix_y(angle):
+    """绕Y轴旋转的旋转矩阵"""
+    c = np.cos(np.radians(angle))
+    s = np.sin(np.radians(angle))
+    return np.array([[c, 0, s],
+                     [0, 1, 0],
+                     [-s, 0, c]])
+
+def rotation_matrix_z(angle):
+    """绕Z轴旋转的旋转矩阵"""
+    c = np.cos(np.radians(angle))
+    s = np.sin(np.radians(angle))
+    return np.array([[c, -s, 0],
+                     [s, c, 0],
+                     [0, 0, 1]])
+
+def apply_rotation(coords, angles):
+    """应用旋转到顶点"""
+    # 构建旋转矩阵
+    Rx = rotation_matrix_x(angles[0])
+    Ry = rotation_matrix_y(angles[1])
+    Rz = rotation_matrix_z(angles[2])
+    
+    # 组合旋转矩阵
+    R = np.dot(Rz, np.dot(Ry, Rx))
+    
+    # 应用旋转矩阵到每个顶点
+    rotated_vertices = np.dot(coords, R.T)
+    return rotated_vertices
+
+def align_edge_with_x_axis(v0, v1):
+    """计算将边v0到v1与X轴对齐所需的旋转角度"""
+    edge1 = np.array(v1) - np.array(v0)
+    x_axis = np.array([1, 0, 0])
+    R = rotation_matrix_from_vectors(edge1, x_axis)
+    # 计算欧拉角
+    sy = np.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
+    singular = sy < 1e-6
+    if not singular:
+        x = np.arctan2(R[2, 1], R[2, 2])
+        y = np.arctan2(-R[2, 0], sy)
+        z = np.arctan2(R[1, 0], R[0, 0])
+    else:
+        x = np.arctan2(-R[1, 2], R[1, 1])
+        y = np.arctan2(-R[2, 0], sy)
+        z = 0
+    # 将弧度转换为度
+    euler_angles = np.degrees([x, y, z])
+    return euler_angles
+
+def align_edge_with_y_axis_after_x_alignment(v0, v2):
+    """计算在v0-v1与X轴对齐后，将v0-v2与Y轴对齐所需的绕X轴旋转角度"""
+    edge2 = np.array(v2) - np.array(v0)
+    # 只考虑Y和Z分量，因为X分量在与X轴对齐后为0
+    yz_projection = edge2[1:]  # 取Y和Z分量
+    y_axis = np.array([1, 0])  # Y轴在YZ平面上的投影
+    angle = np.arctan2(yz_projection[1], yz_projection[0])  # 计算绕X轴旋转角度
+    return np.degrees(angle)
+
+def rotate_bounding_box_to_axis(bounding_box_vertices: np.ndarray):
     """
-    TODO: RMS is rigth(=0), but second structure all trun to raandom coil.
+    计算包围盒绕轴旋转的角度，使包围盒的各边与坐标轴对齐。
+    
+    参数:
+    bounding_box_vertices： 包围盒的8个顶点坐标，形状为 (8, 3)。
+    
+    返回:
+    numpy.ndarray: 旋转角度。
+    """
+    bounding_box_vertices = np.array(bounding_box_vertices)
+    angles1 = align_edge_with_x_axis(bounding_box_vertices[0], bounding_box_vertices[1])
+    vertices_rotated = apply_rotation(bounding_box_vertices, angles1)
+    angle2 = align_edge_with_y_axis_after_x_alignment(vertices_rotated[0], vertices_rotated[2])
+    return angles1.tolist(), [angle2, 0, 0]
+
+
+def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center', state: int = 0,
+                       move_method: str = 'rotate', dss: bool = True, quite: int = 1):
+    """
+    TODO: RMS is rigth(=0), but second structure all trun to raandom coil, fixed by rotate method.
+    TODO: in rotate method, apply angles1 gets right result, but apply angles2 gets wrong result, pymol is fine.
     """
     # get coords
     coords, index2coords, sorted_vertices = calcu_bounding_box(pml_name, state=state)
@@ -115,13 +227,21 @@ def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center',
         fixed_coords = np.array(fixed_coords).mean(axis=0)
     else:
         fixed_coords = fixed
-    # align bounding box
-    aligned_coords, aligned_box, rotation_matrix, fixed_coords = align_bounding_box_to_axis(coords, sorted_vertices, fixed_coords=fixed_coords)
-    # create pymol rotation matrix
-    pml_mat = np.zeros((4, 4))
-    pml_mat[:3, :3] = rotation_matrix.T # np is matmul, but pymol is dot product
-    pml_mat[-1, :] = list(-fixed_coords) + [1]
-    pml_mat[:, -1] = list(fixed_coords) + [1]
+    if move_method in {'transform', 'alter'}:
+        # align bounding box
+        aligned_coords, aligned_box, rotation_matrix, fixed_coords = align_bounding_box_to_axis(coords, sorted_vertices, fixed_coords=fixed_coords)
+        # create pymol rotation matrix
+        pml_mat = np.zeros((4, 4))
+        pml_mat[:3, :3] = rotation_matrix.T # np is matmul, but pymol is dot product
+        pml_mat[-1, :] = list(-fixed_coords) + [1]
+        pml_mat[:, -1] = list(fixed_coords) + [1]
+        if not quite:
+            print(f'pymol transform matrix: {pml_mat.flatten().tolist()}')
+    elif move_method == 'rotate':
+        # calculate rotation degree
+        angles1, angles2 = rotate_bounding_box_to_axis(sorted_vertices)
+        if not quite:
+            print(f'Rotate angles1: {angles1}, angles2: {angles2}')
     # move to aligned position
     if move_method == 'transform':
         cmd.transform_selection(pml_name, pml_mat.flatten().tolist(), homogenous=0)
@@ -130,12 +250,19 @@ def align_pose_to_axis(pml_name: str, fixed: Union[List[float], str] = 'center',
         cmd.alter_state(state, pml_name, 'y = aligned_coords[index2coords[index], 1]', space=locals())
         cmd.alter_state(state, pml_name, 'z = aligned_coords[index2coords[index], 2]', space=locals())
         cmd.sort(pml_name)
+    elif move_method == 'rotate':
+        for angles in [angles1, angles2]:
+            for axis, angle in zip(['x', 'y', 'z'], angles):
+                if angle != 0:
+                    cmd.rotate(axis, angle, pml_name)
+            aligned_coords = apply_rotation(coords, angles)
+            aligned_box = apply_rotation(sorted_vertices, angles)
+        rotation_matrix = None
     else:
         put_err(f'Unsupported move_method: {move_method}, only support transform and alter, skip transform.')
     if dss:
         editing.dss(pml_name)
     cmd.rebuild(pml_name)
-    print(f'pymol transform matrix: {pml_mat.flatten().tolist()}')
     return aligned_coords, aligned_box, rotation_matrix, fixed_coords
 
 def set_axes_equal(ax):
@@ -182,6 +309,9 @@ def plot_bounding_box(ax, vertices, color='r'):
     # 绘制每条边
     for edge in edges:
         ax.plot(*zip(vertices[edge[0]], vertices[edge[1]]), linestyle='-', color=color)
+    # 标记每个点
+    for i in range(8):
+        ax.text(vertices[i][0], vertices[i][1], vertices[i][2], str(i))
 
 
 if __name__ == '__main__':
@@ -196,7 +326,7 @@ if __name__ == '__main__':
     aligned_coords, aligned_box, rotation_matrix, fixed_coords = align_bounding_box_to_axis(coords, vertics)
     _, _, aligned_vertics = calcu_bounding_box(coords=aligned_coords)
     
-    aligned_coords, aligned_box, rotation_matrix, fixed_coords = align_pose_to_axis('receptor', move_method='alter')
+    aligned_coords, aligned_box, rotation_matrix, fixed_coords = align_pose_to_axis('receptor', move_method='rotate')
     draw_bounding_box('receptor')
     cmd.save('data_tmp/pdb/RECEPTOR_bounding_box.pse')
     
