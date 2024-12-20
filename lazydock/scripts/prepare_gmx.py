@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-20 19:52:01
+LastEditTime: 2024-12-20 19:58:11
 Description: 
 '''
 
@@ -361,9 +361,9 @@ def main(sys_args: List[str] = None):
     args_paser = argparse.ArgumentParser(description = 'tools for GROMACS.')
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
 
-    prepare_protein_args = protein.make_args(subparsers.add_parser('prepare-protein', description=protein.HELP))
-    prepare_ligand_args = ligand.make_args(subparsers.add_parser('prepare-ligand', description=ligand.HELP))
-    prepare_complex_args = complex.make_args(subparsers.add_parser('prepare-complex', description=complex.HELP))
+    prepare_protein_args = protein.make_args(subparsers.add_parser('protein', description=protein.HELP))
+    prepare_ligand_args = ligand.make_args(subparsers.add_parser('ligand', description=ligand.HELP))
+    prepare_complex_args = complex.make_args(subparsers.add_parser('complex', description=complex.HELP))
 
     excute_command(args_paser, sys_args, _str2func)
 
