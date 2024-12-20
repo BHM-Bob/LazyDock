@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-20 18:39:01
+LastEditTime: 2024-12-20 19:52:01
 Description: 
 '''
 
@@ -27,7 +27,7 @@ from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
 from lazydock.web.cgenff import get_login_browser, get_result_from_CGenFF
 
 
-class prepare_protein(Command):
+class protein(Command):
     HELP = """
     prepare single protein for GROMACS MDS.
     
@@ -83,7 +83,7 @@ class prepare_protein(Command):
                                             [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{receptor_n_term}\r'}, {'None': '0\r'}])
 
 
-class prepare_ligand(Command):
+class ligand(Command):
     HELP = """
     prepare single ligand for GROMACS MDS.
     
@@ -226,7 +226,7 @@ class prepare_ligand(Command):
                     put_err(f'pdb2gmx failed: {e}, skip.')
 
 
-class prepare_complex(prepare_ligand):
+class complex(ligand):
     HELP = """
     prepare complex for GROMACS MDS.
     - input complex.pdb should have two chains, one for receptor and one for ligand.
@@ -293,9 +293,9 @@ class prepare_complex(prepare_ligand):
         opts_file(opath_cgro, 'w', way='lines', data=complex_gro_lines)
         # inset ligand paramters in topol.top
         topol = opts_file(ipath_top)
-        topol = prepare_complex.insert_content(topol, '#include "posre.itp"\n#endif\n',
+        topol = complex.insert_content(topol, '#include "posre.itp"\n#endif\n',
                                     '\n; Include ligand topology\n#include "lig.itp"\n')
-        topol = prepare_complex.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',
+        topol = complex.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',
                                     '\n; Include ligand parameters\n#include "lig.prm"\n')
         topol += 'LIG                 1'
         opts_file(opath_top, 'w', data=topol)
@@ -352,24 +352,24 @@ class prepare_complex(prepare_ligand):
 
 
 _str2func = {
-    'prepare-protein': prepare_protein,
-    'prepare-ligand': prepare_ligand,
-    'prepare-complex': prepare_complex,
+    'protein': protein,
+    'ligand': ligand,
+    'complex': complex,
 }
 
 def main(sys_args: List[str] = None):
     args_paser = argparse.ArgumentParser(description = 'tools for GROMACS.')
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
 
-    prepare_protein_args = prepare_protein.make_args(subparsers.add_parser('prepare-protein', description=prepare_complex.HELP))
-    prepare_ligand_args = prepare_ligand.make_args(subparsers.add_parser('prepare-ligand', description=prepare_complex.HELP))
-    prepare_complex_args = prepare_complex.make_args(subparsers.add_parser('prepare-complex', description=prepare_complex.HELP))
+    prepare_protein_args = protein.make_args(subparsers.add_parser('prepare-protein', description=protein.HELP))
+    prepare_ligand_args = ligand.make_args(subparsers.add_parser('prepare-ligand', description=ligand.HELP))
+    prepare_complex_args = complex.make_args(subparsers.add_parser('prepare-complex', description=complex.HELP))
 
     excute_command(args_paser, sys_args, _str2func)
 
 
 if __name__ == "__main__":
     # pass
-    # main(r'prepare-complex -d data_tmp/gmx/complex -n complex.pdb --receptor-chain-name A --ligand-chain-name Z --ff-dir data_tmp/gmx/charmm36-jul2022.ff'.split())
+    # main(r'complex -d data_tmp/gmx/complex -n complex.pdb --receptor-chain-name A --ligand-chain-name Z --ff-dir data_tmp/gmx/charmm36-jul2022.ff'.split())
     
     main()
