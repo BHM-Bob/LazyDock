@@ -232,10 +232,12 @@ the program will use the ff-dir in sub-directory.')
             # STEP 7: Prepare the ligand Topology
             ipath, opath_gro = str(ligand_path.parent / f'lig_ini.pdb'), str(ligand_path.parent / f'lig.gro')
             if self.args.max_step >= 7 and (not os.path.exists(opath_gro)):
+                cmd.load(ipath, 'ligand')
+                cmd.alter('ligand', 'chain="Z"')
+                cmd.save(ipath, 'ligand')
                 # because may do not have Gromacs installed, so just try
                 try:
-                    gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_gro).name} -ter',
-                                                [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'0\r'}, {'None': '0\r'}])
+                    gmx.run_command_with_expect(f'editconf -f lig_ini.pdb -o lig.gro')
                 except Exception as e:
                     put_err(f'pdb2gmx failed: {e}, skip.')
 
