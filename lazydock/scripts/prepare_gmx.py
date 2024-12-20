@@ -23,7 +23,7 @@ from lazydock.gmx.thirdparty.cgenff_charmm2gmx import run_transform
 from lazydock.gmx.thirdparty.sort_mol2_bonds import sort_bonds
 from lazydock.pml.align_to_axis import align_pose_to_axis
 from lazydock.pml.utils import get_seq
-from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
+from lazydock.scripts._script_utils_ import Command, clean_path
 from lazydock.web.cgenff import get_login_browser, get_result_from_CGenFF
 
 
@@ -89,7 +89,7 @@ class ligand(Command):
     
     STEPS:
     0. center ligand.pdb by obabel
-    1. align with xyz axes by lazydock.
+    1. alter chain code to "Z", align with xyz axes by lazydock.
     2. transfer ligand.pdb to mol2 by obabel.
     3. fix ligand name in mol2 file.
     4. sort mol2 bonds by lazydock.
@@ -107,7 +107,10 @@ class ligand(Command):
         args.add_argument('-n', '--ligand-name', type = str,
                           help='protein file name in each sub-directory.')
         args.add_argument('--ff-dir', type = str,
-                          help='force field files directory.')
+                          help='force field files directory, if before CGenFF step, \
+can be a asbpath to charmmFF dir; \
+if after CGenFF step, should be charmmFF dir name in each sub-directory, \
+the program will use the ff-dir in sub-directory.')
         args.add_argument('--max-step', type = int, default=7,
                           help='max step to do. Default is %(default)s.')
         args.add_argument('--disable-browser', action='store_true',
@@ -181,7 +184,12 @@ class ligand(Command):
                 opts_file(cgenff_path.parent / file_name.replace('4_', '5_'), 'wb', data=content)
         # STEP 6: transfer str file to top and gro file by cgenff_charmm2gmx.py
         ipath_str, ipath_mol2, opath_itp = opath_str, opath_mol2, str(main_path.parent / f'lig.itp')
-        ff_dir = main_path.parent / Path(self.args.ff_dir).name
+        if os.path.exists(self.args.ff_dir):
+            ff_dir = main_path.parent / Path(self.args.ff_dir).name
+        else:
+            ff_dir = main_path.parent / self.args.ff_dir
+            if not os.path.exists(main_path.parent / ff_dir):
+                put_err(f'cannot find ff_dir: {self.args.ff_dir}, skip.')
         if self.args.max_step >= 6 and (not ff_dir.exists()):
             shutil.copytree(os.path.abspath(self.args.ff_dir), ff_dir, dirs_exist_ok=True)
         if self.args.max_step >= 6 and (not os.path.exists(opath_itp)):
@@ -210,6 +218,7 @@ class ligand(Command):
             ipath, opath_l = opath, str(ligand_path.parent / f'1_{ligand_path.stem}_center_align_axis.pdb')
             if not os.path.exists(opath_l):
                 cmd.load(ipath, 'ligand')
+                cmd.alter('ligand', 'chain="Z"')
                 align_pose_to_axis('ligand')
                 cmd.save(opath_l, 'ligand')
                 cmd.reinitialize()
@@ -365,7 +374,9 @@ def main(sys_args: List[str] = None):
     prepare_ligand_args = ligand.make_args(subparsers.add_parser('ligand', description=ligand.HELP))
     prepare_complex_args = complex.make_args(subparsers.add_parser('complex', description=complex.HELP))
 
-    excute_command(args_paser, sys_args, _str2func)
+    args = args_paser.parse_args(sys_args)
+    if args.sub_command in _str2func:
+        _str2func[args.sub_command](args).excute()
 
 
 if __name__ == "__main__":
