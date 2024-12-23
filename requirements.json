@@ -2,10 +2,10 @@
     "std": 
     [
         "mbapy>=0.10.3",
-        "pyteomics",
         "pygame",
         "nicegui",
         "openbabel-wheel",
-        "networkx>=3"
+        "networkx>=3",
+        "DuIvyTools>=0.6.0"
     ]
 }
