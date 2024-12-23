@@ -44,6 +44,10 @@ class simple_protein(Command):
                           help='directory to store the prepared files')
         args.add_argument('-n', '--protein-name', type = str,
                           help='protein name in each sub-directory, such as protein.gro.')
+        args.add_argument('--auto-box', action='store_true', default=False,
+                          help='FLAG, whether to automatically generate rectangular bounding box via on pymol.cmd.get_extent.')
+        args.add_argument('--auto-box-padding', type=float, default=1.2,
+                          help='distance, padding the box size, default is %(default)s.')
         args.add_argument('--ion-mdp', type = str,
                           help='energy minimization mdp file, if is a file-path, will copy to working directory; if is a file-name, will search in working directory.')
         args.add_argument('--em-mdp', type = str,
@@ -94,6 +98,14 @@ class simple_protein(Command):
             gmx = Gromacs(working_dir=str(protein_path.parent))
             mdps = self.get_mdp(protein_path.parent)
             # STEP 1: editconf -f protein.gro -o protein_newbox.gro -c -d 1.0 -bt cubic
+            if self.args.auto_box:
+                cmd.load(str(protein_path), main_name)
+                ([minX, minY, minZ], [maxX, maxY, maxZ]) = cmd.get_extent(main_name)
+                box_center = [(maxX+minX)/2, (maxY+minY)/2, (maxZ+minZ)/2]
+                box_size = list(map(lambda x: x+self.args.auto_box_padding, [maxX-minX, maxY-minY, maxZ-minZ]))
+                manual_box_cmd = f'-center {" ".join(map(str, box_center))} -box {" ".join(map(str, box_size))}'
+                self.args.editconf_args = self.args.editconf_args.replace('-bt dodecahedron') + manual_box_cmd
+                put_log(f'editconf_args changed to: {self.args.editconf_args}')
             gmx.run_command_with_expect(f'editconf {self.args.editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro')
             # STEP 2: solvate -cp protein_newbox.gro -cs spc216.gro -o protein_solv.gro -p topol.top
             gmx.run_command_with_expect(f'solvate {self.args.solvate_args}', cp=f'{main_name}_newbox.gro', o=f'{main_name}_solv.gro', p='topol.top')
