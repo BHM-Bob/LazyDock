@@ -100,27 +100,37 @@ class simple_protein(Command):
             # STEP 3: grompp -f ions.mdp -c protein_solv.gro -p topol.top -o ions.tpr
             gmx.run_command_with_expect('grompp', f=mdps['ion'], c=f'{main_name}_solv.gro', p='topol.top', o='ions.tpr')
             # STEP 4: genion -s ions.tpr -o protein_solv_ions.gro -p topol.top -pname NA -nname CL -neutral
-            gmx.run_command_with_expect(f'genion {self.args.genion_args}', s='ions.tpr', o=f'{main_name}_solv_ions.gro', p='topol.top')
+            gmx.run_command_with_expect(f'genion {self.args.genion_args}', s='ions.tpr', o=f'{main_name}_solv_ions.gro', p='topol.top',
+                                        expect_actions=[{'Select a group:': '13\r', 'No ions to add': '', '\\timeout': ''}],
+                                        expect_settings={'start_timeout': 600})
             # STEP 5: grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
             gmx.run_command_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro', p='topol.top', o='em.tpr')
             # STEP 6: mdrun -v -deffnm em
             gmx.run_command_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='em')
             # STEP 7: energy -f em.edr -o potential.xvg
-            gmx.run_command_with_expect('energy', f='em.edr', o='potential.xvg')
+            gmx.run_command_with_expect('energy', f='em.edr', o='potential.xvg',
+                                        expect_actions=[{'T-rest': '11 0\r'}])
+            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f potential.xvg -smv')
             # STEP 8: grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
             gmx.run_command_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top', o='nvt.tpr')
             # STEP 9: mdrun -deffnm nvt
             gmx.run_command_with_expect('mdrun', deffnm='nvt')
             # STEP 10: energy -f nvt.edr -o temperature.xvg
-            gmx.run_command_with_expect('energy', f='nvt.edr', o='temperature.xvg')
+            gmx.run_command_with_expect('energy', f='nvt.edr', o='temperature.xvg',
+                                        expect_actions=[{'Lamb-non-Protein': '16 0\r'}])
+            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f temperature.xvg -smv')
             # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
             gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt', p='topol.top', o='npt.tpr')
             # STEP 12: mdrun -deffnm npt
             gmx.run_command_with_expect('mdrun', deffnm='npt')
             # STEP 13: energy -f npt.edr -o pressure.xvg
-            gmx.run_command_with_expect('energy', f='npt.edr', o='pressure.xvg')
+            gmx.run_command_with_expect('energy', f='npt.edr', o='pressure.xvg',
+                                        expect_actions=[{'Lamb-non-Protein': '17 0\r'}])
+            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f pressure.xvg -smv')
             # STEP 14: energy -f npt.edr -o density.xvg
-            gmx.run_command_with_expect('energy', f='npt.edr', o='density.xvg')
+            gmx.run_command_with_expect('energy', f='npt.edr', o='density.xvg',
+                                        expect_actions=[{'Lamb-non-Protein': '23 0\r'}])
+            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f density.xvg -smv')
             # STEP 15: grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
             gmx.run_command_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top', o='md.tpr')
             # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
