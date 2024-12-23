@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-23 16:17:26
+LastEditTime: 2024-12-23 16:27:32
 Description: 
 '''
 
@@ -48,6 +48,8 @@ class protein(Command):
                           help='force field files directory.')
         args.add_argument('--n-term', type = str, default='auto',
                           help='N-Term type for gmx pdb2gmx. Default is %(default)s.')
+        args.add_argument('--pdb2gmx-args', type = str, default="-ter -ignh",
+                          help='args pass to pdb2gmx command, default is %(default)s.')
         return args
     
     def process_args(self):
@@ -84,7 +86,7 @@ class protein(Command):
                         put_log(f'using NH2 as N ternimal because the first residue of receptor is PRO.')
                 else:
                     receptor_n_term = self.args.n_term
-                gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} -ter',
+                gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}',
                                             [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{receptor_n_term}\r'}, {'None': '0\r'}])
 
 
