@@ -143,7 +143,7 @@ class simple_ligand(simple_protein):
         super().__init__(args, printf)
             
     
-class complex(complex):
+class simple_complex(simple_ligand):
     HELP = 'run complex GROMACS simulation'
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
@@ -154,7 +154,7 @@ class complex(complex):
 _str2func = {
     'simple-protein': simple_protein,
     'simple-ligand': simple_ligand,
-    'complex': complex,
+    'simple-complex': simple_complex,
 }
 
 def main(sys_args: List[str] = None):
@@ -162,8 +162,8 @@ def main(sys_args: List[str] = None):
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
 
     simple_protein_args = simple_protein.make_args(subparsers.add_parser('simple-protein', description=simple_protein.HELP))
-    prepare_ligand_args = simple_ligand.make_args(subparsers.add_parser('simple-ligand', description=simple_ligand.HELP))
-    prepare_complex_args = complex.make_args(subparsers.add_parser('complex', description=complex.HELP))
+    simple_ligand_args = simple_ligand.make_args(subparsers.add_parser('simple-ligand', description=simple_ligand.HELP))
+    simple_complex_args = simple_complex.make_args(subparsers.add_parser('simple-complex', description=simple_complex.HELP))
 
     args = args_paser.parse_args(sys_args)
     if args.sub_command in _str2func:
