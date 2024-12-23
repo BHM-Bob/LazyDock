@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-23 16:27:32
+LastEditTime: 2024-12-23 16:50:59
 Description: 
 '''
 
@@ -78,7 +78,7 @@ class protein(Command):
                 cmd.save(opath, 'protein')
                 cmd.reinitialize()
             # STEP 1: Prepare the Protein Topology
-            ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}_receptor.gro')
+            ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}.gro')
             if not os.path.exists(opath_rgro):
                 if self.args.n_term == 'auto':
                     receptor_n_term = '1' if get_seq(ipath, fasta=False)[0] == 'P' else '0'
