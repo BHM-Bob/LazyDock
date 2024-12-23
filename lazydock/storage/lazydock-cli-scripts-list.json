@@ -54,5 +54,13 @@
         "exec_names": ["prepare_gmx", "prepare-gmx"],
         "brief": "GROMACS molecular prepare tools.",
         "detailed": "GROMACS molecular prepare tools."
+    },
+    "run_gmx":
+    {
+        "name": "run_gmx",
+        "script name": "run_gmx",
+        "exec_names": ["run_gmx", "run-gmx"],
+        "brief": "GROMACS molecular run tools.",
+        "detailed": "GROMACS molecular run tools."
     }
 }
