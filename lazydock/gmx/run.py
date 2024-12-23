@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-18 16:36:27
+LastEditTime: 2024-12-23 10:19:04
 Description:
 '''
 import os
@@ -79,10 +79,10 @@ class Gromacs(BaseInfo):
             expect_lines.append('expect {')
             for key, value in action.items():
                 if key == '\\timeout':
-                    expect_lines.append(f'    timeout {value}')
+                    expect_lines.append(f'    timeout {{\n        puts "===TIMEOUT==="\n        send "{value}"}}')
                 else:
-                    expect_lines.append(f'    "{key}" {{ send "{value}"}}')
-            expect_lines.append('}')
+                    expect_lines.append(f'    "{key}" {{\n        send "{value}"}}')
+            expect_lines.append('}\n')
         expect_lines.append('interact')
         expect_script = '\n'.join(expect_lines)
         # save expect script to file and run it
