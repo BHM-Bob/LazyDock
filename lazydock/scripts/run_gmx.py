@@ -106,7 +106,7 @@ class simple_protein(Command):
             # STEP 5: grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
             gmx.run_command_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro', p='topol.top', o='em.tpr')
             # STEP 6: mdrun -v -deffnm em
-            gmx.run_command_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='em')
+            gmx.run_command_with_expect(f'mdrun -v', deffnm='em')
             # STEP 7: energy -f em.edr -o potential.xvg
             gmx.run_command_with_expect('energy', f='em.edr', o='potential.xvg',
                                         expect_actions=[{'T-rest': '11 0\r'}])
@@ -114,7 +114,7 @@ class simple_protein(Command):
             # STEP 8: grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
             gmx.run_command_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top', o='nvt.tpr')
             # STEP 9: mdrun -deffnm nvt
-            gmx.run_command_with_expect('mdrun', deffnm='nvt')
+            gmx.run_command_with_expect('mdrun -v', deffnm='nvt')
             # STEP 10: energy -f nvt.edr -o temperature.xvg
             gmx.run_command_with_expect('energy', f='nvt.edr', o='temperature.xvg',
                                         expect_actions=[{'Lamb-non-Protein': '16 0\r'}])
@@ -122,7 +122,7 @@ class simple_protein(Command):
             # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
             gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt', p='topol.top', o='npt.tpr')
             # STEP 12: mdrun -deffnm npt
-            gmx.run_command_with_expect('mdrun', deffnm='npt')
+            gmx.run_command_with_expect('mdrun -v', deffnm='npt')
             # STEP 13: energy -f npt.edr -o pressure.xvg
             gmx.run_command_with_expect('energy', f='npt.edr', o='pressure.xvg',
                                         expect_actions=[{'Lamb-non-Protein': '17 0\r'}])
