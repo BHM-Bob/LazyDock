@@ -54,7 +54,7 @@ class simple_protein(Command):
                           help='npt mdp file, if is a file-path, will copy to working directory; if is a file-name, will search in working directory.')
         args.add_argument('--md-mdp', type = str,
                           help='production md mdp file, if is a file-path, will copy to working directory; if is a file-name, will search in working directory.')
-        args.add_argument('--editconf-args', type = str, default="-c -d 1.0 -bt cubic",
+        args.add_argument('--editconf-args', type = str, default="-c -d 1.2 -bt dodecahedron",
                           help='args pass to editconf command, default is %(default)s.')
         args.add_argument('--solvate-args', type = str, default="-cs spc216.gro",
                           help='args pass to solvate command, default is %(default)s.')
@@ -106,31 +106,31 @@ class simple_protein(Command):
             # STEP 5: grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
             gmx.run_command_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro', p='topol.top', o='em.tpr')
             # STEP 6: mdrun -v -deffnm em
-            gmx.run_command_with_expect(f'mdrun -v', deffnm='em')
+            gmx.run_command_with_expect(f'mdrun', deffnm='em')
             # STEP 7: energy -f em.edr -o potential.xvg
             gmx.run_command_with_expect('energy', f='em.edr', o='potential.xvg',
                                         expect_actions=[{'T-rest': '11 0\r'}])
-            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f potential.xvg -smv')
+            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f potential.xvg -o potential.png -smv')
             # STEP 8: grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
             gmx.run_command_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top', o='nvt.tpr')
             # STEP 9: mdrun -deffnm nvt
-            gmx.run_command_with_expect('mdrun -v', deffnm='nvt')
+            gmx.run_command_with_expect('mdrun', deffnm='nvt')
             # STEP 10: energy -f nvt.edr -o temperature.xvg
             gmx.run_command_with_expect('energy', f='nvt.edr', o='temperature.xvg',
                                         expect_actions=[{'Lamb-non-Protein': '16 0\r'}])
-            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f temperature.xvg -smv')
+            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f temperature.xvg -o temperature.png -smv')
             # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
             gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt', p='topol.top', o='npt.tpr')
             # STEP 12: mdrun -deffnm npt
-            gmx.run_command_with_expect('mdrun -v', deffnm='npt')
+            gmx.run_command_with_expect('mdrun', deffnm='npt')
             # STEP 13: energy -f npt.edr -o pressure.xvg
             gmx.run_command_with_expect('energy', f='npt.edr', o='pressure.xvg',
                                         expect_actions=[{'Lamb-non-Protein': '17 0\r'}])
-            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f pressure.xvg -smv')
+            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f pressure.xvg -o pressure.png -smv')
             # STEP 14: energy -f npt.edr -o density.xvg
             gmx.run_command_with_expect('energy', f='npt.edr', o='density.xvg',
                                         expect_actions=[{'Lamb-non-Protein': '23 0\r'}])
-            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f density.xvg -smv')
+            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f density.xvg -o density.png -smv')
             # STEP 15: grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
             gmx.run_command_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top', o='md.tpr')
             # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
