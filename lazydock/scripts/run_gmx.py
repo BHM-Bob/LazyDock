@@ -1,8 +1,8 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-24 20:24:27
-Description: 
+LastEditTime: 2024-12-24 21:38:08
+Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
 
@@ -45,6 +45,7 @@ class simple_protein(Command):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
+        self.indexs = {}
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
@@ -148,7 +149,7 @@ class simple_protein(Command):
         
     def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         # STEP 8: grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
-        gmx.run_command_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top', o='nvt.tpr')
+        gmx.run_command_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top', o='nvt.tpr', n=self.indexs.get('nvt', None))
         # STEP 9: mdrun -deffnm nvt
         gmx.run_command_with_expect('mdrun', deffnm='nvt')
         # STEP 10: energy -f nvt.edr -o temperature.xvg
@@ -156,7 +157,7 @@ class simple_protein(Command):
                                     expect_actions=[{'Lamb-non-Protein': '16 0\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_show -f temperature.xvg -o temperature.png -smv')
         # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
-        gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt', p='topol.top', o='npt.tpr')
+        gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt', p='topol.top', o='npt.tpr', n=self.indexs.get('npt', None))
         # STEP 12: mdrun -deffnm npt
         gmx.run_command_with_expect('mdrun', deffnm='npt')
         # STEP 13: energy -f npt.edr -o pressure.xvg
@@ -170,7 +171,7 @@ class simple_protein(Command):
         
     def production_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         # STEP 15: grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
-        gmx.run_command_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top', o='md.tpr')
+        gmx.run_command_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top', o='md.tpr', n=self.indexs.get('md', None))
         # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
         gmx.run_command_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='md')
         
@@ -198,17 +199,45 @@ class simple_protein(Command):
 
 
 class simple_ligand(simple_protein):
-    HELP = 'run ligand GROMACS simulation'
+    HELP = simple_protein.HELP.replace('protein', 'ligand')
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
             
     
 class simple_complex(simple_ligand):
-    HELP = 'run complex GROMACS simulation'
+    HELP = simple_protein.HELP.replace('protein', 'complex')
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
         
-
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args = simple_protein.make_args(args)
+        args.add_argument('-ln', '--ligand-name', type = str, default='lig.gro',
+                          help='ligand name in each sub-directory, such as lig.gro, default is %(default)s.')
+        args.add_argument('--lig-posres', type=str, default='POSRES',
+                          help='ligand position restraint symbol, default is %(default)s.')
+        args.add_argument('--tc-groups', type=str, default='1 | 13',
+                          help='tc-grps to select, so could set tc-grps = Protein_JZ4 Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.')
+        return args
+        
+    def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        from lazydock.scripts.prepare_gmx import ligand
+        lig_name = Path(self.args.ligand_name).stem
+        # STEP 1: make restraints file for ligand
+        # make_ndx -f jz4.gro -o index_jz4.ndx
+        gmx.run_command_with_expect('make_ndx', f=f'{lig_name}.gro', o=f'index_{lig_name}.ndx',
+                                    expect_actions=[{'>': '0 & ! a H*\r'}, {'>': 'q\r'}])
+        # gmx genrestr -f jz4.gro -n index_jz4.ndx -o posre_jz4.itp -fc 1000 1000 1000
+        gmx.run_command_with_expect('genrestr', f=f'{lig_name}.gro', n=f'index_{lig_name}.ndx', o=f'posre_{lig_name}.itp', fc='1000 1000 1000')
+        # STEP 2: add restraints info into topol.top
+        res_info = f'\n; Ligand position restraints\n#ifdef {self.args.lig_posres}\n#include "posre_{lig_name}.itp"\n#endif\n\n'
+        ligand.insert_content(protein_path.parent / 'topol.top', f'#include "{lig_name}.itp"\n', res_info)
+        # STEP 3: make tc-grps index file
+        # gmx make_ndx -f em.gro -o index.ndx
+        gmx.run_command_with_expect('make_ndx', f='em.gro', o='tc_index.ndx',
+                                    expect_actions=[{'>': f'{self.args.tc_groups}\r'}, {'>': 'q\r'}])
+        for k in ['nvt', 'npt','md']:
+            self.indexs[k] = 'tc_index.ndx'
 
 
 _str2func = {
