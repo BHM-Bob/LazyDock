@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 from lazydock.gmx.run import Gromacs
 from lazydock.scripts._script_utils_ import Command, clean_path
+from lazydock.utils import uuid4
 
 
 class simple_protein(Command):
@@ -84,6 +85,18 @@ class simple_protein(Command):
             else:
                 put_err(f'can not find {name} mdp file: {mdp_file} in {mdp_file} or {working_dir}, exit.', _exit=True)
         return mdps
+    
+    @staticmethod
+    def get_box(mol_path: Path, padding: float, sele: str = 'not resn SOL'):
+        cmd.reinitialize()
+        name = uuid4()
+        cmd.load(str(mol_path), mol_path.name)
+        cmd.select(name, sele)
+        ([minX, minY, minZ], [maxX, maxY, maxZ]) = cmd.get_extent(name)
+        box_center = list(map(lambda x: x/20, [maxX+minX, maxY+minY, maxZ+minZ]))
+        box_size = list(map(lambda x: x/10+2*padding, [maxX-minX, maxY-minY, maxZ-minZ]))
+        cmd.reinitialize()
+        return box_center, box_size
         
     def main_process(self):
         # get protein paths
@@ -107,8 +120,6 @@ class simple_protein(Command):
                 _, log_path = gmx.run_command_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox_tmp.gro', enable_log=True)
                 shift_line = list(filter(lambda x: 'new center' in x.strip(), opts_file(log_path, way='lines')))[0]
                 shift = list(map(float, re.findall(r'[\d\-\.]+', shift_line)))
-                vector_line = list(filter(lambda x: 'new box vectors' in x.strip(), opts_file(log_path, way='lines')))[0]
-                vector = list(map(float, re.findall(r'[\d\-\.]+', vector_line)))
                 # get solvated box from first solvate
                 shutil.copy(protein_path.parent / 'topol.top', protein_path.parent / 'topol_tmp.top')
                 gmx.run_command_with_expect(f'solvate {self.args.solvate_args}', cp=f'{main_name}_newbox_tmp.gro', o=f'{main_name}_solv_tmp.gro', p='topol_tmp.top')
@@ -117,11 +128,8 @@ class simple_protein(Command):
                 put_log(f'protein box size: {box_size}, tmp solvated box size: {solv_size}, protein center: {prot_center}, tmp solvated center: {solv_center}, shift: {shift}')
                 # calculate new box center
                 box_center = [s+(x1-x2) for s, x1, x2 in zip(shift, solv_center, prot_center)]
-                # calculate new box size
-                box_size = [s+(x2-x1) for s, x1, x2 in zip(vector, solv_size, box_size)]
                 # run editconf with new box center and size
-                manual_box_cmd = f'-box {" ".join(map(lambda x: f"{x:.2f}", box_size))} -center {" ".join(map(lambda x: f"{x:.2f}", box_center))}'
-                editconf_args = self.args.editconf_args.replace('-d 1.2 -bt dodecahedron', ' ') + manual_box_cmd
+                editconf_args += f' -center {" ".join(map(lambda x: f"{x:.2f}", box_center))}'
                 _, log_path = gmx.run_command_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro', enable_log=True)
             else:
                 gmx.run_command_with_expect(f'editconf {self.args.editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro')
