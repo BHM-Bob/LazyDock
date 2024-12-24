@@ -1,3 +1,9 @@
+'''
+Date: 2024-12-21 08:49:55
+LastEditors: BHM-Bob 2262029386@qq.com
+LastEditTime: 2024-12-24 20:24:27
+Description: 
+'''
 
 
 import argparse
@@ -97,6 +103,76 @@ class simple_protein(Command):
         box_size = list(map(lambda x: x/10+2*padding, [maxX-minX, maxY-minY, maxZ-minZ]))
         cmd.reinitialize()
         return box_center, box_size
+    
+    def make_box(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        # STEP 1: editconf -f protein.gro -o protein_newbox.gro -c -d 1.0 -bt cubic
+        if self.args.auto_box:
+            # get shift from first editconf
+            _, box_size = self.get_box(protein_path, self.args.auto_box_padding)
+            manual_box_cmd = f'-box {" ".join(map(lambda x: f"{x:.2f}", box_size))}'
+            editconf_args = self.args.editconf_args.replace('-d 1.2 -bt dodecahedron', ' ') + manual_box_cmd
+            _, log_path = gmx.run_command_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox_tmp.gro', enable_log=True)
+            shift_line = list(filter(lambda x: 'new center' in x.strip(), opts_file(log_path, way='lines')))[0]
+            shift = list(map(float, re.findall(r'[\d\-\.]+', shift_line)))
+            # get solvated box from first solvate
+            shutil.copy(protein_path.parent / 'topol.top', protein_path.parent / 'topol_tmp.top')
+            gmx.run_command_with_expect(f'solvate {self.args.solvate_args}', cp=f'{main_name}_newbox_tmp.gro', o=f'{main_name}_solv_tmp.gro', p='topol_tmp.top')
+            solv_center, solv_size = self.get_box(protein_path.parent / f'{main_name}_solv_tmp.gro', self.args.auto_box_padding, 'resn SOL')
+            prot_center, _ = self.get_box(protein_path.parent / f'{main_name}_newbox_tmp.gro', self.args.auto_box_padding)
+            put_log(f'protein box size: {box_size}, tmp solvated box size: {solv_size}, protein center: {prot_center}, tmp solvated center: {solv_center}, shift: {shift}')
+            # calculate new box center
+            box_center = [s+(x1-x2) for s, x1, x2 in zip(shift, solv_center, prot_center)]
+            # run editconf with new box center and size
+            editconf_args += f' -center {" ".join(map(lambda x: f"{x:.2f}", box_center))}'
+            _, log_path = gmx.run_command_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro', enable_log=True)
+        else:
+            gmx.run_command_with_expect(f'editconf {self.args.editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro')
+        # STEP 2: solvate -cp protein_newbox.gro -cs spc216.gro -o protein_solv.gro -p topol.top
+        gmx.run_command_with_expect(f'solvate {self.args.solvate_args}', cp=f'{main_name}_newbox.gro', o=f'{main_name}_solv.gro', p='topol.top')
+        # STEP 3: grompp -f ions.mdp -c protein_solv.gro -p topol.top -o ions.tpr
+        gmx.run_command_with_expect('grompp', f=mdps['ion'], c=f'{main_name}_solv.gro', p='topol.top', o='ions.tpr')
+        # STEP 4: genion -s ions.tpr -o protein_solv_ions.gro -p topol.top -pname NA -nname CL -neutral
+        gmx.run_command_with_expect(f'genion {self.args.genion_args}', s='ions.tpr', o=f'{main_name}_solv_ions.gro', p='topol.top',
+                                    expect_actions=[{'Select a group:': '13\r', 'No ions to add': '', '\\timeout': ''}],
+                                    expect_settings={'start_timeout': 600})
+        
+    def energy_minimization(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        # STEP 5: grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
+        gmx.run_command_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro', p='topol.top', o='em.tpr')
+        # STEP 6: mdrun -v -deffnm em
+        gmx.run_command_with_expect(f'mdrun', deffnm='em')
+        # STEP 7: energy -f em.edr -o potential.xvg
+        gmx.run_command_with_expect('energy', f='em.edr', o='potential.xvg',
+                                    expect_actions=[{'T-rest': '11 0\r'}])
+        os.system(f'cd "{protein_path.parent}" && dit xvg_show -f potential.xvg -o potential.png -smv')
+        
+    def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        # STEP 8: grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
+        gmx.run_command_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top', o='nvt.tpr')
+        # STEP 9: mdrun -deffnm nvt
+        gmx.run_command_with_expect('mdrun', deffnm='nvt')
+        # STEP 10: energy -f nvt.edr -o temperature.xvg
+        gmx.run_command_with_expect('energy', f='nvt.edr', o='temperature.xvg',
+                                    expect_actions=[{'Lamb-non-Protein': '16 0\r'}])
+        os.system(f'cd "{protein_path.parent}" && dit xvg_show -f temperature.xvg -o temperature.png -smv')
+        # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
+        gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt', p='topol.top', o='npt.tpr')
+        # STEP 12: mdrun -deffnm npt
+        gmx.run_command_with_expect('mdrun', deffnm='npt')
+        # STEP 13: energy -f npt.edr -o pressure.xvg
+        gmx.run_command_with_expect('energy', f='npt.edr', o='pressure.xvg',
+                                    expect_actions=[{'Lamb-non-Protein': '17 0\r'}])
+        os.system(f'cd "{protein_path.parent}" && dit xvg_show -f pressure.xvg -o pressure.png -smv')
+        # STEP 14: energy -f npt.edr -o density.xvg
+        gmx.run_command_with_expect('energy', f='npt.edr', o='density.xvg',
+                                    expect_actions=[{'Lamb-non-Protein': '23 0\r'}])
+        os.system(f'cd "{protein_path.parent}" && dit xvg_show -f density.xvg -o density.png -smv')
+        
+    def production_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        # STEP 15: grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
+        gmx.run_command_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top', o='md.tpr')
+        # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
+        gmx.run_command_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='md')
         
     def main_process(self):
         # get protein paths
@@ -111,68 +187,14 @@ class simple_protein(Command):
             main_name = protein_path.stem
             gmx = Gromacs(working_dir=str(protein_path.parent))
             mdps = self.get_mdp(protein_path.parent)
-            # STEP 1: editconf -f protein.gro -o protein_newbox.gro -c -d 1.0 -bt cubic
-            if self.args.auto_box:
-                # get shift from first editconf
-                _, box_size = self.get_box(protein_path, self.args.auto_box_padding)
-                manual_box_cmd = f'-box {" ".join(map(lambda x: f"{x:.2f}", box_size))}'
-                editconf_args = self.args.editconf_args.replace('-d 1.2 -bt dodecahedron', ' ') + manual_box_cmd
-                _, log_path = gmx.run_command_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox_tmp.gro', enable_log=True)
-                shift_line = list(filter(lambda x: 'new center' in x.strip(), opts_file(log_path, way='lines')))[0]
-                shift = list(map(float, re.findall(r'[\d\-\.]+', shift_line)))
-                # get solvated box from first solvate
-                shutil.copy(protein_path.parent / 'topol.top', protein_path.parent / 'topol_tmp.top')
-                gmx.run_command_with_expect(f'solvate {self.args.solvate_args}', cp=f'{main_name}_newbox_tmp.gro', o=f'{main_name}_solv_tmp.gro', p='topol_tmp.top')
-                solv_center, solv_size = self.get_box(protein_path.parent / f'{main_name}_solv_tmp.gro', self.args.auto_box_padding, 'resn SOL')
-                prot_center, _ = self.get_box(protein_path.parent / f'{main_name}_newbox_tmp.gro', self.args.auto_box_padding)
-                put_log(f'protein box size: {box_size}, tmp solvated box size: {solv_size}, protein center: {prot_center}, tmp solvated center: {solv_center}, shift: {shift}')
-                # calculate new box center
-                box_center = [s+(x1-x2) for s, x1, x2 in zip(shift, solv_center, prot_center)]
-                # run editconf with new box center and size
-                editconf_args += f' -center {" ".join(map(lambda x: f"{x:.2f}", box_center))}'
-                _, log_path = gmx.run_command_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro', enable_log=True)
-            else:
-                gmx.run_command_with_expect(f'editconf {self.args.editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro')
-            # STEP 2: solvate -cp protein_newbox.gro -cs spc216.gro -o protein_solv.gro -p topol.top
-            gmx.run_command_with_expect(f'solvate {self.args.solvate_args}', cp=f'{main_name}_newbox.gro', o=f'{main_name}_solv.gro', p='topol.top')
-            # STEP 3: grompp -f ions.mdp -c protein_solv.gro -p topol.top -o ions.tpr
-            gmx.run_command_with_expect('grompp', f=mdps['ion'], c=f'{main_name}_solv.gro', p='topol.top', o='ions.tpr')
-            # STEP 4: genion -s ions.tpr -o protein_solv_ions.gro -p topol.top -pname NA -nname CL -neutral
-            gmx.run_command_with_expect(f'genion {self.args.genion_args}', s='ions.tpr', o=f'{main_name}_solv_ions.gro', p='topol.top',
-                                        expect_actions=[{'Select a group:': '13\r', 'No ions to add': '', '\\timeout': ''}],
-                                        expect_settings={'start_timeout': 600})
-            # STEP 5: grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
-            gmx.run_command_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro', p='topol.top', o='em.tpr')
-            # STEP 6: mdrun -v -deffnm em
-            gmx.run_command_with_expect(f'mdrun', deffnm='em')
-            # STEP 7: energy -f em.edr -o potential.xvg
-            gmx.run_command_with_expect('energy', f='em.edr', o='potential.xvg',
-                                        expect_actions=[{'T-rest': '11 0\r'}])
-            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f potential.xvg -o potential.png -smv')
-            # STEP 8: grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
-            gmx.run_command_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top', o='nvt.tpr')
-            # STEP 9: mdrun -deffnm nvt
-            gmx.run_command_with_expect('mdrun', deffnm='nvt')
-            # STEP 10: energy -f nvt.edr -o temperature.xvg
-            gmx.run_command_with_expect('energy', f='nvt.edr', o='temperature.xvg',
-                                        expect_actions=[{'Lamb-non-Protein': '16 0\r'}])
-            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f temperature.xvg -o temperature.png -smv')
-            # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
-            gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt', p='topol.top', o='npt.tpr')
-            # STEP 12: mdrun -deffnm npt
-            gmx.run_command_with_expect('mdrun', deffnm='npt')
-            # STEP 13: energy -f npt.edr -o pressure.xvg
-            gmx.run_command_with_expect('energy', f='npt.edr', o='pressure.xvg',
-                                        expect_actions=[{'Lamb-non-Protein': '17 0\r'}])
-            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f pressure.xvg -o pressure.png -smv')
-            # STEP 14: energy -f npt.edr -o density.xvg
-            gmx.run_command_with_expect('energy', f='npt.edr', o='density.xvg',
-                                        expect_actions=[{'Lamb-non-Protein': '23 0\r'}])
-            os.system(f'cd "{protein_path.parent}" && dit xvg_show -f density.xvg -o density.png -smv')
-            # STEP 15: grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
-            gmx.run_command_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top', o='md.tpr')
-            # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
-            gmx.run_command_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='md')
+            # STEP 1 ~ 4: make box, solvate, ions
+            self.make_box(protein_path, main_name, gmx, mdps)
+            # STEP 5 ~ 7: energy minimization
+            self.energy_minimization(protein_path, main_name, gmx, mdps)
+            # STEP 8 ~ 14: equilibration
+            self.equilibration(protein_path, main_name, gmx, mdps)
+            # STEP 15 ~ 16: production md
+            self.production_md(protein_path, main_name, gmx, mdps)
 
 
 class simple_ligand(simple_protein):
