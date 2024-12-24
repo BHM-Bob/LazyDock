@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-24 10:46:48
+LastEditTime: 2024-12-24 21:35:23
 Description:
 '''
 import os
@@ -39,7 +39,9 @@ class Gromacs(BaseInfo):
                 - if the value is not str, it will be converted to str directly via str().
         """
         for k in list(kwargs.keys()):
-            if isinstance(kwargs[k], bool):
+            if kwargs[k] is None:
+                del kwargs[k]
+            elif isinstance(kwargs[k], bool):
                 kwargs[k] = ''
             elif isinstance(kwargs[k], (list, tuple)):
                 kwargs[k] =' '.join(map(str, kwargs[k]))
