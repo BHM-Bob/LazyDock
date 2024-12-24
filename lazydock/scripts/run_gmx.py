@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
@@ -99,14 +100,25 @@ class simple_protein(Command):
             mdps = self.get_mdp(protein_path.parent)
             # STEP 1: editconf -f protein.gro -o protein_newbox.gro -c -d 1.0 -bt cubic
             if self.args.auto_box:
-                cmd.load(str(protein_path), main_name)
-                ([minX, minY, minZ], [maxX, maxY, maxZ]) = cmd.get_extent(main_name)
-                box_center = [(maxX+minX)/2, (maxY+minY)/2, (maxZ+minZ)/2]
-                box_size = list(map(lambda x: x+self.args.auto_box_padding, [maxX-minX, maxY-minY, maxZ-minZ]))
-                manual_box_cmd = f'-center {" ".join(map(str, box_center))} -box {" ".join(map(str, box_size))}'
-                self.args.editconf_args = self.args.editconf_args.replace('-bt dodecahedron') + manual_box_cmd
-                put_log(f'editconf_args changed to: {self.args.editconf_args}')
-            gmx.run_command_with_expect(f'editconf {self.args.editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro')
+                # get shift from first editconf
+                _, box_size = self.get_box(protein_path, self.args.auto_box_padding)
+                manual_box_cmd = f'-box {" ".join(map(lambda x: f"{x:.2f}", box_size))}'
+                editconf_args = self.args.editconf_args.replace('-d 1.2 -bt dodecahedron', ' ') + manual_box_cmd
+                _, log_path = gmx.run_command_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox_tmp.gro', enable_log=True)
+                shift_line = list(filter(lambda x: 'shift' in x.strip(), opts_file(log_path, way='lines')))[0]
+                shift = list(map(float, re.findall(r'[\d\-\.]+', shift_line)))
+                # get solvated box from first solvate
+                shutil.copy(protein_path.parent / 'topol.top', protein_path.parent / 'topol_tmp.top')
+                gmx.run_command_with_expect(f'solvate {self.args.solvate_args}', cp=f'{main_name}_newbox_tmp.gro', o=f'{main_name}_solv_tmp.gro', p='topol_tmp.top')
+                solv_center, solv_size = self.get_box(protein_path.parent / f'{main_name}_solv_tmp.gro', self.args.auto_box_padding, 'resn SOL')
+                prot_center, _ = self.get_box(protein_path.parent / f'{main_name}_newbox_tmp.gro', self.args.auto_box_padding)
+                # calculate new box center
+                box_center = [s+(x1-x2) for s, x1, x2 in zip(shift, solv_center, prot_center)]
+                editconf_args += f' -center {" ".join(map(lambda x: f"{x:.2f}", box_center))}'
+                put_log(f'protein box size: {box_size}, tmp solvated box size: {solv_size}, protein center: {prot_center}, tmp solvated center: {solv_center}, shift: {shift}')
+                _, log_path = gmx.run_command_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro', enable_log=True)
+            else:
+                gmx.run_command_with_expect(f'editconf {self.args.editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro')
             # STEP 2: solvate -cp protein_newbox.gro -cs spc216.gro -o protein_solv.gro -p topol.top
             gmx.run_command_with_expect(f'solvate {self.args.solvate_args}', cp=f'{main_name}_newbox.gro', o=f'{main_name}_solv.gro', p='topol.top')
             # STEP 3: grompp -f ions.mdp -c protein_solv.gro -p topol.top -o ions.tpr
