@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-23 10:19:04
+LastEditTime: 2024-12-24 09:54:31
 Description:
 '''
 import os
@@ -47,7 +47,8 @@ class Gromacs(BaseInfo):
                 kwargs[k] = str(kwargs[k])
         return f'cd "{self.working_dir}" && {self.call_name} {sub_commmand} {self.kwargs2cmd(kwargs)}'
     
-    def run_command_with_expect(self, sub_commmand: str, expect_actions: List[Dict[str, str]] = None, expect_settings: Dict[str, Any] = None, **kwargs):
+    def run_command_with_expect(self, sub_commmand: str, expect_actions: List[Dict[str, str]] = None,
+                                expect_settings: Dict[str, Any] = None, enable_log: bool = False, **kwargs):
         """
         Run gromacs command with expect script.
         
@@ -58,17 +59,27 @@ class Gromacs(BaseInfo):
                 - value: the value to send
             - expect_settings: dict, the expect script settings.
                 - timeout: int, default is -1, the timeout for expect script to start.
+            - enable_log: bool, default is False, whether to enable log file.
             - **kwargs: dict, keyword arguments for gromacs command, generate by gen_command() method.
         """
+        # set name and paths
+        scripts_dir = os.path.join(self.working_dir, 'LazyDock_gmx_scripts')
+        os.makedirs(scripts_dir, exist_ok=True)
+        scripts_name = f'{get_fmt_time("%Y-%m-%d-%H-%M-%S.%f")}'
+        # generate command
         cmd = self.gen_command(sub_commmand, **kwargs)
+        if enable_log:
+            log_path = os.path.join(scripts_dir, f'{scripts_name}.log')
+            cmd = f'{cmd} > ./LazyDock_gmx_scripts/{scripts_name}.log'.replace('&&', '\n')
         put_log(f'Get command: {cmd}', head='LazyDock')
         # just run the command if no expect actions
         if expect_actions is None or not expect_actions:
-            return os.system(cmd)
+            ret_val = os.system(cmd)
+            if enable_log:
+                ret_val = (ret_val, log_path)
+            return ret_val
         # save cmd to bash file
-        scripts_dir = os.path.join(self.working_dir, 'LazyDock_gmx_scripts')
-        os.makedirs(scripts_dir, exist_ok=True)
-        bash_path = os.path.join(scripts_dir, f'{get_fmt_time("%Y-%m-%d-%H-%M-%S.%f")}.sh')
+        bash_path = os.path.join(scripts_dir, f'{scripts_name}.sh')
         opts_file(bash_path, 'w', data=cmd)
         # create expect script
         expect_settings = expect_settings or {}
@@ -86,10 +97,13 @@ class Gromacs(BaseInfo):
         expect_lines.append('interact')
         expect_script = '\n'.join(expect_lines)
         # save expect script to file and run it
-        script_path = os.path.join(scripts_dir, f'{get_fmt_time("%Y-%m-%d-%H-%M-%S.%f")}.exp')
+        script_path = os.path.join(scripts_dir, f'{scripts_name}.exp')
         opts_file(script_path, 'w', data=expect_script)
         put_log(f'Running expect script: {script_path}', head='LazyDock')
-        return os.system(f'cd "{self.working_dir}" && expect "{script_path}"')
+        ret_val = os.system(f'cd "{self.working_dir}" && expect "{script_path}"')
+        if enable_log:
+            ret_val = (ret_val, log_path)
+        return ret_val
         
         
 if __name__ == '__main__':
