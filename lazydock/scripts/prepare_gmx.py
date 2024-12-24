@@ -1,8 +1,8 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-23 16:50:59
-Description: 
+LastEditTime: 2024-12-24 21:28:39
+Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
 import argparse
@@ -205,7 +205,7 @@ the program will use the ff-dir in sub-directory.')
             ff_dir = None
             put_err(f'cannot find ff_dir: {self.args.ff_dir} in {main_path.parent}, set ff_dir to None, skip.')
         if self.args.max_step >= 6 and (not os.path.exists(opath_itp)):
-            run_transform('LIG', ipath_mol2, ipath_str, ff_dir)
+            run_transform('LIG', ipath_mol2, ipath_str, str(ff_dir))
 
     def main_process(self):
         # allocate browser for CGenFF
