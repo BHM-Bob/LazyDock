@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-24 09:54:31
+LastEditTime: 2024-12-24 10:46:48
 Description:
 '''
 import os
@@ -71,7 +71,7 @@ class Gromacs(BaseInfo):
         if enable_log:
             log_path = os.path.join(scripts_dir, f'{scripts_name}.log')
             cmd = f'{cmd} > ./LazyDock_gmx_scripts/{scripts_name}.log'.replace('&&', '\n')
-        put_log(f'Get command: {cmd}', head='LazyDock')
+        put_log(f'Get command:\n{cmd}', head='LazyDock')
         # just run the command if no expect actions
         if expect_actions is None or not expect_actions:
             ret_val = os.system(cmd)
