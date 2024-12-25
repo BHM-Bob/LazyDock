@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-02 22:49:17
+LastEditTime: 2024-12-25 17:25:46
 Description: 
 '''
 from typing import Dict, List, Tuple, Union
@@ -84,6 +84,9 @@ def get_distance_info(dist_name: str, state = 1, selection = 'all', xyz2atom = N
             if points is None:
                 raise ValueError
         except (KeyError, ValueError):
+            continue
+        except TypeError:
+            # obj is None or else
             continue
         for i in range(0, len(points), 6):
             xyz1 = tuple(points[i:i + 3])
