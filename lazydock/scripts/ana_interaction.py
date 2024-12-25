@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-03 15:49:16
+LastEditTime: 2024-12-25 16:47:20
 Description: 
 '''
 import argparse
@@ -26,8 +26,7 @@ if __name__ == '__main__':
     from lazydock.pml.plip_interaction import SUPPORTED_MODE as plip_mode
     from lazydock.pml.plip_interaction import \
         calcu_receptor_poses_interaction as calc_fn_plip
-    from lazydock.scripts._script_utils_ import (Command, clean_path,
-                                                 excute_command)
+    from lazydock.scripts._script_utils_ import Command, clean_path
 else:
     from ..pml.autodock_utils import DlgFile
     from ..pml.interaction_utils import SUPPORTED_MODE as pml_mode
@@ -39,7 +38,7 @@ else:
     from ..pml.plip_interaction import SUPPORTED_MODE as plip_mode
     from ..pml.plip_interaction import \
         calcu_receptor_poses_interaction as calc_fn_plip
-    from ._script_utils_ import Command, clean_path, excute_command
+    from ._script_utils_ import Command, clean_path
     
     
 class simple_analysis(Command):
@@ -189,7 +188,9 @@ def main(sys_args: List[str] = None):
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
     simple_analysis_args = simple_analysis.make_args(subparsers.add_parser('simple-analysis', description='perform simple analysis on docking result'))
 
-    excute_command(args_paser, sys_args, _str2func)
+    args = args_paser.parse_args(sys_args)
+    if args.sub_command in _str2func:
+        _str2func[args.sub_command](args).excute()
 
 
 if __name__ == "__main__":
