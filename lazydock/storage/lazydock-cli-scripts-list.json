@@ -62,5 +62,13 @@
         "exec_names": ["run_gmx", "run-gmx"],
         "brief": "GROMACS molecular run tools.",
         "detailed": "GROMACS molecular run tools."
+    },
+    "distrbute_file":
+    {
+        "name": "distrbute_file",
+        "script name": "distrbute_file",
+        "exec_names": ["distrbute_file", "distrbute-file"],
+        "brief": "MD and MDS files distrbute tools.",
+        "detailed": "MD and MDS files distrbute tools."
     }
 }
