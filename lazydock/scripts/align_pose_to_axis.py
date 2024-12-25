@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 23:07:00
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-14 22:08:11
+LastEditTime: 2024-12-25 20:50:42
 Description: 
 '''
 import argparse
@@ -35,7 +35,7 @@ def main(sys_args: List[str] = None):
     args = args_paser.parse_args(sys_args)
     # process IO path
     args.dir = clean_path(args.dir)
-    args.type = args.type.split('.') if ',' in args.type else [args.type]
+    args.type = args.type.split(',') if ',' in args.type else [args.type]
     paths = get_paths_with_extension(args.dir, args.type, recursive=args.recursive, name_substr=args.name)
     if not paths:
         raise ValueError(f'No file found in {args.receptor}.')
