@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-25 16:47:20
+LastEditTime: 2024-12-25 19:55:40
 Description: 
 '''
 import argparse
@@ -135,13 +135,13 @@ class simple_analysis(Command):
         fn, _ = simple_analysis.METHODS[method]
         bar.set_description(f'performing {method} calculation')
         interactions, _ = fn(receptor_name, pose_names, mode=mode, cutoff=cutoff, verbose=True, force_cwd=True, w_dir=w_dir, hydrogen_atom_only=hydrogen_atom_only)
+        if interactions is None:
+            cmd.reinitialize()
+            return put_err(f"No interactions found in {dlg_path}")
         if method == 'pymol':
             interactions = {k:v[-1] for k,v in interactions.items()}
         bar.set_description(f'{method} interactions calculated')
         # save interactions
-        if interactions is None:
-            cmd.reinitialize()
-            return put_err(f"No interactions found in {dlg_path}")
         df = pd.DataFrame()
         for i, (pose, interaction) in enumerate(zip(dlg.pose_lst, interactions.values())):
             df.loc[i, 'energy'] = pose.energy
