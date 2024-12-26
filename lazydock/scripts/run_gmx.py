@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-24 21:38:08
+LastEditTime: 2024-12-26 10:38:56
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -180,7 +180,7 @@ class simple_protein(Command):
         if os.path.isdir(self.args.dir):
             proteins_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.protein_name)
         else:
-            put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
+            put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')
         # process each complex
         for protein_path in tqdm(proteins_path, total=len(proteins_path)):
