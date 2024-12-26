@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-24 21:35:23
+LastEditTime: 2024-12-26 09:53:33
 Description:
 '''
 import os
@@ -42,7 +42,10 @@ class Gromacs(BaseInfo):
             if kwargs[k] is None:
                 del kwargs[k]
             elif isinstance(kwargs[k], bool):
-                kwargs[k] = ''
+                if kwargs[k]:
+                    kwargs[k] = ''
+                else:
+                    kwargs[f'no{k}'] = ''
             elif isinstance(kwargs[k], (list, tuple)):
                 kwargs[k] =' '.join(map(str, kwargs[k]))
             elif not isinstance(kwargs[k], str):
