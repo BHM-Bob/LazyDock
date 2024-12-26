@@ -63,6 +63,14 @@
         "brief": "GROMACS molecular run tools.",
         "detailed": "GROMACS molecular run tools."
     },
+    "ana_gmx":
+    {
+        "name": "ana_gmx",
+        "script name": "ana_gmx",
+        "exec_names": ["ana_gmx", "ana-gmx"],
+        "brief": "GROMACS molecular analysis tools.",
+        "detailed": "GROMACS molecular analysis tools."
+    },
     "distrbute_file":
     {
         "name": "distrbute_file",
