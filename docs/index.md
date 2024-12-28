@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-12-18 21:17:27
+ * @LastEditTime: 2024-12-28 21:30:28
  * @Description: 
 -->
 
@@ -72,9 +72,10 @@ pip install lazydock
 
 ### lazydock pymol plugin
 #### command line user
-- a script entry named `lazydock-pml` is provided in the python/Scripts folder.
+- a script entry named `lazydock-pml` is provided in the python/Scripts folder, will launch the GUI plugin.
 #### pymol user
-- install the plugin in pymol manually.
+- install the plugin in pymol manually, in the site-packages/lazydock_pymol_plugin folder.  
+- it will update automatically when update the package even the plugin is installed.
 
 ### lazydock-cli
 - [get_pocket](scripts/get_pocket.md): get pocket info from ProteinPlus.
@@ -82,9 +83,12 @@ pip install lazydock
 - [dock](scripts/dock.md): perform batch molecular docking.
 - [sort_mol2_bonds](scripts/sort_mol2_bonds.md): sort mol2 bonds.
 - [eval_modeling](scripts/eval_modeling.md): evaluate modeling result.
+- [prepare_gmx](scripts/prepare_gmx.md): prepare gmx files.
+- [run_gmx](scripts/run_gmx.md): run gmx tasks.
 
 
 ## release note
+- [0.10.0](release_note/0.10.0.md)
 - [0.9.1](release_note/0.9.1.md)
 - [0.9.0](release_note/0.9.0.md)
 - [0.8.0](release_note/0.8.0.md)
