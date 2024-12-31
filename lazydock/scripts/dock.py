@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-17 22:56:54
+LastEditTime: 2024-12-31 15:45:18
 Description: 
 '''
 
@@ -30,9 +30,13 @@ class vina(Command):
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-d', '--dir', type = str, default='.',
-                                help='config file directory contains config files (named "config.txt"), each sub-directory is a task. Default is %(default)s.')
+                                help='config file directory contains config files, each sub-directory is a task. Default is %(default)s.')
+        args.add_argument('-c', '--config-name', type = str, default='config.txt',
+                                help='config file name, each config is a task. Default is %(default)s.')
         args.add_argument('-v', '--vina-name', type = str, default='vina',
                                 help='vina executable name to call. Default is %(default)s.')
+        args.add_argument('--vina-args', type = str, default='--log ./log.txt',
+                                help='args for vina executable. Default is %(default)s.')
         args.add_argument('-n', '--n-workers', type=int, default=1,
                                 help='number of tasks to parallel docking. Default is %(default)s.')
         return args
@@ -42,24 +46,29 @@ class vina(Command):
         if self.args.n_workers <= 0:
             put_err(f'n_workers must be positive integer, got {self.args.n_workers}, exit.', _exit=True)
         self.taskpool = TaskPool('threads', self.args.n_workers).start()
+        self.args.vina_args = '' if self.args.vina_args in {"''", '""', ''} else self.args.vina_args
         
     @staticmethod
-    def run_vina(config_path: Path, vina_name: str):
+    def run_vina(config_path: Path, vina_name: str, vina_args: str):
         print(f'current: {config_path}')
-        if (config_path.parent / 'dock.pdbqt').exists():
+        config = opts_file(config_path, way='lines')
+        out_name = list(filter(lambda x: x.startswith('out'), config))[0].split('=')[1].strip()
+        if (config_path.parent / out_name).exists():
             print(f'{config_path.parent} has done, skip')
             return 
-        os.system(f'cd "{config_path.absolute().parent}" && {vina_name} --config ./config.txt --log ./log.txt')
+        cmd_string = f'cd "{config_path.parent}" && {vina_name} --config ./{config_path.name} {vina_args}'
+        print(f'running: {cmd_string}')
+        os.system(cmd_string)
         
     def main_process(self):
         if os.path.isdir(self.args.dir):
-            configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr='config')
+            configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr=self.args.config_name)
         else:
-            put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
+            put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
         print(f'get {len(configs_path)} config(s) for docking')
         tasks = []
         for config_path in tqdm(configs_path, total=len(configs_path)):
-            tasks.append(self.taskpool.add_task(None, self.run_vina, Path(config_path), self.args.vina_name))
+            tasks.append(self.taskpool.add_task(None, self.run_vina, Path(config_path), self.args.vina_name, self.args.vina_args))
             while self.taskpool.count_waiting_tasks() > 1:
                 time.sleep(1)
         self.taskpool.wait_till_tasks_done(tasks)
