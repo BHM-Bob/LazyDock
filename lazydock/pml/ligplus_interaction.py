@@ -74,14 +74,16 @@ def _run_ligplus_for_complex(ligplus_dir: str, complex_pdbstr: str,
     complex_path = os.path.join(w_dir, 'complex.pdb')
     opts_file(complex_path, 'w', data=complex_pdbstr)
     # Run HBadd
-    os.system(' '.join([cwd_cmd, os.path.join(ligplus_lib, "hbadd"), complex_path, os.path.join(ligplus_params, 'components.cif'), '-wkdir', w_dir]))
-    os.system(' '.join([cwd_cmd, os.path.join(ligplus_lib, "hbplus"), '-L', '-h', '2.90', '-d', '3.90', '-N', complex_path, '-wkdir', w_dir]))
-    os.system(' '.join([cwd_cmd, os.path.join(ligplus_lib, "hbplus"), '-L', '-h', '2.70', '-d', '3.35', complex_path, '-wkdir', w_dir]))
-    os.system(' '.join([cwd_cmd, os.path.join(ligplus_lib, "dimer"), complex_path, receptor_chain, ligand_chain]))
-    os.system(' '.join([cwd_cmd, os.path.join(ligplus_lib, "dimhtml"), 'none', '-dimp', '-dir', w_dir, '-flip', '-ctype', '1']))
+    complex_path = f'"{complex_path}"'
+    spw = lambda p, n: f'"{os.path.join(p, n)}"' # safe path warpper
+    os.system(' '.join([cwd_cmd, spw(ligplus_lib, "hbadd"), complex_path, spw(ligplus_params, 'components.cif'), '-wkdir', w_dir]))
+    os.system(' '.join([cwd_cmd, spw(ligplus_lib, "hbplus"), '-L', '-h', '2.90', '-d', '3.90', '-N', complex_path, '-wkdir', w_dir]))
+    os.system(' '.join([cwd_cmd, spw(ligplus_lib, "hbplus"), '-L', '-h', '2.70', '-d', '3.35', complex_path, '-wkdir', w_dir]))
+    os.system(' '.join([cwd_cmd, spw(ligplus_lib, "dimer"), complex_path, receptor_chain, ligand_chain]))
+    os.system(' '.join([cwd_cmd, spw(ligplus_lib, "dimhtml"), 'none', '-dimp', '-dir', w_dir, '-flip', '-ctype', '1']))
     os.system(' '.join([cwd_cmd,
-        os.path.join(ligplus_lib, "ligplot"), os.path.join(w_dir, 'dimplot.pdb'), '-wkdir', w_dir,
-        '-prm', os.path.join(ligplus_params, 'dimplot.prm'), '-ctype', '1'
+        spw(ligplus_lib, "ligplot"), spw(w_dir, 'dimplot.pdb'), '-wkdir', w_dir,
+        '-prm', spw(ligplus_params, 'dimplot.prm'), '-ctype', '1'
         ]))
     # parse output
     try:
