@@ -1,17 +1,17 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-25 19:55:40
+LastEditTime: 2024-12-31 10:01:03
 Description: 
 '''
 import argparse
 import os
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Set, Tuple
 
 import pandas as pd
 from mbapy_lite.base import put_err
-from mbapy_lite.file import get_paths_with_extension
+from mbapy_lite.file import get_paths_with_extension, opts_file
 from pymol import cmd
 from tqdm import tqdm
 
@@ -67,6 +67,8 @@ class simple_analysis(Command):
                           help='only consider hydrogen bond acceptor and donor atoms, this only works when method is pymol, default is %(default)s.')
         args.add_argument('--output-style', type = str, default='receptor', choices=['receptor'],
                           help='output style\n receptor: resn resi distance')
+        args.add_argument('--ref-res', type = str, default='',
+                          help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
         return args
 
     def process_args(self):
@@ -94,6 +96,15 @@ class simple_analysis(Command):
         elif isinstance(self.args.mode, list) and any(m not in all_modes for m in self.args.mode):
             unsuuported_mode = [m for m in self.args.mode if m not in all_modes]
             put_err(f"the mode you input has unsupported item(s): {unsuuported_mode}, supported mode: {simple_analysis.METHODS[self.args.method][1]}, exit.", _exit=True)
+        # check ref_res
+        split_fn = lambda x: set(map(lambda y: y.strip(), x.split(',')))
+        if os.path.isfile(self.args.ref_res):
+            self.args.ref_res = split_fn(opts_file(self.args.ref_res))
+        elif self.args.ref_res:
+            self.args.ref_res = split_fn(self.args.ref_res)
+        else:
+            self.args.ref_res = set()
+            
         
     @staticmethod
     def output_fromater_receptor(inter_value: Dict[str, float], method: str):
@@ -110,7 +121,9 @@ class simple_analysis(Command):
             
     @staticmethod
     def calc_interaction_from_dlg(receptor_path: str, dlg_path: str, method: str, mode: List[str], cutoff: float,
-                                  output_formater: Callable, hydrogen_atom_only: bool = True) -> None:
+                                  output_formater: Callable, hydrogen_atom_only: bool = True, ref_res: Set[str] = None) -> None:
+        ref_res = ref_res or set()
+        # set path
         bar = tqdm(desc='Calculating interaction', leave=False)
         root = os.path.abspath(os.path.dirname(dlg_path))
         w_dir = os.path.join(root, 'ligplus') if method == 'ligplus' else root
@@ -145,8 +158,13 @@ class simple_analysis(Command):
         df = pd.DataFrame()
         for i, (pose, interaction) in enumerate(zip(dlg.pose_lst, interactions.values())):
             df.loc[i, 'energy'] = pose.energy
+            df.loc[i, 'ref_res'] = ''
             for inter_mode, inter_value in interaction.items():
-                df.loc[i, inter_mode] = output_formater(inter_value, method)
+                fmt_string = output_formater(inter_value, method)
+                df.loc[i, inter_mode] = fmt_string
+                for r in ref_res:
+                    if r in fmt_string and not r in df.loc[i,'ref_res']:
+                        df.loc[i,'ref_res'] += r
         df.to_excel(os.path.join(root, f'{Path(dlg_path).stem}_{method}_interactions.xlsx'))
         bar.set_description(f'{method} interactions saved')
         # release all in pymol
