@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-15 19:25:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-22 20:46:09
+LastEditTime: 2024-12-29 11:29:11
 Description: 
 '''
 import os
@@ -26,7 +26,7 @@ def align_pose_to_axis_warp(pml_name: str, move_name: str = None, fixed: Union[L
 cmd.extend('align_pose_to_axis', align_pose_to_axis_warp)
 
 
-def open_vina_config_as_box(config_path: str, spacing: float = 1.0):
+def open_vina_config_as_box(config_path: str, spacing: float = 1.0, linewidth: float = 2.0, r: float = 1.0, g: float = 1.0, b: float = 1.0):
     from mbapy_lite.file import opts_file
 
     from lazydock.pml.thirdparty.draw_bounding_box import draw_box
@@ -39,9 +39,30 @@ def open_vina_config_as_box(config_path: str, spacing: float = 1.0):
     print(f'center: {center}, size: {size}')
     minz, miny, minz = [(center[f'center_{k}'] - size[f'size_{k}'] / 2) * spacing for k in ['x', 'y', 'z']]
     maxz, maxy, maxz = [(center[f'center_{k}'] + size[f'size_{k}'] / 2) * spacing for k in ['x', 'y', 'z']]
-    draw_box(minz, miny, minz, maxz, maxy, maxz)
+    draw_box(minz, miny, minz, maxz, maxy, maxz, linewidth=linewidth, r=r, g=g, b=b)
     
 cmd.extend('open_vina_config_as_box', open_vina_config_as_box)
+
+
+
+def calcu_RRCS(model: str):
+    from lazydock.pml.rrcs import calcu_RRCS
+    df = calcu_RRCS(model)
+    path = os.path.abspath(f'{model}_RRCS.xlsx')
+    df.to_excel(path)
+    print(f'RRCS saved to {path}')
+
+cmd.extend('calcu_RRCS', calcu_RRCS)
+
+
+def apply_shader_from_df(df_path: str, obj_name: str, cmap: str = 'coolwarm', alpha_mode: str = None):
+    from lazydock.pml.shader import Shader, ShaderValues
+    values = ShaderValues().from_interaction_df(df_path, obj_name)
+    shader = Shader(cmap)
+    shader.create_colors_in_pml(values)
+    shader.apply_shader_values(values, alpha_mode=alpha_mode)
+    
+cmd.extend('apply_shader_from_df', apply_shader_from_df)
 
 
 print('LazyDock plugin loaded.')
@@ -50,4 +71,6 @@ Commands (python API):
     start_lazydock_server(host='localhost', port=8085, quiet=1)
     align_pose_to_axis(pml_name, move_name='', fixed='center', state=0, move_method='rotate', dss=1, quite=0)
     open_vina_config_as_box(config_path, spacing=1.0)
+    calcu_RRCS(model: str)
+    apply_shader_from_df(df_path: str, obj_name: str, cmap: str = 'coolwarm', alpha_mode: str ='cartoon_transparency')
 ''')
