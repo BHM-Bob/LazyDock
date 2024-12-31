@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-31 10:01:03
+LastEditTime: 2024-12-31 11:59:46
 Description: 
 '''
 import argparse
@@ -122,7 +122,7 @@ class simple_analysis(Command):
     @staticmethod
     def calc_interaction_from_dlg(receptor_path: str, dlg_path: str, method: str, mode: List[str], cutoff: float,
                                   output_formater: Callable, hydrogen_atom_only: bool = True, ref_res: Set[str] = None) -> None:
-        ref_res = ref_res or set()
+        ref_res = sorted(list(ref_res or set()), key=lambda x: int(x[3:]))
         # set path
         bar = tqdm(desc='Calculating interaction', leave=False)
         root = os.path.abspath(os.path.dirname(dlg_path))
@@ -164,7 +164,7 @@ class simple_analysis(Command):
                 df.loc[i, inter_mode] = fmt_string
                 for r in ref_res:
                     if r in fmt_string and not r in df.loc[i,'ref_res']:
-                        df.loc[i,'ref_res'] += r
+                        df.loc[i,'ref_res'] += f'{r},'
         df.to_excel(os.path.join(root, f'{Path(dlg_path).stem}_{method}_interactions.xlsx'))
         bar.set_description(f'{method} interactions saved')
         # release all in pymol
@@ -193,7 +193,7 @@ class simple_analysis(Command):
             bar.set_description(f"{wdir}: {os.path.basename(r_path)} and {os.path.basename(l_path)}")
             self.calc_interaction_from_dlg(r_path, l_path, method, mode, self.args.cutoff,
                                            getattr(self, f'output_fromater_{self.args.output_style}'),
-                                           self.args.hydrogen_atom_only)
+                                           self.args.hydrogen_atom_only, self.args.ref_res)
             bar.update(1)
 
 _str2func = {
