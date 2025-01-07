@@ -214,7 +214,7 @@ def rotate_bounding_box_to_axis(bounding_box_vertices: np.ndarray):
 
 
 def align_pose_to_axis(pml_name: str, move_name: str = None, fixed: Union[List[float], str] = 'center', state: int = 0,
-                       move_method: str = 'rotate', dss: bool = True, quite: int = 1):
+                       move_method: str = 'rotate', dss: bool = False, quite: int = 1):
     """
     Parameters:
         - pml_name (str): pymol object name to calculate minimum bounding box and tranformation matrix.
@@ -277,7 +277,8 @@ def align_pose_to_axis(pml_name: str, move_name: str = None, fixed: Union[List[f
             aligned_coords = apply_rotation(coords, angles)
             aligned_box = apply_rotation(sorted_vertices, angles)
         rotation_matrix = None
-    if dss:
+    if (isinstance(dss, str) and int(dss)) or (isinstance(dss, int) and dss):
+        print('Applying DSS to aligned object, it may has bad effect on some complex structure.')
         editing.dss(move_name)
     cmd.rebuild(move_name)
     return aligned_coords, aligned_box, rotation_matrix, fixed_coords
