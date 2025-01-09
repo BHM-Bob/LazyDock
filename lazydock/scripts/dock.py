@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-31 15:45:18
+LastEditTime: 2025-01-09 23:26:38
 Description: 
 '''
 
@@ -12,13 +12,14 @@ from functools import wraps
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-from mbapy_lite.base import put_err, Configs
+from mbapy_lite.base import put_err, put_log, Configs
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from mbapy_lite.web import TaskPool, random_sleep
 from tqdm import tqdm
 
 from lazydock.pml.autodock_utils import DlgFile
 from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
+from lazydock.web.dinc import run_dock_on_DINC_ensemble
 from lazydock.web.hdock import run_dock_on_HDOCK, run_dock_on_HPEPDOCK
 
 
@@ -75,7 +76,7 @@ class vina(Command):
         self.taskpool.close()
         
         
-def hdock_run_fn_warpper(result_prefix: str = 'HDOCK'):
+def hdock_run_fn_warpper(result_prefix: str = 'HDOCK', result_name: str = 'HDOCK_all_results.tar.gz'):
     def ret_warpper(func):
         def core_wrapper(*args, **kwargs):
             config_path = args[0] if len(args) > 0 else kwargs.get('config_path', None)
@@ -95,7 +96,7 @@ def hdock_run_fn_warpper(result_prefix: str = 'HDOCK'):
             else:
                 put_err(f'config_path type not support: {type(config_path)}, exit.', _exit=True)
             # check if done
-            if (root / f'{result_prefix}_all_results.tar.gz').exists():
+            if (root / f'{result_prefix}_all_results.tar.gz').exists() or (root / result_name).exists():
                 return print(f'{root} has done, skip')
             # perform docking
             print(f'current: {root}')
@@ -117,6 +118,8 @@ class hdock(Command):
                           help="receptor pdb file name, optional. If provided, will ignore config.txt.")
         args.add_argument('-l', '--ligand', type = str, default=None,
                           help="ligand pdb file name, optional. If provided, will ignore config.txt.")
+        args.add_argument('--config-name', type=str, default=None,
+                          help='Vina config for specifing parameters. Default is %(default)s.')
         args.add_argument('-m', '--method', type = str, default='web', choices=['web'],
                           help='docking method. Currently support "web". Default is %(default)s.')
         args.add_argument('--email', type = str, default=None,
@@ -133,7 +136,8 @@ class hdock(Command):
 
     @staticmethod
     @hdock_run_fn_warpper('HDOCK')
-    def run_hdock_web(config_path: Union[Path, Tuple[str, str]], parameters: Dict[str, str] = None, email=None, browser=None):
+    def run_hdock_web(config_path: Union[Path, Tuple[str, str]], parameters: Dict[str, str] = None, email=None, browser=None,
+                      args: argparse.ArgumentParser = None):
         w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).parent
         run_dock_on_HDOCK(receptor_path=parameters['receptor_path'], ligand_path=parameters['ligand_path'],
                           w_dir=w_dir, email=email, browser=browser)
@@ -156,8 +160,10 @@ class hdock(Command):
                 invalid_roots = '\n'.join([root for root, count in roots_count.items() if count != 2])
                 return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:\n{invalid_roots}")
             configs_path = [(r, l) for r, l in zip(r_paths, l_paths)]
+        elif self.args.config_name is not None:
+            configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr=self.args.config_name)
         else:
-            configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr='config')
+            return put_err('config_name or receptor and ligand should be provided, exit.', _exit=True)
         print(f'get {len(configs_path)} config(s) for docking')
         # allow browser gui
         if self.args.gui:
@@ -168,7 +174,8 @@ class hdock(Command):
         # perform docking
         dock_fn = getattr(self, f'run_hdock_{self.args.method}')
         for config_path in tqdm(configs_path, total=len(configs_path)):
-            dock_fn(Path(config_path) if isinstance(config_path, str) else config_path, email=self.args.email, browser=browser)
+            dock_fn(Path(config_path).resolve() if isinstance(config_path, str) else config_path,
+                    email=self.args.email, browser=browser, args=self.args)
             random_sleep(300, 180) # sleep 3~5 minutes to avoid overloading the server
 
 
@@ -188,10 +195,52 @@ class hpepdock(hdock):
     
     @staticmethod
     @hdock_run_fn_warpper('HPEPDOCK')
-    def run_hdock_web(config_path: Path, parameters: Dict[str, str] = None, email=None, browser=None):
+    def run_hdock_web(config_path: Path, parameters: Dict[str, str] = None, email=None, browser=None,
+                      args: argparse.ArgumentParser = None):
         w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).resolve().parent
         run_dock_on_HPEPDOCK(receptor_path=parameters['receptor_path'], ligand_path=parameters['ligand_path'],
                              w_dir=w_dir, email=email, browser=browser)
+
+
+class dinc_ensemble(hdock):
+    def __init__(self, args, printf = print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args = hdock.make_args(args)
+        args.add_argument('--use-config-box', action='store_true', default=False,
+                          help='FLAG, whether to use grid box from config file. Default is %(default)s.')
+        # make sure only support web method
+        method_arg_idx = args._actions.index(list(filter(lambda x: x.dest =='method', args._actions))[0])
+        args._actions[method_arg_idx].choices = ['web']
+        args._actions[method_arg_idx].default = 'web'
+        args._actions[method_arg_idx].help = 'docking method. Currently support "web". Default is %(default)s.'
+        # make sure eamil is required
+        email_arg_idx = args._actions.index(list(filter(lambda x: x.dest == 'email', args._actions))[0])
+        args._actions[email_arg_idx].required = True
+        args._actions[email_arg_idx].help = 'email address for HDOCK web server. Required.'
+        return args
+    
+    def process_args(self):
+        if self.args.receptor is not None and self.args.ligand is not None and self.args.config_name is not None:
+            return put_err('receptor, ligand and config_name cannot be provided at the same time, exit.', _exit=True)
+        return super().process_args()
+    
+    @staticmethod
+    @hdock_run_fn_warpper('', 'DINC-Ensemble_result.zip')
+    def run_hdock_web(config_path: Path, parameters: Dict[str, str] = None, email=None, browser=None,
+                      args: argparse.ArgumentParser = None):
+        w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).resolve().parent
+        put_log(f'working in {w_dir}')
+        if args.use_config_box:
+            box_center = {k:parameters[f'center_{k}'] for k in ['x', 'y', 'z']}
+            box_size = {k:parameters[f'size_{k}'] for k in ['x', 'y', 'z']}
+        else:
+            box_center, box_size = 'receptor', 'ligand'
+        put_log(f'parameters: {parameters}, box_center: {box_center}, box_size: {box_size}')
+        run_dock_on_DINC_ensemble(receptor_path=parameters['receptor_path'], ligand_path=parameters['ligand_path'],
+                                  email=email, box_center=box_center, box_size=box_size, w_dir=str(w_dir), browser=browser)
 
 
 def convert_result_run_convert(input_path: Path, output_path: Path, method: str):
@@ -262,6 +311,7 @@ _str2func = {
     'vina': vina,
     'hdock': hdock,
     'hpepdock': hpepdock,
+    'dinc-ensemble': dinc_ensemble,
     'convert-result': convert_result,
 }
 
@@ -272,6 +322,7 @@ def main(sys_args: List[str] = None):
     vina_args = vina.make_args(subparsers.add_parser('vina', description='perform vina molecular docking.'))
     hdock_args = hdock.make_args(subparsers.add_parser('hdock', description='perform HDOCK molecular docking.'))
     hpepdock_args = hpepdock.make_args(subparsers.add_parser('hpepdock', description='perform HPEPDOCK molecular docking.'))
+    dinc_ensemble_args = dinc_ensemble.make_args(subparsers.add_parser('dinc-ensemble', description='perform DINC-Ensemble molecular docking.'))
     convert_result_args = convert_result.make_args(subparsers.add_parser('convert-result', description='convert docking result file to pdb format.'))
 
     excute_command(args_paser, sys_args, _str2func)
@@ -279,6 +330,6 @@ def main(sys_args: List[str] = None):
 
 if __name__ == "__main__":
     # main('convert-result -d data_tmp/docking/ligand1 -m lazydock --n-workers 1'.split())
-    # main('hpepdock -d data_tmp/docking/ligand2 -m web -r rec.pdb -l ligand.pdb'.split())
+    # main('dinc-ensemble -d data_tmp/docking/ligand1 -m web --email 2262029386@qq.com --config-name config.txt --use-config-box'.split())
     
     main()
