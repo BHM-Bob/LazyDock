@@ -73,17 +73,18 @@ def run_dock_on_DINC_ensemble(receptor_path: str, ligand_path: str, email: str,
     b.browser.switch_to.alert.accept()
     random_sleep(15, 10)
     result_url_xpath = '//*[@id="root"]/div/section/div/div[2]/a'
-    while b.wait_element(result_url_xpath):
+    while not b.wait_element(result_url_xpath):
         random_sleep(100)
         b.browser.refresh()
-    b.get(b.find_element(result_url_xpath).get_attribute('href'))
+    b.get(b.find_elements(result_url_xpath)[0].get_attribute('href'))
     # download result
     b.click(element='//*[@id="root"]/div/section/div[1]/button', executor='element')
     result_path = os.path.join(b.download_path, 'file.zip')
     dist_path = os.path.join(w_dir, 'DINC-Ensemble_result.zip')
     shutil.move(result_path, dist_path)
     # extract result
-    df = opts_file(result_path, 'r:', way='tar')['dince_res\\analysis\\all_info_results.csv'] # actually a tar file
+    path_key = os.path.join('dince_res', 'analysis', 'all_info_results.csv')
+    df = opts_file(dist_path, 'r:', way='tar')[path_key] # actually a tar file
     df.to_excel(os.path.join(w_dir, 'DINC_ensemble_score.xlsx'), index=False)
     return {'Score': df}
 
@@ -92,5 +93,5 @@ if __name__ == '__main__':
     receptor_path = 'data_tmp/docking/ligand1/receptor.pdb'
     ligand_path = 'data_tmp/docking/ligand1/ligand.pdb'
     from mbapy_lite.base import Configs
-    b = Browser(options=[f"--user-agent={Configs.web.chrome_driver_path}"], use_undetected=True)
+    b = Browser(options=[f"--user-agent={Configs.web.chrome_driver_path}"], use_undetected=False)
     run_dock_on_DINC_ensemble(receptor_path, ligand_path, browser=b, email='2262029386@qq.com')
