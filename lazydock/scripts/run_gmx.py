@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-26 10:38:56
+LastEditTime: 2025-01-14 15:52:05
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -73,8 +73,10 @@ class simple_protein(Command):
                           help='args pass to solvate command, default is %(default)s.')
         args.add_argument('--genion-args', type = str, default="-pname NA -nname CL -neutral",
                           help='args pass to genion command, default is %(default)s.')
+        args.add_argument('--em-args', type = str, default="",
+                          help='args pass to mdrun command for energy minimization, default is %(default)s.')  
         args.add_argument('--mdrun-args', type = str, default="-v -ntomp 4 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
-                          help='args pass to mdrun command, default is %(default)s.')                          
+                          help='args pass to mdrun command for production md, default is %(default)s.')                          
         return args
     
     def process_args(self):
@@ -141,7 +143,7 @@ class simple_protein(Command):
         # STEP 5: grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
         gmx.run_command_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro', p='topol.top', o='em.tpr')
         # STEP 6: mdrun -v -deffnm em
-        gmx.run_command_with_expect(f'mdrun', deffnm='em')
+        gmx.run_command_with_expect(f'mdrun {self.args.em_args}', deffnm='em')
         # STEP 7: energy -f em.edr -o potential.xvg
         gmx.run_command_with_expect('energy', f='em.edr', o='potential.xvg',
                                     expect_actions=[{'T-rest': '11 0\r'}])
