@@ -46,41 +46,41 @@ class simple(Command):
     def rms(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
         gmx.run_command_with_expect('rms', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsd.xvg', tu='ns',
                                     expect_actions=[{'Select a group:': f'{group}\r'}, {'Select a group:': f'{group}\r'}], **kwargs)
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_show -f rmsd.xvg -o rmsd.png -smv')
+        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -f rmsd.xvg -o rmsd.png -smv -t "RMSD of {main_name}" -csv {main_name}_rmsd.csv')
         
     @staticmethod
     def rmsf(gmx: Gromacs, main_name: str, group: str = '4', res: bool = True, **kwargs):
         gmx.run_command_with_expect('rmsf', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsf.xvg', res=res,
                                     expect_actions=[{'Select a group:': f'{group}\r'}], **kwargs)
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_show -f rmsf.xvg -o rmsf.png -smv')
+        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -f rmsf.xvg -o rmsf.png -smv -t "RMSF of {main_name}" -csv {main_name}_rmsf.csv')
         
     @staticmethod
     def gyrate(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
         gmx.run_command_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate.xvg',
                                     expect_actions=[{'Select a group:': f'{group}\r'}], **kwargs)
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_show -f gyrate.xvg -o gyrate.png -smv')
+        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -f gyrate.xvg -o gyrate.png -smv -t "Gyrate of {main_name}" -csv {main_name}_gyrate.csv')
         
     @staticmethod
     def hbond(gmx: Gromacs, main_name: str, group: str = '1', dt=10, **kwargs):
         gmx.run_command_with_expect('hbond', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
                                     num=f'{main_name}_hbond_num.xvg', dist=f'{main_name}_hbond_dist.xvg',
                                     expect_actions=[{'Select a group:': f'{group}\r'}, {'Select a group:': f'{group}\r'}], **kwargs)
-        for ty in ['num', 'dist']:
-            os.system(f'cd "{gmx.working_dir}" && dit xvg_show -f {main_name}_hbond_{ty}.xvg -o hbond_{ty}.png -smv')
+        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f {main_name}_hbond_num.xvg -o hbond_num.png -smv -t "H-bond num of {main_name}" -csv {main_name}_hbond_num.csv')
+        os.system(f'cd "{gmx.working_dir}" && dit xvg_show -f {main_name}_hbond_dist.xvg -o hbond_dist.png')
         
     @staticmethod
-    def sasa(gmx: Gromacs, main_name: str, group: str = '1', **kwargs):
+    def sasa(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
         gmx.run_command_with_expect('sasa -or sasa_res.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
                                     o=f'sasa_total.xvg', odg=f'sasa_dg.xvg', tv='sasa_tv.xvg', tu='ns',
                                     expect_actions=[{'Select a group:': f'{group}\r'}], **kwargs)
         for ty in ['total', 'res', 'dg', 'tv']:
-            os.system(f'cd "{gmx.working_dir}" && dit xvg_show -f sasa_{ty}.xvg -o sasa_{ty}.png -smv')
+            os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f sasa_{ty}.xvg -o sasa_{ty}.png -smv -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}.csv')
         
     @staticmethod
-    def covar(gmx: Gromacs, main_name: str, xmax: str = 10, **kwargs):
+    def covar(gmx: Gromacs, main_name: str, xmax: str = 15, **kwargs):
         gmx.run_command_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'eigenval.xvg', tu='ns',
                                     expect_actions=[{'Select a group:': '1\r'}], **kwargs)
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_show -f eigenval.xvg -o eigenval.png -xmin 0 -xmax {xmax}')
+        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f eigenval.xvg -o eigenval.png -xmin 0 -xmax {xmax} -smv -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv')
         
     def main_process(self):
         # get complex paths
@@ -100,8 +100,8 @@ class simple(Command):
             self.rmsf(gmx, main_name=complex_path.stem, group='4')
             self.gyrate(gmx, main_name=complex_path.stem, group='4')
             self.hbond(gmx, main_name=complex_path.stem, group='1')
-            self.sasa(gmx, main_name=complex_path.stem, group='1')
-            self.covar(gmx, main_name=complex_path.stem, xmax=10)
+            self.sasa(gmx, main_name=complex_path.stem, group='4')
+            self.covar(gmx, main_name=complex_path.stem, xmax=15)
 
 
 _str2func = {
