@@ -319,9 +319,9 @@ class DlgFile(BaseInfo):
                     rmsd_mat[i][j] = taskpool.query_task(f'{i}-{j}', block=True, timeout=999)
         return rmsd_mat
     
-    def rmsd_cluster(self, n_clusters: int):
+    def rmsd_cluster(self, n_clusters: int, max_iter: int = 1000):
         coords = np.concatenate([[pose.parse_coords()] for pose in self.pose_lst], axis=0)
-        cluster = KMeans(n_clusters, backend=RmsdClusterBackend())
+        cluster = KMeans(n_clusters, max_iter=max_iter, backend=RmsdClusterBackend())
         return cluster.fit_predict(coords)
     
     def calcu_SSE_SSR(self, rmsd_mat: np.ndarray, groups_idx: np.ndarray,
