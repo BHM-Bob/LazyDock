@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-14 21:51:04
+LastEditTime: 2025-01-14 22:07:54
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -61,15 +61,15 @@ class simple_protein(Command):
                           help='FLAG, whether to automatically generate rectangular bounding box via on pymol.cmd.get_extent.')
         args.add_argument('--auto-box-padding', type=float, default=1.2,
                           help='distance, padding the box size, default is %(default)s.')
-        args.add_argument('--ion-mdp', type = str,
+        args.add_argument('--ion-mdp', type = str, required=True,
                           help='energy minimization mdp file, if is a file-path, will copy to working directory; if is a file-name, will search in working directory.')
-        args.add_argument('--em-mdp', type = str,
+        args.add_argument('--em-mdp', type = str, required=True,
                           help='energy minimization mdp file, if is a file-path, will copy to working directory; if is a file-name, will search in working directory.')
-        args.add_argument('--nvt-mdp', type = str,
+        args.add_argument('--nvt-mdp', type = str, required=True,
                           help='nvt mdp file, if is a file-path, will copy to working directory; if is a file-name, will search in working directory.')
-        args.add_argument('--npt-mdp', type = str,
+        args.add_argument('--npt-mdp', type = str, required=True,
                           help='npt mdp file, if is a file-path, will copy to working directory; if is a file-name, will search in working directory.')
-        args.add_argument('--md-mdp', type = str,
+        args.add_argument('--md-mdp', type = str, required=True,
                           help='production md mdp file, if is a file-path, will copy to working directory; if is a file-name, will search in working directory.')
         args.add_argument('--editconf-args', type = str, default="-c -d 1.2 -bt dodecahedron",
                           help='args pass to editconf command, default is %(default)s.')
@@ -190,7 +190,7 @@ class simple_protein(Command):
                 return put_log(f'start time set to {self.args.start_time}, but it is already passed, skip sleep.')
             put_log(f'sleep until start time: {self.args.start_time}, total: {self.args.start_time - datetime.now()}')
             for _ in tqdm(range(total_seconds), total=total_seconds):
-                time.sleep(5)
+                time.sleep(1)
             return True
         return False
 
@@ -201,6 +201,12 @@ class simple_protein(Command):
         else:
             put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')
+        # check mdp files
+        mdp_names = ['ion', 'em', 'nvt', 'npt','md']
+        mdp_exist = list(map(lambda x: os.path.isfile(getattr(self.args, f'{x}_mdp')), mdp_names))
+        if not all(mdp_exist):
+            missing_names = [n for n, e in zip(mdp_names, mdp_exist) if not e]
+            put_log(f'Warning: can not find mdp files in abspath: {", ".join(missing_names)}, skip.')
         # sleep until start time
         self.sleep_until_start_time()
         # process each complex
