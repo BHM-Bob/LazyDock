@@ -72,7 +72,7 @@ class simple(Command):
     def sasa(gmx: Gromacs, main_name: str, group: str = '1', **kwargs):
         gmx.run_command_with_expect('sasa -or sasa_res.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
                                     o=f'sasa_total.xvg', odg=f'sasa_dg.xvg', tv='sasa_tv.xvg', tu='ns',
-                                    expect_actions=[{'Select a group:': f'{group}\r'}, {'Select a group:': f'{group}\r'}], **kwargs)
+                                    expect_actions=[{'Select a group:': f'{group}\r'}], **kwargs)
         for ty in ['total', 'res', 'dg', 'tv']:
             os.system(f'cd "{gmx.working_dir}" && dit xvg_show -f sasa_{ty}.xvg -o sasa_{ty}.png -smv')
         
