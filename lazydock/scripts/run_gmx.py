@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-14 15:52:05
+LastEditTime: 2025-01-14 21:34:55
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -10,6 +10,8 @@ import argparse
 import os
 import re
 import shutil
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
@@ -53,6 +55,8 @@ class simple_protein(Command):
                           help='directory to store the prepared files')
         args.add_argument('-n', '--protein-name', type = str,
                           help='protein name in each sub-directory, such as protein.gro.')
+        args.add_argument('-st', '--start-time', type = str, default=None,
+                          help='start time, such as "2025-01-15 17:30:00", program will sleep until the start time.')
         args.add_argument('--auto-box', action='store_true', default=False,
                           help='FLAG, whether to automatically generate rectangular bounding box via on pymol.cmd.get_extent.')
         args.add_argument('--auto-box-padding', type=float, default=1.2,
@@ -78,10 +82,12 @@ class simple_protein(Command):
         args.add_argument('--mdrun-args', type = str, default="-v -ntomp 4 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
                           help='args pass to mdrun command for production md, default is %(default)s.')                          
         return args
-    
+
     def process_args(self):
         self.args.dir = clean_path(self.args.dir)
-        
+        if self.args.start_time is not None:
+            self.start_time = datetime.strptime(self.args.start_time, '%Y-%m-%d %H:%M:%S')
+
     def get_mdp(self, working_dir: Path):
         mdps = {}
         for name in ['ion', 'em', 'nvt', 'npt','md']:
@@ -94,7 +100,7 @@ class simple_protein(Command):
             else:
                 put_err(f'can not find {name} mdp file: {mdp_file} in {mdp_file} or {working_dir}, exit.', _exit=True)
         return mdps
-    
+
     @staticmethod
     def get_box(mol_path: Path, padding: float, sele: str = 'not resn SOL'):
         cmd.reinitialize()
@@ -176,7 +182,18 @@ class simple_protein(Command):
         gmx.run_command_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top', o='md.tpr', n=self.indexs.get('md', None))
         # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
         gmx.run_command_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='md')
-        
+
+    def sleep_until_start_time(self):
+        if self.args.start_time is not None:
+            total_seconds = int(self.args.start_time - datetime.now()).total_seconds()
+            if total_seconds <= 0:
+                return put_log(f'start time set to {self.args.start_time}, but it is already passed, skip sleep.')
+            put_log(f'sleep until start time: {self.args.start_time}, total seconds: {total_seconds}')
+            for _ in tqdm(total=total_seconds):
+                time.sleep(5)
+            return True
+        return False
+
     def main_process(self):
         # get protein paths
         if os.path.isdir(self.args.dir):
@@ -184,6 +201,8 @@ class simple_protein(Command):
         else:
             put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')
+        # sleep until start time
+        self.sleep_until_start_time()
         # process each complex
         for protein_path in tqdm(proteins_path, total=len(proteins_path)):
             protein_path = Path(protein_path).resolve()
