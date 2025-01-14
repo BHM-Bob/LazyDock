@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-09 23:26:38
+LastEditTime: 2025-01-14 19:30:23
 Description: 
 '''
 
@@ -12,8 +12,12 @@ from functools import wraps
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-from mbapy_lite.base import put_err, put_log, Configs
-from mbapy_lite.file import get_paths_with_extension, opts_file
+import pandas as pd
+import seaborn as sns
+from matplotlib import pyplot as plt
+from mbapy_lite.base import Configs, put_err, put_log
+from mbapy_lite.file import get_paths_with_extension, opts_file, write_sheets
+from mbapy_lite.plot import save_show
 from mbapy_lite.web import TaskPool, random_sleep
 from tqdm import tqdm
 
@@ -307,12 +311,89 @@ class convert_result(Command):
         self.taskpool.close()
 
 
+class cluster_result(Command):
+    def __init__(self, args, printf = print):
+        super().__init__(args, printf)
+        self.taskpool = None
+
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '--dir', type = str, default='.',
+                                help='input directory. Default is %(default)s.')
+        args.add_argument('-n', '--name', type = str, default='',
+                          help='input file name, such as "dock.pdbqt". Default is %(default)s.')
+        args.add_argument('-m', '--method', type = str, default='pose', choices=['pose', 'interaction'],
+                          help='cluster method to use. Currently support "pose, interaction". Default is %(default)s.')
+        args.add_argument('--range', type = str, default='2,7',
+                          help='range of cluster groups, input as "min,max". Default is %(default)s.')
+        args.add_argument('--repeat', type=int, default=3,
+                          help='number of repeats for clustering. Default is %(default)s.')
+        args.add_argument('--n-workers', type=int, default=4,
+                          help='number of tasks to parallel docking. Default is %(default)s.')
+        return args
+    
+    def process_args(self):
+        self.args.dir = clean_path(self.args.dir)
+        self.args.range = [int(x) for x in self.args.range.split(',')]
+        if len(self.args.range) != 2 or self.args.range[0] >= self.args.range[1]:
+            put_err(f'range should be "min,max", and min < max, got {self.args.range}, exit.', _exit=True)
+        if self.args.n_workers <= 0:
+            put_err(f'n_workers must be positive integer, got {self.args.n_workers}, exit.', _exit=True)
+        self.taskpool = TaskPool('process', self.args.n_workers).start()
+        
+    @staticmethod
+    def cluster_on_pose(input_path: Path, _range: Tuple[int, int], repeat: int):
+        wdir = input_path.parent / 'cluster_pose'
+        os.makedirs(str(wdir), exist_ok=True)
+        dlg = DlgFile(input_path)
+        dlg.sort_pose(inplace=True)
+        rmsd = dlg.rmsd('numpy')
+        sns.clustermap(rmsd)
+        save_show(str(wdir / 'RMSD_cluster.png'), 600, show=False)
+        rs_df = pd.DataFrame(columns=['repeat', 'k', 'sse','ssr', 'r'])
+        dfs = {'rs_df': rs_df}
+        for i in range(repeat):
+            for k in range(_range[0], _range[1]+1):
+                groups_idx = dlg.rmsd_cluster(k) # [N, ]
+                groups_idx_lst = list(groups_idx)
+                group_sizes = {idx: groups_idx_lst.count(idx) for idx in range(k)}
+                sse, ssr, r = dlg.calcu_SSE_SSR(rmsd, groups_idx)
+                rs_df.loc[len(rs_df)] = [i, k, sse, ssr, r]
+                dfs[f'repeat_{i}_k_{k}'] = pd.DataFrame(data={'pose_idx': range(len(dlg.pose_lst)),
+                                                              'groups_idx': groups_idx,
+                                                              'group_size': [group_sizes[groups_idx[idx]] for idx in range(len(dlg))],
+                                                              'energy': list(map(lambda x: x.energy, dlg.pose_lst))})
+        fig = plt.figure()
+        sns.lineplot(data=rs_df, x='k', y='r', hue='repeat', ax=fig.gca())
+        save_show(str(wdir / 'SSR-SSE_lines.png'), 600, show=False)
+        plt.close(fig)
+        write_sheets(str(wdir / 'cluster.xlsx'), dfs)
+        put_log(f'cluster result saved to {wdir}.')
+
+    @staticmethod
+    def cluster_on_interaction(input_path: Path):
+        raise NotImplementedError('interaction clustering not implemented yet.')
+
+    def main_process(self):
+        input_paths = get_paths_with_extension(self.args.dir, [], name_substr=self.args.name)
+        tasks = []
+        for input_path in tqdm(input_paths, total=len(input_paths)):
+            input_path = Path(input_path)
+            tasks.append(self.taskpool.add_task(None, getattr(self, f'cluster_on_{self.args.method}'),
+                                                input_path, self.args.range, self.args.repeat))
+            while self.taskpool.count_waiting_tasks() > 0:
+                time.sleep(1)
+        self.taskpool.wait_till_tasks_done(tasks)
+        self.taskpool.close()
+
+
 _str2func = {
     'vina': vina,
     'hdock': hdock,
     'hpepdock': hpepdock,
     'dinc-ensemble': dinc_ensemble,
     'convert-result': convert_result,
+    'cluster-result': cluster_result,
 }
 
 def main(sys_args: List[str] = None):
@@ -324,6 +405,7 @@ def main(sys_args: List[str] = None):
     hpepdock_args = hpepdock.make_args(subparsers.add_parser('hpepdock', description='perform HPEPDOCK molecular docking.'))
     dinc_ensemble_args = dinc_ensemble.make_args(subparsers.add_parser('dinc-ensemble', description='perform DINC-Ensemble molecular docking.'))
     convert_result_args = convert_result.make_args(subparsers.add_parser('convert-result', description='convert docking result file to pdb format.'))
+    cluster_result_args = cluster_result.make_args(subparsers.add_parser('cluster-result', description='cluster docking result.'))
 
     excute_command(args_paser, sys_args, _str2func)
 
@@ -331,5 +413,6 @@ def main(sys_args: List[str] = None):
 if __name__ == "__main__":
     # main('convert-result -d data_tmp/docking/ligand1 -m lazydock --n-workers 1'.split())
     # main('dinc-ensemble -d data_tmp/docking/ligand1 -m web --email 2262029386@qq.com --config-name config.txt --use-config-box'.split())
+    # main('cluster-result -d data_tmp/docking/ligand1 -n dock.pdbqt'.split())
     
     main()
