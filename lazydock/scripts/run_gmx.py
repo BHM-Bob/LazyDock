@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-14 21:34:55
+LastEditTime: 2025-01-14 21:51:04
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-from mbapy_lite.base import Configs, put_err, put_log
+from mbapy_lite.base import format_secs, put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from pymol import cmd
 from tqdm import tqdm
@@ -86,7 +86,7 @@ class simple_protein(Command):
     def process_args(self):
         self.args.dir = clean_path(self.args.dir)
         if self.args.start_time is not None:
-            self.start_time = datetime.strptime(self.args.start_time, '%Y-%m-%d %H:%M:%S')
+            self.args.start_time = datetime.strptime(self.args.start_time, '%Y-%m-%d %H:%M:%S')
 
     def get_mdp(self, working_dir: Path):
         mdps = {}
@@ -185,11 +185,11 @@ class simple_protein(Command):
 
     def sleep_until_start_time(self):
         if self.args.start_time is not None:
-            total_seconds = int(self.args.start_time - datetime.now()).total_seconds()
+            total_seconds = int((self.args.start_time - datetime.now()).total_seconds())
             if total_seconds <= 0:
                 return put_log(f'start time set to {self.args.start_time}, but it is already passed, skip sleep.')
-            put_log(f'sleep until start time: {self.args.start_time}, total seconds: {total_seconds}')
-            for _ in tqdm(total=total_seconds):
+            put_log(f'sleep until start time: {self.args.start_time}, total: {self.args.start_time - datetime.now()}')
+            for _ in tqdm(range(total_seconds), total=total_seconds):
                 time.sleep(5)
             return True
         return False
