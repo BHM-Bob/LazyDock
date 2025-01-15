@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 16:17:09
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-19 18:49:29
+LastEditTime: 2025-01-15 21:00:58
 Description: 
 '''
 
@@ -27,7 +27,7 @@ def get_login_browser(username: str, password: str, b: Browser = None, download_
 def get_result_from_CGenFF(mol2_path: str, username: str = None, password: str = None,
                            b: Browser = None, timeout: float = 30.0) -> Dict[str, Union[str, List[str]]]:
     mol2_path = str(Path(mol2_path).absolute())
-    b = b or get_login_broswer(username, password, download_dir=os.path.dirname(mol2_path), timeout=timeout)
+    b = b or get_login_browser(username, password, download_dir=os.path.dirname(mol2_path), timeout=timeout)
     b.get('https://app.cgenff.com/homepage')
     # upload mol2 file and click "Submit" button
     b.click(element='//*[@id="root"]/div/main/div/div/div[2]/div[1]/div/p/div/div[3]/div[1]/div/button')
