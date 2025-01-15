@@ -52,7 +52,7 @@ class simple(Command):
     def rmsf(gmx: Gromacs, main_name: str, group: str = '4', res: bool = True, **kwargs):
         gmx.run_command_with_expect('rmsf', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsf.xvg', res=res,
                                     expect_actions=[{'Select a group:': f'{group}\r'}], **kwargs)
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f rmsf.xvg -o rmsf.png -smv -t "RMSF of {main_name}" -csv {main_name}_rmsf.csv')
+        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f rmsf.xvg -o rmsf.png -t "RMSF of {main_name}" -csv {main_name}_rmsf.csv')
         
     @staticmethod
     def gyrate(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
@@ -77,9 +77,9 @@ class simple(Command):
             os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f sasa_{ty}.xvg -o sasa_{ty}.png -smv -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}.csv')
 
     @staticmethod
-    def covar(gmx: Gromacs, main_name: str, xmax: str = 15, **kwargs):
+    def covar(gmx: Gromacs, main_name: str, group: str = '4', xmax: str = 15, **kwargs):
         gmx.run_command_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'eigenval.xvg', tu='ns',
-                                    expect_actions=[{'Select a group:': '1\r'}], **kwargs)
+                                    expect_actions=[{'Select a group:': f'{group}\r'}, {'Select a group:': f'{group}\r'}], **kwargs)
         os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f eigenval.xvg -o eigenval.png -xmin 0 -xmax {xmax} -smv -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv')
         
     def main_process(self):
