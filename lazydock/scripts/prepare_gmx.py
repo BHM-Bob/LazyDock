@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-24 21:28:39
+LastEditTime: 2025-01-15 16:13:40
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -118,7 +118,7 @@ class ligand(Command):
 can be a asbpath to charmmFF dir; \
 if after CGenFF step, should be charmmFF dir name in each sub-directory, \
 the program will use the ff-dir in sub-directory.')
-        args.add_argument('--max-step', type = int, default=7,
+        args.add_argument('--max-step', type = int, default=8,
                           help='max step to do. Default is %(default)s.')
         args.add_argument('--disable-browser', action='store_true',
                           help='whether to disable browser for CGenFF.')
@@ -239,14 +239,19 @@ the program will use the ff-dir in sub-directory.')
             # STEP 7: Prepare the ligand Topology
             ipath, opath_gro = str(ligand_path.parent / f'lig_ini.pdb'), str(ligand_path.parent / f'lig.gro')
             if self.args.max_step >= 7 and (not os.path.exists(opath_gro)):
-                cmd.load(ipath, 'ligand')
-                cmd.alter('ligand', 'chain="Z"')
-                cmd.save(ipath, 'ligand')
+                # pymol will change the order of atoms!!!
+                opts_file(ipath, 'w', data=opts_file(ipath).replace('LIG  ', 'LIG Z'))
                 # because may do not have Gromacs installed, so just try
                 try:
                     gmx.run_command_with_expect(f'editconf -f lig_ini.pdb -o lig.gro')
                 except Exception as e:
                     put_err(f'pdb2gmx failed: {e}, skip.')
+            # STEP 8: Prepare the system Topology
+            ipath, opath_top = str(ligand_path.parent / f'lig.top'), str(ligand_path.parent / f'topol.top')
+            if self.args.max_step >= 8 and (not os.path.exists(opath_top)):
+                # just copy the ligand topology to the system topology.
+                shutil.copy(ipath, opath_top)
+                
 
 
 class complex(ligand):
