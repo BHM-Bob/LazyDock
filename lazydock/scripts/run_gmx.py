@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-14 22:07:54
+LastEditTime: 2025-01-15 19:06:14
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -80,7 +80,15 @@ class simple_protein(Command):
         args.add_argument('--em-args', type = str, default="",
                           help='args pass to mdrun command for energy minimization, default is %(default)s.')  
         args.add_argument('--mdrun-args', type = str, default="-v -ntomp 4 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
-                          help='args pass to mdrun command for production md, default is %(default)s.')                          
+                          help='args pass to mdrun command for production md, default is %(default)s.')  
+        args.add_argument('--potential-groups', type=str, default="11 0",
+                          help='groups to plot potential, default is %(default)s.')
+        args.add_argument('--temperature-groups', type=str, default="16 0",
+                          help='groups to plot temperature, default is %(default)s.')
+        args.add_argument('--pressure-groups', type=str, default="17 0",
+                          help='groups to plot pressure, default is %(default)s.')
+        args.add_argument('--density-groups', type=str, default="23 0",
+                          help='groups to plot density, default is %(default)s.')
         return args
 
     def process_args(self):
@@ -152,7 +160,7 @@ class simple_protein(Command):
         gmx.run_command_with_expect(f'mdrun {self.args.em_args}', deffnm='em')
         # STEP 7: energy -f em.edr -o potential.xvg
         gmx.run_command_with_expect('energy', f='em.edr', o='potential.xvg',
-                                    expect_actions=[{'T-rest': '11 0\r'}])
+                                    expect_actions=[{'T-rest': f'{self.args.potential_groups}\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_show -f potential.xvg -o potential.png -smv')
         
     def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
@@ -162,7 +170,7 @@ class simple_protein(Command):
         gmx.run_command_with_expect('mdrun', deffnm='nvt')
         # STEP 10: energy -f nvt.edr -o temperature.xvg
         gmx.run_command_with_expect('energy', f='nvt.edr', o='temperature.xvg',
-                                    expect_actions=[{'Lamb-non-Protein': '16 0\r'}])
+                                    expect_actions=[{'Lamb-non-Protein': f'{self.args.temperature_groups}\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_show -f temperature.xvg -o temperature.png -smv')
         # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
         gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt', p='topol.top', o='npt.tpr', n=self.indexs.get('npt', None))
@@ -170,11 +178,11 @@ class simple_protein(Command):
         gmx.run_command_with_expect('mdrun', deffnm='npt')
         # STEP 13: energy -f npt.edr -o pressure.xvg
         gmx.run_command_with_expect('energy', f='npt.edr', o='pressure.xvg',
-                                    expect_actions=[{'Lamb-non-Protein': '17 0\r'}])
+                                    expect_actions=[{'Lamb-non-Protein': f'{self.args.pressure_groups}\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_show -f pressure.xvg -o pressure.png -smv')
         # STEP 14: energy -f npt.edr -o density.xvg
         gmx.run_command_with_expect('energy', f='npt.edr', o='density.xvg',
-                                    expect_actions=[{'Lamb-non-Protein': '23 0\r'}])
+                                    expect_actions=[{'Lamb-non-Protein': f'{self.args.density_groups}\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_show -f density.xvg -o density.png -smv')
         
     def production_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
@@ -223,15 +231,9 @@ class simple_protein(Command):
             self.equilibration(protein_path, main_name, gmx, mdps)
             # STEP 15 ~ 16: production md
             self.production_md(protein_path, main_name, gmx, mdps)
-
-
-class simple_ligand(simple_protein):
-    HELP = simple_protein.HELP.replace('protein', 'ligand')
-    def __init__(self, args, printf=print):
-        super().__init__(args, printf)
             
     
-class simple_complex(simple_ligand):
+class simple_complex(simple_protein):
     HELP = simple_protein.HELP.replace('protein', 'complex')
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
@@ -246,6 +248,25 @@ class simple_complex(simple_ligand):
         args.add_argument('--tc-groups', type=str, default='1 | 13',
                           help='tc-grps to select, so could set tc-grps = Protein_JZ4 Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.')
         return args
+
+
+class simple_ligand(simple_complex):
+    HELP = simple_protein.HELP.replace('protein', 'ligand')
+    def __init__(self, args, printf=print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args = simple_complex.make_args(args)
+        # make sure hpepdock only support web method
+        method_arg_idx = args._actions.index(list(filter(lambda x: x.dest =='tc_groups', args._actions))[0])
+        args._actions[method_arg_idx].default = '2'
+        args._actions[method_arg_idx].help = 'tc-grps to select, so could set tc-grps = LIG Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.'
+        # change potential, temperature, pressure, density plot group
+        for n, v in zip(['potential_group', 'temperature_group', 'pressure_group', 'density_group'], ['10 0', '15 0', '16 0', '22 0']):
+            idx = args._actions.index(list(filter(lambda x: x.dest == n, args._actions))[0])
+            args._actions[idx].default = v
+        return args
         
     def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         from lazydock.scripts.prepare_gmx import ligand
@@ -255,7 +276,8 @@ class simple_complex(simple_ligand):
         gmx.run_command_with_expect('make_ndx', f=f'{lig_name}.gro', o=f'index_{lig_name}.ndx',
                                     expect_actions=[{'>': '0 & ! a H*\r'}, {'>': 'q\r'}])
         # gmx genrestr -f jz4.gro -n index_jz4.ndx -o posre_jz4.itp -fc 1000 1000 1000
-        gmx.run_command_with_expect('genrestr', f=f'{lig_name}.gro', n=f'index_{lig_name}.ndx', o=f'posre_{lig_name}.itp', fc='1000 1000 1000')
+        gmx.run_command_with_expect('genrestr', f=f'{lig_name}.gro', n=f'index_{lig_name}.ndx', o=f'posre_{lig_name}.itp', fc='1000 1000 1000',
+                                     expect_actions=[{'Select a group:': '3\r'}])
         # STEP 2: add restraints info into topol.top
         res_info = f'\n; Ligand position restraints\n#ifdef {self.args.lig_posres}\n#include "posre_{lig_name}.itp"\n#endif\n\n'
         ligand.insert_content(protein_path.parent / 'topol.top', f'#include "{lig_name}.itp"\n', res_info)
@@ -265,6 +287,7 @@ class simple_complex(simple_ligand):
                                     expect_actions=[{'>': f'{self.args.tc_groups}\r'}, {'>': 'q\r'}])
         for k in ['nvt', 'npt','md']:
             self.indexs[k] = 'tc_index.ndx'
+        super(simple_complex, self).equilibration(protein_path, main_name, gmx, mdps)
 
 
 _str2func = {
