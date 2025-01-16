@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-15 19:06:14
+LastEditTime: 2025-01-15 22:21:08
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -160,7 +160,7 @@ class simple_protein(Command):
         gmx.run_command_with_expect(f'mdrun {self.args.em_args}', deffnm='em')
         # STEP 7: energy -f em.edr -o potential.xvg
         gmx.run_command_with_expect('energy', f='em.edr', o='potential.xvg',
-                                    expect_actions=[{'T-rest': f'{self.args.potential_groups}\r'}])
+                                    expect_actions=[{'line or a zero.': f'{self.args.potential_groups}\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_show -f potential.xvg -o potential.png -smv')
         
     def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
@@ -170,7 +170,7 @@ class simple_protein(Command):
         gmx.run_command_with_expect('mdrun', deffnm='nvt')
         # STEP 10: energy -f nvt.edr -o temperature.xvg
         gmx.run_command_with_expect('energy', f='nvt.edr', o='temperature.xvg',
-                                    expect_actions=[{'Lamb-non-Protein': f'{self.args.temperature_groups}\r'}])
+                                    expect_actions=[{'line or a zero.': f'{self.args.temperature_groups}\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_show -f temperature.xvg -o temperature.png -smv')
         # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
         gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt', p='topol.top', o='npt.tpr', n=self.indexs.get('npt', None))
@@ -178,11 +178,11 @@ class simple_protein(Command):
         gmx.run_command_with_expect('mdrun', deffnm='npt')
         # STEP 13: energy -f npt.edr -o pressure.xvg
         gmx.run_command_with_expect('energy', f='npt.edr', o='pressure.xvg',
-                                    expect_actions=[{'Lamb-non-Protein': f'{self.args.pressure_groups}\r'}])
+                                    expect_actions=[{'line or a zero.': f'{self.args.pressure_groups}\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_show -f pressure.xvg -o pressure.png -smv')
         # STEP 14: energy -f npt.edr -o density.xvg
         gmx.run_command_with_expect('energy', f='npt.edr', o='density.xvg',
-                                    expect_actions=[{'Lamb-non-Protein': f'{self.args.density_groups}\r'}])
+                                    expect_actions=[{'line or a zero.': f'{self.args.density_groups}\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_show -f density.xvg -o density.png -smv')
         
     def production_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
@@ -263,7 +263,7 @@ class simple_ligand(simple_complex):
         args._actions[method_arg_idx].default = '2'
         args._actions[method_arg_idx].help = 'tc-grps to select, so could set tc-grps = LIG Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.'
         # change potential, temperature, pressure, density plot group
-        for n, v in zip(['potential_group', 'temperature_group', 'pressure_group', 'density_group'], ['10 0', '15 0', '16 0', '22 0']):
+        for n, v in zip(['potential_groups', 'temperature_groups', 'pressure_groups', 'density_groups'], ['10 0', '15 0', '16 0', '22 0']):
             idx = args._actions.index(list(filter(lambda x: x.dest == n, args._actions))[0])
             args._actions[idx].default = v
         return args
