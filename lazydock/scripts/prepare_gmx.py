@@ -46,8 +46,10 @@ class protein(Command):
                           help='protein file name in each sub-directory.')
         args.add_argument('--ff-dir', type = str,
                           help='force field files directory.')
-        args.add_argument('--n-term', type = str, default='auto',
+        args.add_argument('--n-term', type = str, default='0',
                           help='N-Term type for gmx pdb2gmx. Default is %(default)s.')
+        args.add_argument('--c-term', type = str, default='0',
+                          help='C-Term type for gmx pdb2gmx. Default is %(default)s.')
         args.add_argument('--pdb2gmx-args', type = str, default="-ter -ignh",
                           help='args pass to pdb2gmx command, default is %(default)s.')
         return args
@@ -80,14 +82,8 @@ class protein(Command):
             # STEP 1: Prepare the Protein Topology
             ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}.gro')
             if not os.path.exists(opath_rgro):
-                if self.args.n_term == 'auto':
-                    receptor_n_term = '1' if get_seq(ipath, fasta=False)[0] == 'P' else '0'
-                    if receptor_n_term == '1':
-                        put_log(f'using NH2 as N ternimal because the first residue of receptor is PRO.')
-                else:
-                    receptor_n_term = self.args.n_term
                 gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}',
-                                            [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{receptor_n_term}\r'}, {'None': '0\r'}])
+                                            [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{self.args.n_term}\r'}, {'None': f'{self.args.c_term}\r'}])
 
 
 class ligand(Command):
@@ -293,6 +289,12 @@ class complex(ligand):
                           help='force field files directory.')
         args.add_argument('--disable-browser', action='store_true',
                           help='whether to disable browser for CGenFF.')
+        args.add_argument('--pdb2gmx-args', type = str, default="-ter -ignh",
+                          help='args pass to pdb2gmx command, default is %(default)s.')
+        args.add_argument('--n-term', type = str, default='0',
+                          help='N-Term type for gmx pdb2gmx. Default is %(default)s.')
+        args.add_argument('--c-term', type = str, default='0',
+                          help='C-Term type for gmx pdb2gmx. Default is %(default)s.')
         return args
     
     def process_args(self):
@@ -364,11 +366,8 @@ class complex(ligand):
             # STEP 7: Prepare the Protein Topology
             ipath, opath_rgro = opath_r, str(complex_path.parent / f'{complex_path.stem}_receptor.gro')
             if self.args.max_step >= 7 and (not os.path.exists(opath_rgro)):
-                receptor_n_term = '1' if get_seq(opath_r, fasta=False)[0] == 'P' else '0'
-                if receptor_n_term == '1':
-                    put_log(f'using NH2 as N ternimal because the first residue of receptor is PRO.')
-                gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} -ter',
-                                            [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{receptor_n_term}\r'}, {'None': '0\r'}])
+                gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}',
+                                            [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{self.args.n_term}\r'}, {'None': f'{self.args.c_term}\r'}])
             # STEP 8: Prepare the Ligand Topology
             opath_lgro = str(complex_path.parent / 'lig.gro')
             if self.args.max_step >= 8 and (not os.path.exists(opath_lgro)):
