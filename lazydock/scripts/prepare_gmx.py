@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-15 16:13:40
+LastEditTime: 2025-01-16 09:52:54
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -188,15 +188,18 @@ the program will use the ff-dir in sub-directory.')
         # STEP 6: transfer str file to top and gro file by cgenff_charmm2gmx.py
         ipath_str, ipath_mol2, opath_itp = opath_str, opath_mol2, str(main_path.parent / f'lig.itp')
         # check and copy ff-dir
-        ## if ff-dir already in each sub-directory, do not overwrite it.
-        if os.path.exists(main_path.parent / self.args.ff_dir):
-            ff_dir = main_path.parent / self.args.ff_dir
-            put_log(f'ff-dir already exists in {ff_dir}, skip.')
         ## if ff-dir is a asbpath to charmmFF dir, copy it to sub-directory.
-        elif os.path.exists(self.args.ff_dir):
+        if os.path.exists(self.args.ff_dir):
             ff_dir = main_path.parent / Path(self.args.ff_dir).name
             if self.args.max_step >= 6 and (not ff_dir.exists()):
                 shutil.copytree(os.path.abspath(self.args.ff_dir), ff_dir, dirs_exist_ok=True)
+                put_log(f'copy {self.args.ff_dir} to {ff_dir}')
+            else:
+                put_log(f'ff-dir(repeat in sub-directory) already exists in {ff_dir}, skip.')
+        ## if ff-dir already in each sub-directory, do not overwrite it.
+        elif os.path.exists(main_path.parent / self.args.ff_dir):
+            ff_dir = main_path.parent / self.args.ff_dir
+            put_log(f'ff-dir already exists in (sub directory) {ff_dir}, skip.')
         else:
             ff_dir = None
             put_err(f'cannot find ff_dir: {self.args.ff_dir} in {main_path.parent}, set ff_dir to None, skip.')
