@@ -34,9 +34,21 @@ class simple(Command):
         args.add_argument('-d', '--dir', type=str,
                           help='directory to store the prepared files')
         args.add_argument('-n', '--main-name', type = str,
-                          help='main name in each sub-directory, such as md.tpr.')           
+                          help='main name in each sub-directory, such as md.tpr.')
+        args.add_argument('-cg', '--center-group', type = str, default='1',
+                          help='group to center the trajectory, default is %(default)s.')
+        args.add_argument('-rg', '--rms-group', type = str, default='4',
+                          help='group to calculate rmsd, rmsf, and gyrate, default is %(default)s.')
+        args.add_argument('-hg', '--hbond-group', type = str, default='1',
+                          help='group to calculate hbond, default is %(default)s.')
+        args.add_argument('-sg', '--sasa-group', type = str, default='4',
+                          help='group to calculate sasa, default is %(default)s.')
+        args.add_argument('-eg', '--eigenval-group', type = str, default='4',
+                          help='group to calculate eigenval, default is %(default)s.')
+        args.add_argument('-xmax', '--eigenval-xmax', type = int, default=15,
+                          help='max value of eigenval, default is %(default)s.')
         return args
-        
+
     @staticmethod
     def trjconv(gmx: Gromacs, main_name: str, center_group: str = '1', **kwargs):
         gmx.run_command_with_expect('trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc', pbc='mol', center=True,
@@ -56,7 +68,7 @@ class simple(Command):
         
     @staticmethod
     def gyrate(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
-        gmx.run_command_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate.xvg',
+        gmx.run_command_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate.xvg', tu='ns',
                                     expect_actions=[{'Select a group:': f'{group}\r'}], **kwargs)
         os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f gyrate.xvg -o gyrate.png -smv -t "Gyrate of {main_name}" -csv {main_name}_gyrate.csv')
         
@@ -77,31 +89,33 @@ class simple(Command):
             os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f sasa_{ty}.xvg -o sasa_{ty}.png -smv -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}.csv')
 
     @staticmethod
-    def covar(gmx: Gromacs, main_name: str, group: str = '4', xmax: str = 15, **kwargs):
+    def covar(gmx: Gromacs, main_name: str, group: str = '4', xmax: int = 15, **kwargs):
         gmx.run_command_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'eigenval.xvg', tu='ns',
                                     expect_actions=[{'Select a group:': f'{group}\r'}, {'Select a group:': f'{group}\r'}], **kwargs)
         os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f eigenval.xvg -o eigenval.png -xmin 0 -xmax {xmax} -smv -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv')
         
+    def process_args(self):
+        self.args.dir = clean_path(self.args.dir)
+        if not os.path.isdir(self.args.dir):
+            put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
+        
     def main_process(self):
         # get complex paths
-        if os.path.isdir(self.args.dir):
-            complexs_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.main_name)
-        else:
-            put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
+        complexs_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.main_name)
         put_log(f'get {len(complexs_path)} task(s)')
         # process each complex
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
             complex_path = Path(complex_path).resolve()
             gmx = Gromacs(working_dir=str(complex_path.parent))
             # perform trjconv
-            self.trjconv(gmx, main_name=complex_path.stem, center_group='1')
+            self.trjconv(gmx, main_name=complex_path.stem, center_group=self.args.center_group)
             # perform analysis
-            self.rms(gmx, main_name=complex_path.stem, group='4')
-            self.rmsf(gmx, main_name=complex_path.stem, group='4')
-            self.gyrate(gmx, main_name=complex_path.stem, group='4')
-            self.hbond(gmx, main_name=complex_path.stem, group='1')
-            self.sasa(gmx, main_name=complex_path.stem, group='4')
-            self.covar(gmx, main_name=complex_path.stem, xmax=15)
+            self.rms(gmx, main_name=complex_path.stem, group=self.args.rms_group)
+            self.rmsf(gmx, main_name=complex_path.stem, group=self.args.rms_group)
+            self.gyrate(gmx, main_name=complex_path.stem, group=self.args.rms_group)
+            self.hbond(gmx, main_name=complex_path.stem, group=self.args.hbond_group)
+            self.sasa(gmx, main_name=complex_path.stem, group=self.args.sasa_group)
+            self.covar(gmx, main_name=complex_path.stem, group=self.args.eigenval_group, xmax=self.args.eigenval_xmax)
 
 
 _str2func = {
