@@ -1,11 +1,9 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-15 22:21:08
+LastEditTime: 2025-01-18 15:21:16
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
-
-
 import argparse
 import os
 import re
@@ -80,7 +78,9 @@ class simple_protein(Command):
         args.add_argument('--em-args', type = str, default="",
                           help='args pass to mdrun command for energy minimization, default is %(default)s.')  
         args.add_argument('--mdrun-args', type = str, default="-v -ntomp 4 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
-                          help='args pass to mdrun command for production md, default is %(default)s.')  
+                          help='args pass to mdrun command for production md, default is %(default)s.')
+        args.add_argument('--genion-groups', type=str, default="13",
+                          help='Select a continuous group of solvent molecules, default is %(default)s.')
         args.add_argument('--potential-groups', type=str, default="11 0",
                           help='groups to plot potential, default is %(default)s.')
         args.add_argument('--temperature-groups', type=str, default="16 0",
@@ -150,7 +150,7 @@ class simple_protein(Command):
         gmx.run_command_with_expect('grompp', f=mdps['ion'], c=f'{main_name}_solv.gro', p='topol.top', o='ions.tpr')
         # STEP 4: genion -s ions.tpr -o protein_solv_ions.gro -p topol.top -pname NA -nname CL -neutral
         gmx.run_command_with_expect(f'genion {self.args.genion_args}', s='ions.tpr', o=f'{main_name}_solv_ions.gro', p='topol.top',
-                                    expect_actions=[{'Select a group:': '13\r', 'No ions to add': '', '\\timeout': ''}],
+                                    expect_actions=[{'Select a group:': f'{self.args.genion_groups}\r', 'No ions to add': '', '\\timeout': ''}],
                                     expect_settings={'start_timeout': 600})
         
     def energy_minimization(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
@@ -241,31 +241,14 @@ class simple_complex(simple_protein):
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         args = simple_protein.make_args(args)
+        method_arg_idx = args._actions.index(list(filter(lambda x: x.dest =='genion_groups', args._actions))[0])
+        args._actions[method_arg_idx].default = '15'
         args.add_argument('-ln', '--ligand-name', type = str, default='lig.gro',
                           help='ligand name in each sub-directory, such as lig.gro, default is %(default)s.')
         args.add_argument('--lig-posres', type=str, default='POSRES',
                           help='ligand position restraint symbol, default is %(default)s.')
         args.add_argument('--tc-groups', type=str, default='1 | 13',
                           help='tc-grps to select, so could set tc-grps = Protein_JZ4 Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.')
-        return args
-
-
-class simple_ligand(simple_complex):
-    HELP = simple_protein.HELP.replace('protein', 'ligand')
-    def __init__(self, args, printf=print):
-        super().__init__(args, printf)
-        
-    @staticmethod
-    def make_args(args: argparse.ArgumentParser):
-        args = simple_complex.make_args(args)
-        # make sure hpepdock only support web method
-        method_arg_idx = args._actions.index(list(filter(lambda x: x.dest =='tc_groups', args._actions))[0])
-        args._actions[method_arg_idx].default = '2'
-        args._actions[method_arg_idx].help = 'tc-grps to select, so could set tc-grps = LIG Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.'
-        # change potential, temperature, pressure, density plot group
-        for n, v in zip(['potential_groups', 'temperature_groups', 'pressure_groups', 'density_groups'], ['10 0', '15 0', '16 0', '22 0']):
-            idx = args._actions.index(list(filter(lambda x: x.dest == n, args._actions))[0])
-            args._actions[idx].default = v
         return args
         
     def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
@@ -287,7 +270,26 @@ class simple_ligand(simple_complex):
                                     expect_actions=[{'>': f'{self.args.tc_groups}\r'}, {'>': 'q\r'}])
         for k in ['nvt', 'npt','md']:
             self.indexs[k] = 'tc_index.ndx'
-        super(simple_complex, self).equilibration(protein_path, main_name, gmx, mdps)
+        super().equilibration(protein_path, main_name, gmx, mdps)
+
+
+class simple_ligand(simple_complex):
+    HELP = simple_protein.HELP.replace('protein', 'ligand')
+    def __init__(self, args, printf=print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args = simple_complex.make_args(args)
+        # make sure hpepdock only support web method
+        method_arg_idx = args._actions.index(list(filter(lambda x: x.dest =='tc_groups', args._actions))[0])
+        args._actions[method_arg_idx].default = '2'
+        args._actions[method_arg_idx].help = 'tc-grps to select, so could set tc-grps = LIG Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.'
+        # change potential, temperature, pressure, density plot group
+        for n, v in zip(['potential_groups', 'temperature_groups', 'pressure_groups', 'density_groups'], ['10 0', '15 0', '16 0', '22 0']):
+            idx = args._actions.index(list(filter(lambda x: x.dest == n, args._actions))[0])
+            args._actions[idx].default = v
+        return args
 
 
 _str2func = {
