@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-18 10:44:48
+LastEditTime: 2025-01-18 16:52:47
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -163,7 +163,11 @@ the program will use the ff-dir in sub-directory.')
         put_log(f'getting str file from CGenFF for {mol2_path}')
         get_result_from_CGenFF(mol2_path, b=browser)
         download_path = Path(browser.download_path) / Path(mol2_path).with_suffix('.zip').name
-        shutil.move(str(download_path), zip_path)
+        if download_path.exists():
+            shutil.move(str(download_path), zip_path)
+            return str(download_path)
+        else:
+            return put_err('get str file from CGenFF failed, skip.')
         
     def prepare_ligand(self, ligand_path: str, main_path: Path):
         # STEP 2: transfer ligand.pdb to mol2 by obabel.
@@ -182,7 +186,8 @@ the program will use the ff-dir in sub-directory.')
         ipath, opath_str, opath_mol2 = opath, str(main_path.parent / f'5_{main_path.stem}_ligand_sorted.str'), str(main_path.parent / f'5_{main_path.stem}_ligand_sorted.mol2')
         cgenff_path = Path(ipath).with_suffix('.zip')
         if self.args.max_step >= 5 and (not os.path.exists(cgenff_path)):
-            self.get_str_from_CGenFF(ipath, cgenff_path, browser=self.browser)
+            if self.get_str_from_CGenFF(ipath, cgenff_path, browser=self.browser) is None:
+                return 
         if self.args.max_step >= 5 and (not os.path.exists(opath_str) or not os.path.exists(opath_mol2)):
             for file_name, content in opts_file(cgenff_path, 'r', way='zip').items():
                 opts_file(cgenff_path.parent / file_name.replace('4_', '5_'), 'wb', data=content)
@@ -190,7 +195,9 @@ the program will use the ff-dir in sub-directory.')
         ipath_str, ipath_mol2, opath_itp = opath_str, opath_mol2, str(main_path.parent / f'lig.itp')
         # check and copy ff-dir
         ## if ff-dir is a asbpath to charmmFF dir, copy it to sub-directory.
-        if os.path.exists(self.args.ff_dir):
+        if self.args.ff_dir is None:
+            return put_err('ff-dir is None, skip transform.')
+        if self.args.max_step >= 6 and os.path.exists(self.args.ff_dir):
             ff_dir = main_path.parent / Path(self.args.ff_dir).name
             if self.args.max_step >= 6 and (not ff_dir.exists()):
                 shutil.copytree(os.path.abspath(self.args.ff_dir), ff_dir, dirs_exist_ok=True)
