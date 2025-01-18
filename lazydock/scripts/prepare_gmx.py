@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-18 16:52:47
+LastEditTime: 2025-01-18 17:28:27
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -57,6 +57,25 @@ class protein(Command):
     def process_args(self):
         self.args.dir = clean_path(self.args.dir)
         
+    def prepare_ff_dir(self, w_dir: Path):
+        if self.args.ff_dir is None:
+            return put_err('ff-dir is None, skip transform.')
+        if os.path.exists(self.args.ff_dir):
+            ff_dir = w_dir / Path(self.args.ff_dir).name
+            if not ff_dir.exists():
+                shutil.copytree(os.path.abspath(self.args.ff_dir), ff_dir, dirs_exist_ok=True)
+                put_log(f'copy {self.args.ff_dir} to {ff_dir}')
+            else:
+                put_log(f'ff-dir(repeat in sub-directory) already exists in {ff_dir}, skip.')
+        ## if ff-dir already in each sub-directory, do not overwrite it.
+        elif os.path.exists(w_dir / self.args.ff_dir):
+            ff_dir = w_dir / self.args.ff_dir
+            put_log(f'ff-dir already exists in (sub directory) {ff_dir}, skip.')
+        else:
+            ff_dir = None
+            put_err(f'cannot find ff_dir: {self.args.ff_dir} in {w_dir}, set ff_dir to None, skip.')
+        return ff_dir
+        
     def main_process(self):
         # get protein paths
         if os.path.isdir(self.args.dir):
@@ -80,13 +99,16 @@ class protein(Command):
                 cmd.save(opath, 'protein')
                 cmd.reinitialize()
             # STEP 1: Prepare the Protein Topology
+            ff_dir = self.prepare_ff_dir(protein_path.parent)
+            if ff_dir is None:
+                continue
             ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}.gro')
             if not os.path.exists(opath_rgro):
                 gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}',
                                             [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{self.args.n_term}\r'}, {'None': f'{self.args.c_term}\r'}])
 
 
-class ligand(Command):
+class ligand(protein):
     HELP = """
     prepare single ligand for GROMACS MDS.
     
@@ -195,22 +217,9 @@ the program will use the ff-dir in sub-directory.')
         ipath_str, ipath_mol2, opath_itp = opath_str, opath_mol2, str(main_path.parent / f'lig.itp')
         # check and copy ff-dir
         ## if ff-dir is a asbpath to charmmFF dir, copy it to sub-directory.
-        if self.args.ff_dir is None:
-            return put_err('ff-dir is None, skip transform.')
-        if self.args.max_step >= 6 and os.path.exists(self.args.ff_dir):
-            ff_dir = main_path.parent / Path(self.args.ff_dir).name
-            if self.args.max_step >= 6 and (not ff_dir.exists()):
-                shutil.copytree(os.path.abspath(self.args.ff_dir), ff_dir, dirs_exist_ok=True)
-                put_log(f'copy {self.args.ff_dir} to {ff_dir}')
-            else:
-                put_log(f'ff-dir(repeat in sub-directory) already exists in {ff_dir}, skip.')
-        ## if ff-dir already in each sub-directory, do not overwrite it.
-        elif os.path.exists(main_path.parent / self.args.ff_dir):
-            ff_dir = main_path.parent / self.args.ff_dir
-            put_log(f'ff-dir already exists in (sub directory) {ff_dir}, skip.')
-        else:
-            ff_dir = None
-            put_err(f'cannot find ff_dir: {self.args.ff_dir} in {main_path.parent}, set ff_dir to None, skip.')
+        ff_dir = self.prepare_ff_dir(main_path.parent)
+        if ff_dir is None:
+            return
         if self.args.max_step >= 6 and (not os.path.exists(opath_itp)):
             run_transform('LIG', ipath_mol2, ipath_str, str(ff_dir))
 
