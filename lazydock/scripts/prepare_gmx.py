@@ -141,8 +141,9 @@ the program will use the ff-dir in sub-directory.')
     def fix_name_in_mol2(ipath: str, opath: str):
         lines = opts_file(ipath, way='lines')
         lines[1] = 'LIG\n'
-        get_idx_fn = lambda content: lines.index(list(filter(lambda x: x.startswith(content), lines))[0])
-        atom_st, atom_ed = get_idx_fn('@<TRIPOS>ATOM')+1, get_idx_fn('@<TRIPOS>BOND')
+        get_idx_fn = lambda content, offset: lines.index(list(filter(lambda x: x.startswith(content), lines[offset:]))[0])
+        atom_st = get_idx_fn('@<TRIPOS>ATOM', 0)+1
+        atom_ed = get_idx_fn('@<TRIPOS>', atom_st+1)
         for i in range(atom_st, atom_ed):
             resn = lines[i].split()[7].strip()
             resn_idx = lines[i].index(resn)
