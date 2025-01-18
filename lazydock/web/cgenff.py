@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 16:17:09
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-15 21:00:58
+LastEditTime: 2025-01-18 16:22:34
 Description: 
 '''
 
@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Union
 
 from mbapy.base import Configs
+from mbapy_lite.base import put_log, put_err
 from mbapy_lite.web import Browser, random_sleep
 
 
@@ -36,13 +37,13 @@ def get_result_from_CGenFF(mol2_path: str, username: str = None, password: str =
     b.click(element='/html/body/div[2]/div[3]/div/div[2]/button[2]')
     # check and run
     b.click(element='//*[@id="root"]/div/main/div/div[1]/div/div[3]/div[2]/button[2]')
-    b.click(element='//*[@id="root"]/div/main/div/div[2]/button[1]')
+    b.click(element='//*[@id="root"]/div/main/div/div[2]/button[1]') # RUN CGENFF ENGINE
     # download result
-    b.click(element='//*[@id="root"]/div/main/div/div[2]/button[2]')
+    b.click(element='//*[@id="root"]/div/main/div/div[2]/button[2]') # DOWNLOAD VGENFF RESULTS
     # run generate gmx result and wait, click "Download" button
-    b.click(element='//*[@id="root"]/div/main/div/div[2]/button[3]')
-    while b.find_elements('//*[@id="root"]/div/main/div/div[2]/button[3]')[0].text != 'DOWNLOAD GROMACS FORMAT':
-        random_sleep(2)
+    b.click(element='//*[@id="root"]/div/main/div/div[2]/button[3]') # CONVERT TO GROMACS FORMAT
+    if not b.wait_text('//*[@id="root"]/div/main/div/div[2]/button[3]', 'DOWNLOAD GROMACS FORMAT', timeout=30):
+        return put_err('failed to generate gmx result, skip')
     b.click(element='//*[@id="root"]/div/main/div/div[2]/button[3]')
 
 
