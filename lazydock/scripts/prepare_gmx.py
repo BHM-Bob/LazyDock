@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-18 17:28:27
+LastEditTime: 2025-01-18 19:07:22
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -22,7 +22,6 @@ from lazydock.gmx.run import Gromacs
 from lazydock.gmx.thirdparty.cgenff_charmm2gmx import run_transform
 from lazydock.gmx.thirdparty.sort_mol2_bonds import sort_bonds
 from lazydock.pml.align_to_axis import align_pose_to_axis
-from lazydock.pml.utils import get_seq
 from lazydock.scripts._script_utils_ import Command, clean_path
 from lazydock.web.cgenff import get_login_browser, get_result_from_CGenFF
 
@@ -47,15 +46,19 @@ class protein(Command):
         args.add_argument('--ff-dir', type = str,
                           help='force field files directory.')
         args.add_argument('--n-term', type = str, default='0',
-                          help='N-Term type for gmx pdb2gmx. Default is %(default)s.')
+                          help='N-Term type for gmx pdb2gmx, can be seperated by comma. Default is %(default)s.')
         args.add_argument('--c-term', type = str, default='0',
-                          help='C-Term type for gmx pdb2gmx. Default is %(default)s.')
+                          help='C-Term type for gmx pdb2gmx, can be seperated by comma. Default is %(default)s.')
+        args.add_argument('--chain-num', type=int, default=1,
+                          help='number of chains in the protein. Default is %(default)s.')
         args.add_argument('--pdb2gmx-args', type = str, default="-ter -ignh",
                           help='args pass to pdb2gmx command, default is %(default)s.')
         return args
     
     def process_args(self):
         self.args.dir = clean_path(self.args.dir)
+        self.args.n_term = self.args.n_term.split(',')
+        self.args.c_term = self.args.c_term.split(',')
         
     def prepare_ff_dir(self, w_dir: Path):
         if self.args.ff_dir is None:
@@ -104,8 +107,11 @@ class protein(Command):
                 continue
             ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}.gro')
             if not os.path.exists(opath_rgro):
-                gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}',
-                                            [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{self.args.n_term}\r'}, {'None': f'{self.args.c_term}\r'}])
+                expect_acts = [{'dihedrals)': '1\r'}, {'None': '1\r'}]
+                for chain_i in range(self.args.chain_num):
+                    expect_acts.append({'None': f'{self.args.n_term[chain_i]}\r'})
+                    expect_acts.append({'None': f'{self.args.c_term[chain_i]}\r'})
+                gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}', expect_acts)
 
 
 class ligand(protein):
