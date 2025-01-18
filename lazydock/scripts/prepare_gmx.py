@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-16 09:52:54
+LastEditTime: 2025-01-18 10:44:48
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -330,7 +330,7 @@ class complex(ligand):
                                     '\n; Include ligand topology\n#include "lig.itp"\n')
         topol = complex.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',
                                     '\n; Include ligand parameters\n#include "lig.prm"\n')
-        topol += 'LIG                 1'
+        topol += 'LIG                 1\n'
         opts_file(opath_top, 'w', data=topol)
         
     def main_process(self):
