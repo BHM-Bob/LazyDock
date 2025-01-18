@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Union
 
-from mbapy_lite.base import put_err
+from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import opts_file
 from mbapy_lite.web import Browser, random_sleep
 
@@ -34,7 +34,12 @@ def run_dock_on_DINC_ensemble(receptor_path: str, ligand_path: str, email: str,
     """
     receptor_path, ligand_path = str(Path(receptor_path).resolve()), str(Path(ligand_path).resolve())
     w_dir = w_dir or Path(receptor_path).resolve().parent
-    b = browser if (browser and browser.download_path) is not None else Browser(download_path=str(w_dir))
+    if browser and browser.download_path:
+        b = browser
+        put_log(f'using passed browser with download dir: {b.download_path}')
+    else:
+        b = Browser(download_path=str(w_dir), use_undetected=True)
+        put_log(f'undetected created with download dir: {b.download_path}')
     b.browser.set_page_load_timeout(10000)
     b.get('https://dinc-ensemble.kavrakilab.rice.edu/')
     # upload receptor and ligand pdb files
@@ -73,9 +78,10 @@ def run_dock_on_DINC_ensemble(receptor_path: str, ligand_path: str, email: str,
     b.browser.switch_to.alert.accept()
     random_sleep(15, 10)
     result_url_xpath = '//*[@id="root"]/div/section/div/div[2]/a'
-    while not b.wait_element(result_url_xpath):
-        random_sleep(100)
+    while not b.wait_element(result_url_xpath, timeout=120):
         b.browser.refresh()
+        random_sleep(10, 5)
+        opts_file(os.path.join(w_dir, 'cap.png'), 'wb', data=b.find_elements('//body')[0].screenshot_as_png)
     b.get(b.find_elements(result_url_xpath)[0].get_attribute('href'))
     # download result
     b.click(element='//*[@id="root"]/div/section/div[1]/button', executor='element')
@@ -93,5 +99,5 @@ if __name__ == '__main__':
     receptor_path = 'data_tmp/docking/ligand1/receptor.pdb'
     ligand_path = 'data_tmp/docking/ligand1/ligand.pdb'
     from mbapy_lite.base import Configs
-    b = Browser(options=[f"--user-agent={Configs.web.chrome_driver_path}"], use_undetected=False)
+    b = Browser(options=[f"--user-agent={Configs.web.chrome_driver_path}"], use_undetected=True)
     run_dock_on_DINC_ensemble(receptor_path, ligand_path, browser=b, email='2262029386@qq.com')
