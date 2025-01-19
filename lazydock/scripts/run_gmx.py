@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-18 15:21:16
+LastEditTime: 2025-01-18 19:19:40
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -221,6 +221,10 @@ class simple_protein(Command):
         for protein_path in tqdm(proteins_path, total=len(proteins_path)):
             protein_path = Path(protein_path).resolve()
             main_name = protein_path.stem
+            # check if md.tpr exists, if yes, skip
+            if os.path.exists(protein_path.parent / 'md.tpr'):
+                put_log(f'{protein_path} already done with md.tpr, skip.')
+            # prepare gmx env and mdp files
             gmx = Gromacs(working_dir=str(protein_path.parent))
             mdps = self.get_mdp(protein_path.parent)
             # STEP 1 ~ 4: make box, solvate, ions
