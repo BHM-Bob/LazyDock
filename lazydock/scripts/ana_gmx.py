@@ -68,7 +68,7 @@ class simple(Command):
         
     @staticmethod
     def gyrate(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
-        gmx.run_command_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate.xvg', tu='ns',
+        gmx.run_command_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate.xvg',
                                     expect_actions=[{'Select a group:': f'{group}\r'}], **kwargs)
         os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f gyrate.xvg -o gyrate.png -smv -t "Gyrate of {main_name}" -csv {main_name}_gyrate.csv')
         
