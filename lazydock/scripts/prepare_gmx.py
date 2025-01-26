@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-18 19:07:22
+LastEditTime: 2025-01-26 15:03:09
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -108,9 +108,20 @@ class protein(Command):
             ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}.gro')
             if not os.path.exists(opath_rgro):
                 expect_acts = [{'dihedrals)': '1\r'}, {'None': '1\r'}]
+                # if term's len is 1 but get more than 1 chain num, copy terms.
+                if len(self.args.n_term) == 1 and self.args.chain_num > 1:
+                    self.args.n_term = self.args.n_term * self.args.chain_num
+                if len(self.args.c_term) == 1 and self.args.chain_num > 1:
+                    self.args.c_term = self.args.c_term * self.args.chain_num
+                # check if n-term or c-term's length is correct.
+                if not (1 <= len(self.args.n_term) <= self.args.chain_num) or not  (1 <= len(self.args.c_term) <= self.args.chain_num):
+                    put_err(f'n-term or c-term length should be 1 or {self.args.chain_num}, skip.')
+                    continue
+                # assign n-term and c-term to expect_acts.
                 for chain_i in range(self.args.chain_num):
                     expect_acts.append({'None': f'{self.args.n_term[chain_i]}\r'})
                     expect_acts.append({'None': f'{self.args.c_term[chain_i]}\r'})
+                # run pdb2gmx
                 gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}', expect_acts)
 
 
