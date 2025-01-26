@@ -7,5 +7,9 @@
         "openbabel-wheel",
         "networkx>=3",
         "DuIvyTools>=0.6.0"
+    ],
+    "all":
+    [
+        "compas"
     ]
 }

@@ -1,7 +1,7 @@
 '''
 Date: 2024-05-06 17:18:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-28 21:32:25
+LastEditTime: 2025-01-26 14:17:00
 Description: 
 '''
 
@@ -83,6 +83,9 @@ setup(
     platforms = "any",
     
     install_requires=requirements['std'],
+    extras_require={
+        'all': requirements['std'] + requirements['all'],
+        },
 )
 
 # pip install .
