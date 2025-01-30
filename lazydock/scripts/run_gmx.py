@@ -89,6 +89,8 @@ class simple_protein(Command):
                           help='groups to plot pressure, default is %(default)s.')
         args.add_argument('--density-groups', type=str, default="23 0",
                           help='groups to plot density, default is %(default)s.')
+        args.add_argument('--maxwarn', type=int, default=0,
+                          help='maxwarn for em,nvt,npt,md gmx grompp command, default is %(default)s.')
         return args
 
     def process_args(self):
@@ -155,7 +157,8 @@ class simple_protein(Command):
         
     def energy_minimization(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         # STEP 5: grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
-        gmx.run_command_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro', p='topol.top', o='em.tpr')
+        gmx.run_command_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro',
+                                    p='topol.top', o='em.tpr', maxwarn=self.args.maxwarn)
         # STEP 6: mdrun -v -deffnm em
         gmx.run_command_with_expect(f'mdrun {self.args.em_args}', deffnm='em')
         # STEP 7: energy -f em.edr -o potential.xvg
@@ -165,7 +168,8 @@ class simple_protein(Command):
         
     def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         # STEP 8: grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
-        gmx.run_command_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top', o='nvt.tpr', n=self.indexs.get('nvt', None))
+        gmx.run_command_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top',
+                                    o='nvt.tpr', n=self.indexs.get('nvt', None), maxwarn=self.args.maxwarn)
         # STEP 9: mdrun -deffnm nvt
         gmx.run_command_with_expect('mdrun', deffnm='nvt')
         # STEP 10: energy -f nvt.edr -o temperature.xvg
@@ -173,7 +177,8 @@ class simple_protein(Command):
                                     expect_actions=[{'line or a zero.': f'{self.args.temperature_groups}\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_show -f temperature.xvg -o temperature.png -smv')
         # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
-        gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt', p='topol.top', o='npt.tpr', n=self.indexs.get('npt', None))
+        gmx.run_command_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt',
+                                    p='topol.top', o='npt.tpr', n=self.indexs.get('npt', None), maxwarn=self.args.maxwarn)
         # STEP 12: mdrun -deffnm npt
         gmx.run_command_with_expect('mdrun', deffnm='npt')
         # STEP 13: energy -f npt.edr -o pressure.xvg
@@ -187,7 +192,8 @@ class simple_protein(Command):
         
     def production_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         # STEP 15: grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
-        gmx.run_command_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top', o='md.tpr', n=self.indexs.get('md', None))
+        gmx.run_command_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top',
+                                    o='md.tpr', n=self.indexs.get('md', None), maxwarn=self.args.maxwarn)
         # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
         gmx.run_command_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='md')
 
