@@ -224,6 +224,7 @@ class simple_protein(Command):
             # check if md.tpr exists, if yes, skip
             if os.path.exists(protein_path.parent / 'md.tpr'):
                 put_log(f'{protein_path} already done with md.tpr, skip.')
+                continue
             # prepare gmx env and mdp files
             gmx = Gromacs(working_dir=str(protein_path.parent))
             mdps = self.get_mdp(protein_path.parent)
