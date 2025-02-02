@@ -78,5 +78,13 @@
         "exec_names": ["distrbute_file", "distrbute-file"],
         "brief": "MD and MDS files distrbute tools.",
         "detailed": "MD and MDS files distrbute tools."
+    },
+    "md_task":
+    {
+        "name": "md_task",
+        "script name": "md_task",
+        "exec_names": ["md_task", "md-task"],
+        "brief": "Optimized CLI tools for MD-TASK.",
+        "detailed": "Optimized CLI tools for MD-TASK."
     }
 }
