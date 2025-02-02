@@ -59,20 +59,20 @@ class network(Command):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type=str,
-                          help='directory to store the prepared files')
-        args.add_argument('-xtc', '--xtc-name', type = str,
+        args.add_argument('-d', '--dir', type=str, default='.',
+                          help='directory to store the prepared files, default: %(default)s.')
+        args.add_argument('-xtc', '--xtc-name', type = str, required=True,
                           help='trajectory file name in each sub-directory, such as center.xtc.')
-        args.add_argument('-gro', '--gro-name', type = str,
+        args.add_argument('-gro', '--gro-name', type = str, required=True,
                           help='gro file name for topology info in each sub-directory, such as md.gro.')
         args.add_argument("--ligand", type=str, default=None,
-                          help="MDAnalysis atoms select expression to be included in the network")
+                          help="MDAnalysis atoms select expression to be included in the network, default: %(default)s")
         args.add_argument("--threshold", type=float, default=6.7,
-                          help="Maximum distance threshold in Angstroms when constructing graph (default: 6.7)")
+                          help="Maximum distance threshold in Angstroms when constructing graph (default: %(default)s)")
         args.add_argument("--step", type=int, default=1,
-                          help="Size of step when iterating through trajectory frames")
+                          help="Size of step when iterating through trajectory frames, default: %(default)s")
         args.add_argument('-mp', "--n-workers", type=int, default=4,
-                          help="Number of workers to parallelize the calculation")
+                          help="Number of workers to parallelize the calculation, default: %(default)s")
         return args
 
     def process_args(self):
