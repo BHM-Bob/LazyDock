@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-30 19:07:23
+LastEditTime: 2025-02-02 15:50:54
 Description:
 '''
 import os
@@ -89,7 +89,7 @@ class Gromacs(BaseInfo):
         # create expect script
         expect_settings = expect_settings or {}
         expect_lines = []
-        expect_lines.append(f'set timeout {expect_settings.get("start_timeout", -1)}')
+        expect_lines.append(f'set timeout {expect_settings.get("timeout", -1)}')
         expect_lines.append(f'spawn bash "{bash_path}"')
         for action in expect_actions:
             expect_lines.append('expect {')
