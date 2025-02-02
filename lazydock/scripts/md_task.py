@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-02 10:49:13
+LastEditTime: 2025-02-02 20:56:42
 Description: 
 '''
 import argparse
@@ -21,7 +21,8 @@ import numpy as np
 import networkx as nx
 import MDAnalysis as mda
 from lazydock_md_task.scripts.calc_correlation import plot_map
-import os, sys, argparse
+from lazydock_md_task.scripts.contact_map_v2 import load_and_preprocess_traj, calculate_contacts, save_network_data, plot_network
+import os
 
 os.environ['MBAPY_FAST_LOAD'] = 'True'
 from mbapy.scripts._script_utils_ import Command, clean_path, excute_command
@@ -180,9 +181,57 @@ class prs(network):
         atoms = u.select_atoms("(name CA and protein)" + ligand)
 
 
+class contact_map(network):
+    HELP = """
+    contact map analysis for MD-TASK
+    """
+    def __init__(self, args, printf=print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        network.make_args(args)
+        args.add_argument("--residue", type=str, required=True, help="traget residue name, such as LYS111")
+        args.add_argument("--chain", type=str, default="A", help="traget residue chain, such as A, default: %(default)s.")
+        args.add_argument("--nodesize", type=int, default=2900, help="node size in drawing, default: %(default)s.")
+        args.add_argument("--nodefontsize", type=float, default=9.5, help="node font size in drawing, default: %(default)s.")
+        args.add_argument("--edgewidthfactor", type=float, default=10.0, help="edge width factor in drawing, default: %(default)s.")
+        args.add_argument("--edgelabelfontsize", type=float, default=8.0, help="edge label font size in drawing, default: %(default)s.")
+        return args
+    
+    def process_args(self):
+        super().process_args()
+        self.args.residue = self.args.residue.upper()
+        self.args.chain = self.args.chain.upper()
+        self.prefix = self.args.residue.split(".")[0] if "." in self.args.residue else self.args.residue
+        
+    def calcu_network(self, traj_path: Path, topol_path: Path):
+        # 1. load trajectory and topology
+        traj = load_and_preprocess_traj(str(traj_path), str(topol_path), self.args.step)
+        # 2. calculate contacts
+        contacts, n_frames = calculate_contacts(
+            traj, self.args.residue, self.args.chain, self.args.threshold/10
+        )
+        # 3. generate edges list
+        center_node = f"{self.args.residue}.{self.args.chain}"
+        edges_list = [[center_node, edge[1], count/n_frames] for edge, count in contacts.items()]
+        # 4. create graph object
+        contact_graph = nx.Graph()
+        contact_graph.add_weighted_edges_from(edges_list)
+        # 5. save output results
+        output_csv = f"{self.prefix}_chain{self.args.chain}_network.csv"
+        save_network_data(edges_list, output_csv)
+        # 6. generate visualization graph
+        output_png = f"{self.prefix}_chain{self.args.chain}_contact_map.png"
+        plot_network(contact_graph, edges_list, output_png,
+                     node_size=self.args.nodesize, node_fontsize=self.args.nodefontsize,
+                     edgewidth_factor=self.args.edgewidthfactor, edgelabel_fontsize=self.args.edgelabelfontsize)
+
+
 _str2func = {
     'network': network,
     'correlation': correlation,
+    'contact-map': contact_map,
 }
 
 
