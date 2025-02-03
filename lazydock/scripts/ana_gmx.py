@@ -104,7 +104,11 @@ class simple(Command):
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
         os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f eigenval.xvg -o eigenval.png -xmin 0 -xmax {xmax} -smv -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv -ns')
-        
+    
+    @staticmethod
+    def free_energy_landscape(gmx: Gromacs, main_name: str, **kwargs):
+        os.system(f'cd "{gmx.working_dir}" && md-davis landscape_xvg -c -T 300 -x rmsd.xvg -y gyrate.xvg -o FEL.html -n FEL -l "RMSD-Rg" --axis_labels "dict(x=\'RMSD (in nm)\', y=\'Rg (in nm)\', z=\'Free Energy (kJ mol<sup>-1</sup>)<br>\')"')
+    
     def process_args(self):
         self.args.dir = clean_path(self.args.dir)
         if not os.path.isdir(self.args.dir):
@@ -127,6 +131,8 @@ class simple(Command):
             self.hbond(gmx, main_name=complex_path.stem, group=self.args.hbond_group)
             self.sasa(gmx, main_name=complex_path.stem, group=self.args.sasa_group)
             self.covar(gmx, main_name=complex_path.stem, group=self.args.eigenval_group, xmax=self.args.eigenval_xmax)
+            # perform free energy landscape by MD-DaVis
+            self.free_energy_landscape(gmx, main_name=complex_path.stem)
 
 
 _str2func = {
