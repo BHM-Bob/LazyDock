@@ -1,12 +1,13 @@
 '''
 Date: 2024-11-23 19:53:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-23 19:53:56
+LastEditTime: 2025-02-04 21:42:20
 Description:
 '''
 import argparse
 import os
 from pathlib import Path
+import traceback
 from typing import Any, Dict, List, Union
 
 from mbapy_lite.base import check_parameters_path, parameter_checker, put_err
@@ -68,14 +69,19 @@ def excute_command(args_paser: argparse.ArgumentParser, sys_args: List[str],
     args = args_paser.parse_args(sys_args)
     
     if args.sub_command in _str2func:
+        cmd = _str2func[args.sub_command]
         try:
-            if issubclass(_str2func[args.sub_command], Command):
-                _str2func[args.sub_command](args).excute()
+            # if is inherite from Command, excute it
+            if isinstance(cmd, type) and issubclass(cmd, Command):
+                cmd(args).excute()
+            # if is a function, excute it
+            elif callable(cmd):
+                cmd(args)
+            # else, just try
             else:
-                _str2func[args.sub_command](args)
-        except:
-            if callable(_str2func[args.sub_command]):
-                _str2func[args.sub_command](args)
+                cmd(args)
+        except Exception as e:
+            traceback.print_exception(type(e), e, e.__traceback__)
     else:
         put_err(f'no such sub commmand: {args.sub_command}')
     
