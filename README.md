@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-05-06 17:19:11
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2025-02-05 10:46:13
+ * @LastEditTime: 2025-02-05 19:23:44
  * @Description: 
 -->
 
@@ -84,11 +84,10 @@ pip install md-davis -U --no-deps
 
 #### install gmx_MMPBSA for lazydock
 ```bash
-conda install -c conda-forge "mpi4py==4.0.1" "ambertools<=23.3"
-conda install -c conda-forge "gromacs<=xxxx.x" pocl 
+conda install -c conda-forge "mpi4py==4.0.1" "ambertools<=23.3" pocl
 pip install gmx_MMPBSA -U --no-deps
 ```
-gromacs version is needed to match the version for your Gromacs installation, others' version are from gmx_MMPBSA's docs.
+Version are from gmx_MMPBSA's docs.
 
 ## Docs
 - [read the docs: lazydock.rtfd.io](https://lazydock.rtfd.io)
