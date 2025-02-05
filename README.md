@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-05-06 17:19:11
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2025-02-05 10:13:30
+ * @LastEditTime: 2025-02-05 10:46:13
  * @Description: 
 -->
 
@@ -68,6 +68,11 @@ pip install git+https://gitee.com/BHM-Bob/BA_PY.git
 
 #### install lazydock-pymol-plugin
 In pymol plugin installation GUI, install `path-to-site-packages/lazydock_pymol_plugin/__init__.py`.
+
+#### install plip for lazydock
+```bash
+pip install plip -U --no-deps
+```
 
 #### install MD-TASK for lazydock
 Now all needed functionality of MD-TASK for lazydock is included in lazydock_md_task package. Already installed by requirements.
