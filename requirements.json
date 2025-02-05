@@ -12,6 +12,7 @@
     "all":
     [
         "compas",
-        "md-davis"
+        "md-davis",
+        "plip"
     ]
 }
