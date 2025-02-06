@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-02 20:56:42
+LastEditTime: 2025-02-06 15:50:11
 Description: 
 '''
 import argparse
@@ -9,9 +9,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-import matplotlib
 import pandas as pd
-matplotlib.use('TkAgg')
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from mbapy.web_utils.task import TaskPool
@@ -22,10 +20,7 @@ import networkx as nx
 import MDAnalysis as mda
 from lazydock_md_task.scripts.calc_correlation import plot_map
 from lazydock_md_task.scripts.contact_map_v2 import load_and_preprocess_traj, calculate_contacts, save_network_data, plot_network
-import os
-
-os.environ['MBAPY_FAST_LOAD'] = 'True'
-from mbapy.scripts._script_utils_ import Command, clean_path, excute_command
+from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
 
 
 def construct_graph(frame, atoms_inices: np.ndarray, threshold=6.7):
