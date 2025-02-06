@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2024-12-28 21:30:28
+ * @LastEditTime: 2025-02-06 16:18:38
  * @Description: 
 -->
 
@@ -42,7 +42,7 @@
 
 <h2 style="text-align:center;">Get start</h2>
 
-## install 
+## [install](#install)
 Now, lazydock only support pypi install:  
 ```
 pip install lazydock
@@ -88,6 +88,7 @@ pip install lazydock
 
 
 ## release note
+- [0.11.0](release_note/0.11.0.md)
 - [0.10.0](release_note/0.10.0.md)
 - [0.9.1](release_note/0.9.1.md)
 - [0.9.0](release_note/0.9.0.md)
