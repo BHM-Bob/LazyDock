@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-05 14:26:31
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-06 15:51:37
+LastEditTime: 2025-02-06 17:23:58
 Description: 
 '''
 import MDAnalysis
@@ -11,10 +11,10 @@ from mbapy_lite.base import put_err
 
 class FakeIOWriter:
     def __init__(self):
-        self.string = ''
+        self.str_lst = []
 
     def write(self, content: str):
-        self.string += content
+        self.str_lst.append(content)
 
 
 class PDBConverter(PDBWriter):
@@ -60,7 +60,7 @@ class PDBConverter(PDBWriter):
             return put_err("no coordinate data to write to trajectory file, return None")
         self._check_pdb_coordinates()
         self._write_timestep(ts)
-        return self.pdbfile.string
+        return ''.join(self.pdbfile.str_lst)
     
     def fast_convert(self):
         """
@@ -73,4 +73,4 @@ class PDBConverter(PDBWriter):
         self.ts = self.obj.universe.trajectory.ts
         self.frames_written = 1
         self._write_timestep(self.ts, multiframe=False)
-        return self.pdbfile.string
+        return ''.join(self.pdbfile.str_lst)
