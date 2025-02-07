@@ -1,12 +1,17 @@
 '''
 Date: 2025-02-05 14:26:31
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-06 17:23:58
+LastEditTime: 2025-02-06 18:12:45
 Description: 
 '''
+from typing import Dict
+import warnings
 import MDAnalysis
 from MDAnalysis.coordinates.PDB import PDBWriter
+from MDAnalysis.lib import util
+from MDAnalysis.exceptions import NoDataError
 from mbapy_lite.base import put_err
+import numpy as np
 
 
 class FakeIOWriter:
@@ -62,7 +67,126 @@ class PDBConverter(PDBWriter):
         self._write_timestep(ts)
         return ''.join(self.pdbfile.str_lst)
     
-    def fast_convert(self):
+    def _write_single_timestep_fast(self, alter_chain: Dict[str,str] = None,
+                                    alter_res: Dict[str,str] = None):
+        alter_chain = alter_chain or {}
+        alter_res = alter_res or {}
+        atoms = self.obj.atoms
+        pos = atoms.positions
+        if self.convert_units:
+            pos = self.convert_pos_to_native(pos, inplace=False)
+
+        # Make zero assumptions on what information the AtomGroup has!
+        # theoretically we could get passed only indices!
+        def get_attr(attrname, default):
+            """Try and pull info off atoms, else fake it
+
+            attrname - the field to pull of AtomGroup (plural!)
+            default - default value in case attrname not found
+            """
+            try:
+                return getattr(atoms, attrname)
+            except AttributeError:
+                if self.frames_written == 0:
+                    warnings.warn("Found no information for attr: '{}'"
+                                  " Using default value of '{}'"
+                                  "".format(attrname, default))
+                return np.array([default] * len(atoms))
+        altlocs = get_attr('altLocs', ' ')
+        resnames = get_attr('resnames', 'UNK')
+        for k, v in alter_res.items():
+            resnames[resnames == k] = v
+        icodes = get_attr('icodes', ' ')
+        segids = get_attr('segids', ' ')
+        chainids = get_attr('chainIDs', '')
+        for k, v in alter_chain.items():
+            chainids[chainids == k] = v
+        resids = get_attr('resids', 1)
+        occupancies = get_attr('occupancies', 1.0)
+        tempfactors = get_attr('tempfactors', 0.0)
+        atomnames = get_attr('names', 'X')
+        elements = get_attr('elements', ' ')
+        record_types = get_attr('record_types', 'ATOM')
+        formal_charges = self._format_PDB_charges(get_attr('formalcharges', 0))
+
+        def validate_chainids(chainids, default):
+            """Validate each atom's chainID
+
+            chainids - np array of chainIDs
+            default - default value in case chainID is considered invalid
+            """
+            invalid_length_ids = False
+            invalid_char_ids = False
+            missing_ids = False
+
+            for (i, chainid) in enumerate(chainids):
+                if chainid == "":
+                    missing_ids = True
+                    chainids[i] = default
+                elif len(chainid) > 1:
+                    invalid_length_ids = True
+                    chainids[i] = default
+                elif not chainid.isalnum():
+                    invalid_char_ids = True
+                    chainids[i] = default
+
+            if invalid_length_ids:
+                warnings.warn("Found chainIDs with invalid length."
+                              " Corresponding atoms will use value of '{}'"
+                              "".format(default))
+            if invalid_char_ids:
+                warnings.warn("Found chainIDs using unnaccepted character."
+                              " Corresponding atoms will use value of '{}'"
+                              "".format(default))
+            if missing_ids:
+                warnings.warn("Found missing chainIDs."
+                              " Corresponding atoms will use value of '{}'"
+                              "".format(default))
+            return chainids
+
+        chainids = validate_chainids(chainids, "X")
+
+        # If reindex == False, we use the atom ids for the serial. We do not
+        # want to use a fallback here.
+        if not self._reindex:
+            try:
+                atom_ids = atoms.ids
+            except AttributeError:
+                raise NoDataError(
+                    'The "id" topology attribute is not set. '
+                    'Either set the attribute or use reindex=True.'
+                )
+        else:
+            atom_ids = np.arange(len(atoms)) + 1
+
+        for i in range(len(atoms)):
+            vals = {}
+            vals['serial'] = util.ltruncate_int(atom_ids[i], 5)  # check for overflow here?
+            vals['name'] = self._deduce_PDB_atom_name(atomnames[i], resnames[i])
+            vals['altLoc'] = altlocs[i][:1]
+            vals['resName'] = resnames[i][:4]
+            vals['resSeq'] = util.ltruncate_int(resids[i], 4)
+            vals['iCode'] = icodes[i][:1]
+            vals['pos'] = pos[i]  # don't take off atom so conversion works
+            vals['occupancy'] = occupancies[i]
+            vals['tempFactor'] = tempfactors[i]
+            vals['segID'] = segids[i][:4]
+            vals['chainID'] = chainids[i]
+            vals['element'] = elements[i][:2].upper()
+            vals['charge'] = formal_charges[i]
+
+            # record_type attribute, if exists, can be ATOM or HETATM
+            try:
+                self.pdbfile.write(self.fmt[record_types[i]].format(**vals))
+            except KeyError:
+                errmsg = (f"Found {record_types[i]} for the record type, but "
+                          f"only allowed types are ATOM or HETATM")
+                raise ValueError(errmsg) from None
+
+        self.frames_written += 1
+    
+    def fast_convert(self, alter_chain: Dict[str,str] = None,
+                     alter_res: Dict[str,str] = None):
         """
         Convert the AtomGroup to a PDB string.
         Returns
@@ -72,5 +196,5 @@ class PDBConverter(PDBWriter):
         """
         self.ts = self.obj.universe.trajectory.ts
         self.frames_written = 1
-        self._write_timestep(self.ts, multiframe=False)
+        self._write_single_timestep_fast(alter_chain, alter_res)
         return ''.join(self.pdbfile.str_lst)
