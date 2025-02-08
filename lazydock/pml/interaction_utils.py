@@ -251,6 +251,14 @@ def sort_func(index: pd.Index):
 
 SUPPORTED_MODE = ['all', 'bond distances', 'polar contact', 'all distance_exclusion', 'centroids', 'pi-pi and pi-cation', 'pi-pi interactions', 'pi-cation interactions', 'ratio distance_exclusion']
 
+def _get_mode_code(mode: str):
+    if isinstance(mode, str):
+        if mode not in SUPPORTED_MODE:
+            raise ValueError(f'mode {mode} is not supported, supported modes are {SUPPORTED_MODE}')
+        return SUPPORTED_MODE.index(mode)
+    else:
+        raise ValueError(f'mode {mode} is not supported, only support all or a value in {SUPPORTED_MODE}')
+
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str = 'all',
                                      cutoff: float = 4., nagetive_factor: float = -1.,
@@ -275,12 +283,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str 
             interaction_df.loc[ligand_res, receptor_res] = score
     """
     # set mode
-    if isinstance(mode, str):
-        if mode not in SUPPORTED_MODE:
-            raise ValueError(f'mode {mode} is not supported, supported modes are {SUPPORTED_MODE}')
-        mode_code = SUPPORTED_MODE.index(mode)
-    else:
-        raise ValueError(f'mode {mode} is not supported, only support all or a value in {SUPPORTED_MODE}')
+    mode_code = _get_mode_code(mode)
     # prepare interactions
     all_interactions, interaction_df = {}, pd.DataFrame()
     # select receptor
