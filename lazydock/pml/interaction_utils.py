@@ -199,13 +199,22 @@ def sort_atom_level_interactions(interactions: Dict[str, List[Tuple[Tuple[str, s
                                                          Tuple[str, str, str, str, str, float], float]]],
                                 model1: str, model2: str):
     """sort the interactions returned by calcu_atom_level_interactions, sort the order in tuple by model1 and model2."""
+    chain1, chain2 = cmd.get_chains(model1)[0], cmd.get_chains(model2)[0]
     for ty in list(interactions.keys()):
         values = interactions[ty]
         for i in range(len(values)):
+            # model name is in wrong order, just swap the two atoms
             if values[i][0][0] == model2:
                 interactions[ty][i][0], interactions[ty][i][1] = interactions[ty][i][1], interactions[ty][i][0]
+            # can not check order by mode name, check by chain name
             elif values[i][0][0] != model1:
-                return put_err(f'{values[i][0][0]} is not in {model1} and {model2}, abort sort', interactions)
+                # check by chain name
+                if values[i][0][1] == chain1 and values[i][1][1] == chain2:
+                    pass
+                elif values[i][0][1] == chain2 and values[i][1][1] == chain1:
+                    interactions[ty][i][0], interactions[ty][i][1] = interactions[ty][i][1], interactions[ty][i][0]
+                else:
+                    return put_err(f'{values[i][0][0]} is not in {model1} and {model2}, chain {values[i][0][1]} and {values[i][1][1]} not in order {chain1} and {chain2} too, abort sort', interactions)
     return interactions
 
 
