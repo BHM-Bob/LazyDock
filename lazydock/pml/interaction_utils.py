@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-25 17:25:46
+LastEditTime: 2025-02-08 20:40:12
 Description: 
 '''
 from typing import Dict, List, Tuple, Union
@@ -9,6 +9,7 @@ from typing import Dict, List, Tuple, Union
 import numpy as np
 import pandas as pd
 from mbapy_lite.base import put_err
+from mbapy_lite.web import TaskPool
 from pymol import CmdException, cmd
 from tqdm import tqdm
 
@@ -325,6 +326,47 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str 
     if only_return_inter:
         all_interactions = {k: v[-1] for k, v in all_interactions.items()}
     return all_interactions, interaction_df
+
+
+def calcu_pdbstr_interaction(receptor: str, ligand: str, complex: str = None, mode: str = 'all',
+                             cutoff: float = 4., hydrogen_atom_only: bool = True, **kwargs):
+    """
+    calcu interactions between one receptor and one ligand with many poses.
+    
+    Parameters:
+        - receptor: receptor pdb string, if complex is not None, receptor will act as select expression to selected from complex, default is None
+        - ligand: ligand pdb string, if complex is not None, ligand will act as select expression to selected from complex, default is None
+        - complex: complex pdb string, if None, receptor and ligand will be loaded separately, default is None
+        - mode: str or list of str, mode of cmd.distance, default is 'all', supported modes are: 'bond distances', 'polar contact', 'all distance_exclusion', 'centroids', 'pi-pi and pi-cation', 'pi-pi interactions', 'pi-cation interactions', 'ratio distance_exclusion'
+        - cutoff: float, cutoff of cmd.distance
+        - hydrogen_atom_only: bool, whether to only consider hydrogen acceptor and donor atoms, default is True.
+        
+    Returns:
+        interactions (dict): interactions between receptor and ligand, in the format of {'ligand': [xyz2atom, residues, interactions]}, where xyz2atom is a dict, residues is a dict, interactions is a dict.
+    """
+    # set mode
+    mode_code = _get_mode_code(mode)
+    # load mols
+    sele_receptor = uuid4()
+    sele_ligand = uuid4()
+    if complex is None:
+        cmd.read_pdbstr(receptor, sele_receptor)
+        cmd.read_pdbstr(ligand, sele_ligand)
+    else:
+        sele_complex = uuid4()
+        cmd.read_pdbstr(complex, sele_complex)
+        cmd.select(sele_receptor, receptor)
+        cmd.select(sele_ligand, ligand)
+    # calcu interaction, only return interactions
+    if hydrogen_atom_only:
+        _, _, _, interactions = calcu_atom_level_interactions(sele_receptor, sele_ligand, mode_code, cutoff)
+    else:
+        interactions = {mode: calcu_atom_level_interactions_without_AD(sele_receptor, sele_ligand, mode_code, cutoff)}
+    interactions = sort_atom_level_interactions(interactions, sele_receptor, sele_ligand)
+    # clean up
+    cmd.remove(sele_receptor)
+    cmd.remove(sele_ligand)
+    return interactions
 
 
 def filter_interaction_df(interaction_df: pd.DataFrame, colum_axis_min: float = None,
