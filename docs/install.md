@@ -1,7 +1,7 @@
 <!--
  * @Date: 2025-02-06 16:18:51
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2025-02-06 16:19:07
+ * @LastEditTime: 2025-02-08 22:48:16
  * @Description: 
 -->
 #### install lazydock python package itself 
@@ -26,6 +26,7 @@ pip install git+https://gitee.com/BHM-Bob/BA_PY.git
   7. lazydock_md_task: needed by `lazydock.scripts.ana_gmx` to run MD-TASK.
   8. compas: needed by `lazydock.pml.align_to_axis` to calculate bonding box.
   9. md-davis: needed by `lazydock.scripts.ana_gmx` to run MD-DaVis.
+  10. expect: a software for running shell command, needed by `lazydock.gmx.run.Gromacs`.
 
 #### install lazydock-pymol-plugin
 In pymol plugin installation GUI, install `path-to-site-packages/lazydock_pymol_plugin/__init__.py`.
@@ -49,3 +50,9 @@ conda install -c conda-forge "mpi4py==4.0.1" "ambertools<=23.3" pocl
 pip install gmx_MMPBSA -U --no-deps
 ```
 Version are from gmx_MMPBSA's docs.
+
+
+#### install expect for lazydock
+```bash
+sudo apt install expect
+```
