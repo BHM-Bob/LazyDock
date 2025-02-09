@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-31 11:59:46
+LastEditTime: 2025-02-06 17:04:36
 Description: 
 '''
 import argparse
@@ -169,18 +169,23 @@ class simple_analysis(Command):
         bar.set_description(f'{method} interactions saved')
         # release all in pymol
         cmd.reinitialize()
+        
+    def check_file_num_paried(self, r_paths: List[str], l_paths: List[str]):
+        if len(r_paths)!= len(l_paths):
+            r_roots = [os.path.dirname(p) for p in r_paths]
+            l_roots = [os.path.dirname(p) for p in l_paths]
+            roots_count = {root: r_roots.count(root)+l_roots.count(root) for root in (set(r_roots) | set(l_roots))}
+            self.invalid_roots = '\n'.join([root for root, count in roots_count.items() if count!= 2])
+            return False
+        return True
 
     def main_process(self):
         # load origin dfs from data file
         if self.args.batch_dir:
             r_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb', '.pdbqt'], name_substr=self.args.receptor)
             l_paths = get_paths_with_extension(self.args.batch_dir, ['.pdbqt', '.dlg'], name_substr=self.args.ligand)
-            if len(r_paths) != len(l_paths):
-                r_roots = [os.path.dirname(p) for p in r_paths]
-                l_roots = [os.path.dirname(p) for p in l_paths]
-                roots_count = {root: r_roots.count(root)+l_roots.count(root) for root in (set(r_roots) | set(l_roots))}
-                invalid_roots = '\n'.join([root for root, count in roots_count.items() if count != 2])
-                return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:{invalid_roots}")
+            if not self.check_file_num_paried(r_paths, l_paths):
+                return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:{self.invalid_roots}")
             for r_path, l_path in zip(r_paths, l_paths):
                 self.tasks.append((r_path, l_path, self.args.method, self.args.mode))
         else:
