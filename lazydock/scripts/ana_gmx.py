@@ -3,14 +3,18 @@ import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
+import pandas as pd
+from tqdm import tqdm
+from MDAnalysis import Universe
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
-from pymol import cmd
-from tqdm import tqdm
-
+from mbapy_lite.web import TaskPool
 from lazydock.gmx.run import Gromacs
-from lazydock.scripts._script_utils_ import Command, clean_path
-from lazydock.utils import uuid4
+from lazydock.gmx.mda.convert import PDBConverter
+from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
+from lazydock.pml.plip_interaction import run_plip_analysis
+from lazydock.scripts.ana_interaction import simple_analysis, pml_mode, plip_mode
+from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
 
 
 class simple(Command):
@@ -133,10 +137,187 @@ class simple(Command):
             self.covar(gmx, main_name=complex_path.stem, group=self.args.eigenval_group, xmax=self.args.eigenval_xmax)
             # perform free energy landscape by MD-DaVis
             self.free_energy_landscape(gmx, main_name=complex_path.stem)
+            
+            
+class mmpbsa(Command):
+    HELP = """
+    mmpbsa analysis for GROMACS simulation
+    """
+    def __init__(self, args, printf=print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser, mmpbsa_args: bool = True):
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, required=True,
+                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
+        if mmpbsa_args:
+            args.add_argument('-i', '--input', type = str, required=True,
+                              help=f"gmx_MMPBSA input file name in each sub-folder, such as mmpbsa.in")
+            args.add_argument('-np', '--np', type = int, required=True,
+                              help=f"npi np argument for gmx_MMPBSA")
+        args.add_argument('-top', '--top-name', type = str, required=True,
+                          help=f"topology file name in each sub-folder.")
+        args.add_argument('-traj', '--traj-name', type = str, required=True,
+                          help=f"trajectory file name in each sub-folder.")
+        args.add_argument('--receptor-chain-name', type = str, required=True,
+                          help='receptor chain name, such as "A".')
+        args.add_argument('--ligand-chain-name', type = str, required=True,
+                          help='ligand chain name, such as "LIG".')
+        return args
+        
+    def get_complex_atoms_index(self, u: Universe):
+        rec_idx = u.atoms.chainIDs == self.args.receptor_chain_name
+        lig_idx = u.atoms.chainIDs == self.args.ligand_chain_name
+        put_log(f"receptor atoms: {rec_idx.sum()}, ligand atoms: {lig_idx.sum()}.")
+        return rec_idx, lig_idx
+    
+    def check_top_traj(self):
+        top_paths = get_paths_with_extension(self.args.batch_dir, [os.path.split(self.args.top_name)[-1]], name_substr=self.args.top_name)
+        traj_paths = get_paths_with_extension(self.args.batch_dir, [os.path.split(self.args.traj_name)[-1]], name_substr=self.args.traj_name)
+        if not self.check_file_num_paried(top_paths, traj_paths):
+            put_err(f"The number of top and traj files is not equal, please check the input files.\ninvalid roots:{self.invalid_roots}", _exit=True)
+        return top_paths, traj_paths
+    
+    def process_args(self):
+        self.args.batch_dir = clean_path(self.args.batch_dir)
+        if not os.path.isdir(self.args.batch_dir):
+            put_err(f'batch_dir argument should be a directory: {self.args.batch_dir}, exit.', _exit=True)
+        # load origin dfs from data file
+        self.top_paths, self.traj_paths = self.check_top_traj()
+        for r_path, l_path in zip(self.top_paths, self.traj_paths):
+            self.tasks.append((r_path, l_path))
+    
+    def main_process(self):
+        print(f'find {len(self.tasks)} tasks.')
+        # run tasks
+        bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
+        for top_path, traj_path in self.tasks:
+            wdir = os.path.dirname(top_path)
+            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            # get receptor and ligand atoms index range
+            u = Universe(top_path, traj_path)
+            rec_idx, lig_idx = self.get_complex_atoms_index(u)
+            rec_range_str, lig_range_str = f"{rec_idx.min()}-{rec_idx.max()}", f"{lig_idx.min()}-{lig_idx.max()}"
+            # make index file for receptor and ligand
+            gmx = Gromacs(working_dir=wdir)
+            gmx.run_command_with_expect('make_ndx', f=os.path.basename(top_path), o='mmpbsa_tmp.ndx',
+                                        expect_actions=[{'>': 'q\r'}])
+            sum_groups = opts_file(os.path.join(gmx.working_dir, 'mmpbsa_tmp.ndx')).count(']')
+            gmx.run_command_with_expect('make_ndx', f=os.path.basename(top_path), o='mmpbsa.ndx',
+                                        expect_actions=[{'>': f'a {rec_range_str}\r'}, {'>': f'name {sum_groups+1} MMPBSA_Receptor\r'},
+                                                        {'>': f'a {lig_range_str}\r'}, {'>': f'name {sum_groups+2} MMPBSA_Ligand\r'},
+                                                        {'>': 'q\r'}])
+            # call gmx_MMPBSA
+            cmd_str = f'gmx_MMPBSA -O -i {self.args.input} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.in -cg {sum_groups+1} {sum_groups+2} -cp topol.top -o FINAL_RESULTS_MMPBSA.dat -eo FINAL_RESULTS_MMPBSA.csv'
+            os.system(f'cd "{gmx.working_dir}" && mpirun -np {self.args.np} {cmd_str}')
+            bar.update(1)
+    
+    
+def run_pdbstr_interaction_analysis(pdbstr: str, receptor_chain: str, ligand_chain: str,
+                                    method: str, mode: str, cutoff: float, hydrogen_atom_only: bool, **kwargs):
+    if method == 'pymol':
+        inter = calcu_pdbstr_interaction(f'chain {receptor_chain}', f'chain {ligand_chain}', pdbstr, mode, cutoff, hydrogen_atom_only)
+    elif method == 'plip':
+       inter = run_plip_analysis(pdbstr, receptor_chain, ligand_chain, mode, cutoff)
+    else:
+        return put_err(f"method {method} not supported, return None.")
+    return inter
+
+
+class interaction(mmpbsa, simple_analysis):
+    HELP = """
+    interaction analysis for GROMACS simulation
+    """
+    def __init__(self, args, printf=print):
+        super().__init__(args, printf)
+        self.alter_chain = None
+        self.alter_res = None
+
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        mmpbsa.make_args(args, mmpbsa_args=False)
+        args.add_argument('--alter-ligand-chain', type = str, default=None,
+                          help='alter ligand chain name from topology to user-define, such as "Z".')
+        args.add_argument('--alter-ligand-res', type = str, default=None,
+                          help='alter ligand res name from topology to user-define, such as "UNK".')
+        args.add_argument('--method', type = str, default='pymol', choices=['pymol', 'plip'],
+                          help='interaction method, default is %(default)s.')
+        args.add_argument('--mode', type = str, default='all',
+                          help=f'interaction mode, multple modes can be separated by comma, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nplip: {",".join(plip_mode)}')
+        args.add_argument('--cutoff', type = float, default=4,
+                          help='distance cutoff for interaction calculation, default is %(default)s.')
+        args.add_argument('--hydrogen-atom-only', default=False, action='store_true',
+                          help='only consider hydrogen bond acceptor and donor atoms, this only works when method is pymol, default is %(default)s.')
+        args.add_argument('--output-style', type = str, default='receptor', choices=['receptor'],
+                          help='output style\n receptor: resn resi distance')
+        args.add_argument('--ref-res', type = str, default='',
+                          help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
+        args.add_argument('-np', '--n-workers', type=int, default=4,
+                          help='number of workers to parallel. Default is %(default)s.')
+        args.add_argument('-step', '--traj-step', type=int, default=1,
+                          help='Step while reading trajectory. Default is %(default)s.')
+    
+    def process_args(self):
+        # check alter chain and res
+        if self.args.alter_ligand_chain is not None:
+            self.alter_chain = {self.args.ligand_chain_name: self.args.alter_ligand_chain}
+        else:
+            self.args.alter_ligand_chain = self.args.ligand_chain_name
+        if self.args.alter_ligand_res is not None:
+            self.alter_res = {self.args.ligand_chain_name: self.args.alter_ligand_res}
+        # output formater
+        self.output_formater = getattr(self, f'output_fromater_{self.args.output_style}')
+        # check batch dir AND top and traj
+        mmpbsa.process_args(self)
+        # check method and mode AND load ref_res
+        simple_analysis.process_args(self)
+        
+    def main_process(self):
+        print(f'find {len(self.tasks)} tasks.')
+        # run tasks
+        pool = TaskPool('process', self.args.n_workers).start()
+        bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
+        for top_path, traj_path in self.tasks:
+            wdir = os.path.dirname(top_path)
+            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            # load pdbstr from traj
+            u = Universe(top_path, traj_path)
+            rec_idx, lig_idx = self.get_complex_atoms_index(u)
+            complex_ag = u.atoms[rec_idx | lig_idx]
+            # calcu interaction for each frame
+            for frame in tqdm(u.trajectory[::self.args.traj_step], total=len(u.trajectory)//self.args.traj_step, desc='Calculation frames', leave=False):
+                pdbstr = PDBConverter(complex_ag).fast_convert(alter_chain=self.alter_chain, alter_res=self.alter_res)
+                pool.add_task(frame.time, run_pdbstr_interaction_analysis, pdbstr,
+                              self.args.receptor_chain_name, self.args.alter_ligand_chain,
+                              self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only)
+                pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.01)
+            # merge interactions
+            interactions, df = {}, pd.DataFrame()
+            for k in list(pool.tasks.keys()):
+                i = len(df)
+                interactions[k] = pool.query_task(k, True, 10)
+                df.loc[i, 'time'] = k
+                df.loc[i, 'ref_res'] = ''
+                for inter_mode, inter_value in interactions[k].items():
+                    fmt_string = self.output_formater(inter_value, self.args.method)
+                    df.loc[i, inter_mode] = fmt_string
+                    for r in self.args.ref_res:
+                        if r in fmt_string and not r in df.loc[i,'ref_res']:
+                            df.loc[i,'ref_res'] += f'{r},'
+            # save result
+            top_path = Path(top_path).resolve()
+            df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.csv'))
+            opts_file(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.pkl'), 'wb', way='pkl', data=interactions)
+            # other things
+            pool.task = {}
+            bar.update(1)
+        pool.close()
 
 
 _str2func = {
     'simple': simple,
+    'mmpbsa': mmpbsa,
+    'interaction': interaction,
 }
 
 
@@ -144,12 +325,14 @@ def main(sys_args: List[str] = None):
     args_paser = argparse.ArgumentParser(description = 'tools for GROMACS analysis.')
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
 
-    simple_args = simple.make_args(subparsers.add_parser('simple', description=simple.HELP))
+    for k, v in _str2func.items():
+        v.make_args(subparsers.add_parser(k, description=v.HELP))
 
-    args = args_paser.parse_args(sys_args)
-    if args.sub_command in _str2func:
-        _str2func[args.sub_command](args).excute()
+    excute_command(args_paser, sys_args, _str2func)
 
 
 if __name__ == '__main__':
+    # dev code
+    # main('interaction -bd data_tmp/gmx/run1 -top md.tpr -traj md_center.xtc --receptor-chain-name A --ligand-chain-name LIG --alter-ligand-chain Z --alter-ligand-res UNK --method plip --mode all'.split(' '))
+    
     main()
