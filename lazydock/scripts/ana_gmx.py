@@ -232,6 +232,7 @@ class interaction(mmpbsa, simple_analysis):
         super().__init__(args, printf)
         self.alter_chain = None
         self.alter_res = None
+        self.alter_atm = None
 
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
@@ -240,6 +241,8 @@ class interaction(mmpbsa, simple_analysis):
                           help='alter ligand chain name from topology to user-define, such as "Z".')
         args.add_argument('--alter-ligand-res', type = str, default=None,
                           help='alter ligand res name from topology to user-define, such as "UNK".')
+        args.add_argument('--alter-ligand-atm', type = str, default=None,
+                          help='alter ligand atom type from topology to user-define, such as "HETATM".')
         args.add_argument('--method', type = str, default='pymol', choices=['pymol', 'plip'],
                           help='interaction method, default is %(default)s.')
         args.add_argument('--mode', type = str, default='all',
@@ -258,13 +261,17 @@ class interaction(mmpbsa, simple_analysis):
                           help='Step while reading trajectory. Default is %(default)s.')
     
     def process_args(self):
-        # check alter chain and res
+        # self.args.alter_ligand_chain will passed to final interaction calcu function
         if self.args.alter_ligand_chain is not None:
             self.alter_chain = {self.args.ligand_chain_name: self.args.alter_ligand_chain}
         else:
             self.args.alter_ligand_chain = self.args.ligand_chain_name
+        # in lazydock, default ligand res name is the chain name too, so alter chain name to alter-ligand-res
         if self.args.alter_ligand_res is not None:
             self.alter_res = {self.args.ligand_chain_name: self.args.alter_ligand_res}
+        # set self.alter_atm
+        if self.args.alter_ligand_atm is not None:
+            self.alter_atm = {self.args.ligand_chain_name: self.args.alter_ligand_atm}
         # output formater
         self.output_formater = getattr(self, f'output_fromater_{self.args.output_style}')
         # check batch dir AND top and traj
@@ -287,7 +294,7 @@ class interaction(mmpbsa, simple_analysis):
             complex_ag = u.atoms[rec_idx | lig_idx]
             # calcu interaction for each frame
             for frame in tqdm(u.trajectory[::self.args.traj_step], total=len(u.trajectory)//self.args.traj_step, desc='Calculation frames', leave=False):
-                pdbstr = PDBConverter(complex_ag).fast_convert(alter_chain=self.alter_chain, alter_res=self.alter_res)
+                pdbstr = PDBConverter(complex_ag).fast_convert(alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm)
                 pool.add_task(frame.time, run_pdbstr_interaction_analysis, pdbstr,
                               self.args.receptor_chain_name, self.args.alter_ligand_chain,
                               self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only)
