@@ -122,7 +122,7 @@ class protein(Command):
                     expect_acts.append({'None': f'{self.args.n_term[chain_i]}\r'})
                     expect_acts.append({'None': f'{self.args.c_term[chain_i]}\r'})
                 # run pdb2gmx
-                gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}', expect_acts)
+                gmx.run_gmx_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}', expect_acts)
 
 
 class ligand(protein):
@@ -276,7 +276,7 @@ the program will use the ff-dir in sub-directory.')
                 opts_file(ipath, 'w', data=opts_file(ipath).replace('LIG  ', 'LIG Z'))
                 # because may do not have Gromacs installed, so just try
                 try:
-                    gmx.run_command_with_expect(f'editconf -f lig_ini.pdb -o lig.gro')
+                    gmx.run_gmx_with_expect(f'editconf -f lig_ini.pdb -o lig.gro')
                 except Exception as e:
                     put_err(f'pdb2gmx failed: {e}, skip.')
             # STEP 8: Prepare the system Topology
@@ -403,12 +403,12 @@ class complex(ligand):
             # STEP 7: Prepare the Protein Topology
             ipath, opath_rgro = opath_r, str(complex_path.parent / f'{complex_path.stem}_receptor.gro')
             if self.args.max_step >= 7 and (not os.path.exists(opath_rgro)):
-                gmx.run_command_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}',
+                gmx.run_gmx_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}',
                                             [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{self.args.n_term}\r'}, {'None': f'{self.args.c_term}\r'}])
             # STEP 8: Prepare the Ligand Topology
             opath_lgro = str(complex_path.parent / 'lig.gro')
             if self.args.max_step >= 8 and (not os.path.exists(opath_lgro)):
-                gmx.run_command_with_expect('editconf -f lig_ini.pdb -o lig.gro')
+                gmx.run_gmx_with_expect('editconf -f lig_ini.pdb -o lig.gro')
             # STEP 9: Prepare the Complex Topology
             opath_cgro, opath_top = str(complex_path.parent / 'complex.gro'), str(complex_path.parent / 'topol.top')
             if self.args.max_step >= 9 and (not os.path.exists(opath_cgro)):

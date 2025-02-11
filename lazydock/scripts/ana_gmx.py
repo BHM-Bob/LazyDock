@@ -55,59 +55,59 @@ class simple(Command):
 
     @staticmethod
     def trjconv(gmx: Gromacs, main_name: str, center_group: str = '1', **kwargs):
-        gmx.run_command_with_expect('trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc', pbc='mol', center=True,
+        gmx.run_gmx_with_expect('trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc', pbc='mol', center=True,
                                     expect_actions=[{'Select a group:': f'{center_group}\r', '\\timeout': f'{center_group}\r'},
                                                     {'Select a group:': '0\r', '\\timeout': '0\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
         
     @staticmethod
     def rms(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
-        gmx.run_command_with_expect('rms', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsd.xvg', tu='ns',
+        gmx.run_gmx_with_expect('rms', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsd.xvg', tu='ns',
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f rmsd.xvg -o rmsd.png -smv -t "RMSD of {main_name}" -csv {main_name}_rmsd.csv -ns')
+        gmx.run_normal_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsd.xvg -o rmsd.png -smv -ws 10 -t "RMSD of {main_name}" -csv {main_name}_rmsd.csv -ns')
         
     @staticmethod
     def rmsf(gmx: Gromacs, main_name: str, group: str = '4', res: bool = True, **kwargs):
-        gmx.run_command_with_expect('rmsf', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsf.xvg', res=res,
+        gmx.run_gmx_with_expect('rmsf', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsf.xvg', res=res,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f rmsf.xvg -o rmsf.png -t "RMSF of {main_name}" -csv {main_name}_rmsf.csv -ns')
+        gmx.run_normal_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsf.xvg -o rmsf.png -t "RMSF of {main_name}" -csv {main_name}_rmsf.csv -ns')
         
     @staticmethod
     def gyrate(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
-        gmx.run_command_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate.xvg',
+        gmx.run_gmx_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate.xvg',
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f gyrate.xvg -o gyrate.png -smv -t "Gyrate of {main_name}" -csv {main_name}_gyrate.csv -ns')
+        gmx.run_normal_cmd_with_expect(f'dit xvg_compare -c 1 -f gyrate.xvg -o gyrate.png -smv -ws 10 -t "Gyrate of {main_name}" -csv {main_name}_gyrate.csv -ns')
         
     @staticmethod
     def hbond(gmx: Gromacs, main_name: str, group: str = '1', dt=10, **kwargs):
-        gmx.run_command_with_expect('hbond', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
+        gmx.run_gmx_with_expect('hbond', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
                                     num=f'{main_name}_hbond_num.xvg', dist=f'{main_name}_hbond_dist.xvg',
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f {main_name}_hbond_num.xvg -o hbond_num.png -smv -t "H-bond num of {main_name}" -csv {main_name}_hbond_num.csv -ns')
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_show -f {main_name}_hbond_dist.xvg -o hbond_dist.png -ns')
+        gmx.run_normal_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_hbond_num.xvg -o hbond_num.png -smv -ws 10 -t "H-bond num of {main_name}" -csv {main_name}_hbond_num.csv -ns')
+        gmx.run_normal_cmd_with_expect(f'dit xvg_show -f {main_name}_hbond_dist.xvg -o hbond_dist.png -ns')
 
     @staticmethod
     def sasa(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
-        gmx.run_command_with_expect('sasa -or sasa_res.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
+        gmx.run_gmx_with_expect('sasa -or sasa_res.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
                                     o=f'sasa_total.xvg', odg=f'sasa_dg.xvg', tv='sasa_tv.xvg', tu='ns',
                                     expect_actions=[{'>': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
         for ty in ['total', 'res', 'dg', 'tv']:
-            os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f sasa_{ty}.xvg -o sasa_{ty}.png -smv -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}.csv -ns')
+            gmx.run_normal_cmd_with_expect(f'dit xvg_compare -c 1 -f sasa_{ty}.xvg -o sasa_{ty}.png -smv -ws 10 -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}.csv -ns')
 
     @staticmethod
     def covar(gmx: Gromacs, main_name: str, group: str = '4', xmax: int = 15, **kwargs):
-        gmx.run_command_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'eigenval.xvg', tu='ns',
+        gmx.run_gmx_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'eigenval.xvg', tu='ns',
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        os.system(f'cd "{gmx.working_dir}" && dit xvg_compare -c 1 -f eigenval.xvg -o eigenval.png -xmin 0 -xmax {xmax} -smv -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv -ns')
+        gmx.run_normal_cmd_with_expect(f'dit xvg_compare -c 1 -f eigenval.xvg -o eigenval.png -xmin 0 -xmax {xmax} -smv -ws 10 -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv -ns')
     
     @staticmethod
     def free_energy_landscape(gmx: Gromacs, main_name: str, **kwargs):
@@ -200,10 +200,10 @@ class mmpbsa(Command):
             rec_range_str, lig_range_str = f"{rec_idx.min()}-{rec_idx.max()}", f"{lig_idx.min()}-{lig_idx.max()}"
             # make index file for receptor and ligand
             gmx = Gromacs(working_dir=wdir)
-            gmx.run_command_with_expect('make_ndx', f=os.path.basename(top_path), o='mmpbsa_tmp.ndx',
+            gmx.run_gmx_with_expect('make_ndx', f=os.path.basename(top_path), o='mmpbsa_tmp.ndx',
                                         expect_actions=[{'>': 'q\r'}])
             sum_groups = opts_file(os.path.join(gmx.working_dir, 'mmpbsa_tmp.ndx')).count(']')
-            gmx.run_command_with_expect('make_ndx', f=os.path.basename(top_path), o='mmpbsa.ndx',
+            gmx.run_gmx_with_expect('make_ndx', f=os.path.basename(top_path), o='mmpbsa.ndx',
                                         expect_actions=[{'>': f'a {rec_range_str}\r'}, {'>': f'name {sum_groups+1} MMPBSA_Receptor\r'},
                                                         {'>': f'a {lig_range_str}\r'}, {'>': f'name {sum_groups+2} MMPBSA_Ligand\r'},
                                                         {'>': 'q\r'}])
