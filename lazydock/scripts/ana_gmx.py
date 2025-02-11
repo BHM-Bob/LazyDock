@@ -270,6 +270,7 @@ class interaction(mmpbsa, simple_analysis):
         # check batch dir AND top and traj
         mmpbsa.process_args(self)
         # check method and mode AND load ref_res
+        self.args.batch_dir = str(self.args.batch_dir)
         simple_analysis.process_args(self)
         
     def main_process(self):
