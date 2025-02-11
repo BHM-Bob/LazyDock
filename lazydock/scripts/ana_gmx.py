@@ -307,7 +307,7 @@ class interaction(mmpbsa, simple_analysis):
                             df.loc[i,'ref_res'] += f'{r},'
             # save result
             top_path = Path(top_path).resolve()
-            df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.csv'))
+            df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.csv'), index=False)
             opts_file(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.pkl'), 'wb', way='pkl', data=interactions)
             # other things
             pool.task = {}
