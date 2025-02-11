@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-02 15:50:54
+LastEditTime: 2025-02-11 15:07:12
 Description:
 '''
 import os
@@ -52,8 +52,8 @@ class Gromacs(BaseInfo):
                 kwargs[k] = str(kwargs[k])
         return f'cd "{self.working_dir}" && {self.call_name} {sub_commmand} {self.kwargs2cmd(kwargs)}'
     
-    def run_command_with_expect(self, sub_commmand: str, expect_actions: List[Dict[str, str]] = None,
-                                expect_settings: Dict[str, Any] = None, enable_log: bool = False, **kwargs):
+    def run_command_with_expect(self, cmd: str, expect_actions: List[Dict[str, str]] = None,
+                                expect_settings: Dict[str, Any] = None, enable_log: bool = False):
         """
         Run gromacs command with expect script.
         
@@ -72,7 +72,6 @@ class Gromacs(BaseInfo):
         os.makedirs(scripts_dir, exist_ok=True)
         scripts_name = f'{get_fmt_time("%Y-%m-%d-%H-%M-%S.%f")}'
         # generate command
-        cmd = self.gen_command(sub_commmand, **kwargs)
         if enable_log:
             log_path = os.path.join(scripts_dir, f'{scripts_name}.log')
             cmd = f'{cmd} > ./LazyDock_gmx_scripts/{scripts_name}.log'.replace('&&', '\n')
@@ -109,9 +108,25 @@ class Gromacs(BaseInfo):
         if enable_log:
             ret_val = (ret_val, log_path)
         return ret_val
+    
+    def run_gmx_with_expect(self, sub_commmand: str, expect_actions: List[Dict[str, str]] = None,
+                            expect_settings: Dict[str, Any] = None, enable_log: bool = False, **kwargs):
+        """
+        Run gromacs command with expect script.
+        """
+        cmd = self.gen_command(sub_commmand, **kwargs)
+        self.run_command_with_expect(cmd, expect_actions, expect_settings, enable_log)
+        
+    def run_normal_cmd_with_expect(self, cmd: str, expect_actions: List[Dict[str, str]] = None,
+                                  expect_settings: Dict[str, Any] = None, enable_log: bool = False):
+        """
+        Run normal command with expect script.
+        """
+        self.run_command_with_expect(cmd, expect_actions, expect_settings, enable_log)
+        
         
         
 if __name__ == '__main__':
     gmx = Gromacs()
-    gmx.run_command_with_expect('grompp', f='topol.top', c='conf.gro', p='topol.top', o='tpr', maxwarn=1)
-    gmx.run_command_with_expect('pdb2gmx -f receptor.pdb -o processed.gro -ter -ignh', [{')': '1\r'}, {'None': '1\r'}, {'None': '1\r'}, {'None': '1\r'}])
+    gmx.run_gmx_with_expect('grompp', f='topol.top', c='conf.gro', p='topol.top', o='tpr', maxwarn=1)
+    gmx.run_gmx_with_expect('pdb2gmx -f receptor.pdb -o processed.gro -ter -ignh', [{')': '1\r'}, {'None': '1\r'}, {'None': '1\r'}, {'None': '1\r'}])
