@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-05 14:26:31
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-06 18:12:45
+LastEditTime: 2025-02-11 11:28:37
 Description: 
 '''
 from typing import Dict
@@ -68,9 +68,10 @@ class PDBConverter(PDBWriter):
         return ''.join(self.pdbfile.str_lst)
     
     def _write_single_timestep_fast(self, alter_chain: Dict[str,str] = None,
-                                    alter_res: Dict[str,str] = None):
+                                    alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None):
         alter_chain = alter_chain or {}
         alter_res = alter_res or {}
+        alter_atm = alter_atm or {}
         atoms = self.obj.atoms
         pos = atoms.positions
         if self.convert_units:
@@ -94,19 +95,18 @@ class PDBConverter(PDBWriter):
                 return np.array([default] * len(atoms))
         altlocs = get_attr('altLocs', ' ')
         resnames = get_attr('resnames', 'UNK')
-        for k, v in alter_res.items():
-            resnames[resnames == k] = v
         icodes = get_attr('icodes', ' ')
         segids = get_attr('segids', ' ')
         chainids = get_attr('chainIDs', '')
-        for k, v in alter_chain.items():
-            chainids[chainids == k] = v
         resids = get_attr('resids', 1)
         occupancies = get_attr('occupancies', 1.0)
         tempfactors = get_attr('tempfactors', 0.0)
         atomnames = get_attr('names', 'X')
         elements = get_attr('elements', ' ')
         record_types = get_attr('record_types', 'ATOM')
+        for alter_attr, alter_dict in zip([resnames, chainids, record_types], [alter_res, alter_chain, alter_atm]):
+            for k, v in alter_dict.items():
+                alter_attr[alter_attr == k] = v
         formal_charges = self._format_PDB_charges(get_attr('formalcharges', 0))
 
         def validate_chainids(chainids, default):
@@ -186,7 +186,7 @@ class PDBConverter(PDBWriter):
         self.frames_written += 1
     
     def fast_convert(self, alter_chain: Dict[str,str] = None,
-                     alter_res: Dict[str,str] = None):
+                     alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None):
         """
         Convert the AtomGroup to a PDB string.
         Returns
@@ -196,5 +196,5 @@ class PDBConverter(PDBWriter):
         """
         self.ts = self.obj.universe.trajectory.ts
         self.frames_written = 1
-        self._write_single_timestep_fast(alter_chain, alter_res)
+        self._write_single_timestep_fast(alter_chain, alter_res, alter_atm)
         return ''.join(self.pdbfile.str_lst)
