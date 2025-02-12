@@ -3,10 +3,17 @@ import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
+if 'MBAPY_PLT_AGG' in os.environ:
+    import matplotlib
+    matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import gaussian_kde
 import pandas as pd
 from tqdm import tqdm
 from MDAnalysis import Universe
 from mbapy_lite.base import put_err, put_log
+from mbapy.plot import save_show
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from mbapy_lite.web import TaskPool
 from lazydock.gmx.run import Gromacs
@@ -29,6 +36,9 @@ class simple(Command):
     
     5. gmx_mpi sasa -s md.tpr -f md_center.xtc -o sasa_total.xvg -or sasa_res.xvg -tu ns 
     6. gmx_mpi covar -s md.tpr -f md_center.xtc -o eigenval.xvg -tu ns 
+    
+    7. free energy landscape from rmsd and gyrate by MD-DaVis
+    8. Probability Density Function from rmsd and gyrate
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
@@ -111,7 +121,44 @@ class simple(Command):
     
     @staticmethod
     def free_energy_landscape(gmx: Gromacs, main_name: str, **kwargs):
-        os.system(f'cd "{gmx.working_dir}" && md-davis landscape_xvg -c -T 300 -x rmsd.xvg -y gyrate.xvg -o FEL.html -n FEL -l "RMSD-Rg" --axis_labels "dict(x=\'RMSD (in nm)\', y=\'Rg (in nm)\', z=\'Free Energy (kJ mol<sup>-1</sup>)<br>\')"')
+        # MD-DaVis
+        gmx.run_command_with_expect(f'md-davis landscape_xvg -c -T 300 -x rmsd.xvg -y gyrate.xvg -o FEL.html -n FEL -l "RMSD-Rg" --axis_labels "dict(x=\'RMSD (in nm)\', y=\'Rg (in nm)\', z=\'Free Energy (kJ mol<sup>-1</sup>)<br>\')"')
+        # gmx and dit
+        gmx.run_command_with_expect(f'dit xvg_combine -f rmsd.xvg gyrate.xvg -c 0,1 1 -l RMSD Gyrate -o rmsd_gyrate.xvg -x "Time (ps)"')
+        gmx.run_command_with_expect(f'sham -f rmsd_gyrate.xvg -ls sham.xpm')
+        gmx.run_command_with_expect(f'it xpm_show -f sham.xpm -m 3d --x_precision 1 --y_precision 1 --z_precision 1 -cmap jet --colorbar_location right -o rmsd_gyrate.png -ns')
+        
+    
+    @staticmethod
+    def plot_PDF(gmx: Gromacs, main_name: str, **kwargs):
+        """idea from https://pymolwiki.org/index.php/Geo_Measures_Plugin"""
+        # read data and calculate density
+        x = pd.read_csv(f'{gmx.working_dir}/{main_name}_rmsd.csv').values[:, -1]
+        y = pd.read_csv(f'{gmx.working_dir}/{main_name}_gyrate.csv').values[:, -1]
+        xy = np.vstack([x, y])
+        z = gaussian_kde(xy)(xy)
+        # Sort the points by density, so that the densest points are plotted last
+        idx = z.argsort()
+        x, y, z = x[idx], y[idx], z[idx]
+        # plot scatter
+        fig, ax = plt.subplots()
+        pdf = ax.scatter(x, y, c=z, s=50, edgecolor="none", cmap=plt.cm.jet)
+        # Hide right and top spines
+        ax.spines["right"].set_visible(False)
+        ax.spines["top"].set_visible(False)
+        ax.yaxis.set_ticks_position("left")
+        ax.xaxis.set_ticks_position("bottom")
+        # Set x and y limits
+        plt.xlim(x.min() - 1, x.max() + 1)
+        plt.ylim(y.min() - 1, y.max() + 1)
+        # Set x and y labels
+        plt.xlabel('RMSD (in nm)')
+        plt.ylabel('Rg (in nm)')
+        # Adding the color bar
+        colbar = plt.colorbar(pdf)
+        colbar.set_label("Probability Density Function")
+        save_show(os.path.join(gmx.working_dir, f'{main_name}_PDF.png'), 600, show=False)
+        plt.close(fig)
     
     def process_args(self):
         self.args.dir = clean_path(self.args.dir)
@@ -137,6 +184,8 @@ class simple(Command):
             self.covar(gmx, main_name=complex_path.stem, group=self.args.eigenval_group, xmax=self.args.eigenval_xmax)
             # perform free energy landscape by MD-DaVis
             self.free_energy_landscape(gmx, main_name=complex_path.stem)
+            # plot PDF
+            self.plot_PDF(gmx, main_name=complex_path.stem)
             
             
 class mmpbsa(Command):
