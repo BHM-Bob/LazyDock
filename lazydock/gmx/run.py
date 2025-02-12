@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-11 15:07:12
+LastEditTime: 2025-02-12 09:56:08
 Description:
 '''
 import os
@@ -115,14 +115,7 @@ class Gromacs(BaseInfo):
         Run gromacs command with expect script.
         """
         cmd = self.gen_command(sub_commmand, **kwargs)
-        self.run_command_with_expect(cmd, expect_actions, expect_settings, enable_log)
-        
-    def run_normal_cmd_with_expect(self, cmd: str, expect_actions: List[Dict[str, str]] = None,
-                                  expect_settings: Dict[str, Any] = None, enable_log: bool = False):
-        """
-        Run normal command with expect script.
-        """
-        self.run_command_with_expect(cmd, expect_actions, expect_settings, enable_log)
+        return self.run_command_with_expect(cmd, expect_actions, expect_settings, enable_log)
         
         
         
