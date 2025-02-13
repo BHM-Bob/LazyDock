@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-30 19:28:57
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-10-21 15:31:51
+LastEditTime: 2025-02-13 21:33:30
 Description: RRCS calculation in PyMOL, RRCS is from article "Common activation mechanism of class A GPCRs": https://github.com/elifesciences-publications/RRCS/blob/master/RRCS.py
 '''
 from typing import Dict, Tuple
@@ -46,29 +46,25 @@ def _calcu_score(dict_coord: Dict[str, Dict[int, Tuple[float, float, float, floa
             score_count[0] += 1
     return total_score
 
-def calcu_RRCS(model: str, _cmd = None):
+
+def calcu_RRCS_from_dict(dict_coord: Dict[str, Dict[int, Tuple[float, float, float, float]]],
+                        atomnum2name: Dict[int, str]):
     """
     Parameters:
-        - model: molecular name loaded in pymol
-        - _cmd: pymol command object, default is cmd.
-
+        - dict_coord: dict of coordinates, dict_coord[res][atom] = (x, y, z, occupancy)
+        - atomnum2name: map atom number to atom name, in order to find N, CA, C, O
     Returns:
         contact_df: DataFrame of contact scores, index and columns are residue names.
     """
-    _cmd = _cmd or cmd
-    dict_coord = {} # dict to store coordinates. dict_coord[res][atom] = (x, y, z, occupancy)
-    _cmd.iterate_state(1, model, 'dict_coord.setdefault(f"{chain}:{resi}:{resn}", {}).setdefault(index, (x, y, z, q))', space={'dict_coord': dict_coord})
-    atomnum2name = {} # map atom number to atom name, in order to find N, CA, C, O
-    _cmd.iterate(model, 'atomnum2name[index] = name', space={'atomnum2name': atomnum2name})
     contact_score = {} # dict to store final results. contact_score[ires][jres] = contact_score.
     score_count = [0] # 66320
     # calcu RRCS score for each residue pair
     for ires in dict_coord:
-        ires_num = int(ires.split(':')[1])
+        ires_num = int(ires[ires.find(':')+1:ires.rfind(':')])
         contact_score[ires] = {}
         # find jres if it has any atom close to ires
         for jres in dict_coord:
-            jres_num = int(jres.split(':')[1])
+            jres_num = int(jres[jres.find(':')+1:jres.rfind(':')])
             contact_score[ires][jres] = 0
             # skip because alreadly calculated
             if jres_num <= ires_num:
@@ -83,6 +79,24 @@ def calcu_RRCS(model: str, _cmd = None):
     contact_df = pd.DataFrame(data={k:list(v.values()) for k,v in contact_score.items()},
                               index=contact_score.keys(), columns=contact_score.keys())
     return contact_df
+
+
+def calcu_RRCS(model: str, _cmd = None):
+    """
+    Parameters:
+        - model: molecular name loaded in pymol
+        - _cmd: pymol command object, default is cmd.
+
+    Returns:
+        contact_df: DataFrame of contact scores, index and columns are residue names.
+    """
+    _cmd = _cmd or cmd
+    dict_coord = {} # dict to store coordinates. dict_coord[res][atom] = (x, y, z, occupancy)
+    _cmd.iterate_state(1, model, 'dict_coord.setdefault(f"{chain}:{resi}:{resn}", {}).setdefault(index, (x, y, z, q))', space={'dict_coord': dict_coord})
+    atomnum2name = {} # map atom number to atom name, in order to find N, CA, C, O
+    _cmd.iterate(model, 'atomnum2name[index] = name', space={'atomnum2name': atomnum2name})
+    return calcu_RRCS_from_dict(dict_coord, atomnum2name)
+
 
 if __name__ == '__main__':
     cmd.reinitialize()
