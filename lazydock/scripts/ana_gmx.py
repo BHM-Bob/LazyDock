@@ -188,7 +188,7 @@ class simple(Command):
             self.plot_PDF(gmx, main_name=complex_path.stem)
             
             
-class mmpbsa(Command):
+class mmpbsa(simple_analysis):
     HELP = """
     mmpbsa analysis for GROMACS simulation
     """
@@ -273,7 +273,7 @@ def run_pdbstr_interaction_analysis(pdbstr: str, receptor_chain: str, ligand_cha
     return inter
 
 
-class interaction(mmpbsa, simple_analysis):
+class interaction(mmpbsa):
     HELP = """
     interaction analysis for GROMACS simulation
     """
@@ -306,6 +306,10 @@ class interaction(mmpbsa, simple_analysis):
                           help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
         args.add_argument('-np', '--n-workers', type=int, default=4,
                           help='number of workers to parallel. Default is %(default)s.')
+        args.add_argument('-b', '--begin-frame', type=int, default=0,
+                          help='First frame to start the analysis. Default is %(default)s.')
+        args.add_argument('-e', '--end-frame', type=int, default=None,
+                          help='First frame to start the analysis. Default is %(default)s.')
         args.add_argument('-step', '--traj-step', type=int, default=1,
                           help='Step while reading trajectory. Default is %(default)s.')
     
@@ -342,12 +346,14 @@ class interaction(mmpbsa, simple_analysis):
             rec_idx, lig_idx = self.get_complex_atoms_index(u)
             complex_ag = u.atoms[rec_idx | lig_idx]
             # calcu interaction for each frame
-            for frame in tqdm(u.trajectory[::self.args.traj_step], total=len(u.trajectory)//self.args.traj_step, desc='Calculation frames', leave=False):
+            sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
+            for frame in tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
+                              total=sum_frames//self.args.traj_step, desc='Calculation frames', leave=False):
                 pdbstr = PDBConverter(complex_ag).fast_convert(alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm)
                 pool.add_task(frame.time, run_pdbstr_interaction_analysis, pdbstr,
                               self.args.receptor_chain_name, self.args.alter_ligand_chain,
                               self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only)
-                pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.01)
+                pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.001, update_result_queue=False)
             # merge interactions
             interactions, df = {}, pd.DataFrame()
             for k in list(pool.tasks.keys()):
