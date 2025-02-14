@@ -20,6 +20,7 @@ from lazydock.gmx.run import Gromacs
 from lazydock.gmx.mda.convert import PDBConverter
 from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
 from lazydock.pml.plip_interaction import run_plip_analysis
+from lazydock.pml.rrcs import calcu_RRCS_from_tensor, calcu_RRCS_from_array
 from lazydock.scripts.ana_interaction import simple_analysis, pml_mode, plip_mode
 from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
 
@@ -377,10 +378,99 @@ class interaction(mmpbsa):
         pool.close()
 
 
+def _calcu_RRCS(resis: np.ndarray, names: np.ndarray, positions: np.ndarray,
+                occupancies: np.ndarray, backend: str):
+    if backend == 'numpy':
+        return calcu_RRCS_from_array(names, resis, positions, occupancies)
+    elif backend in {'torch', 'cuda'}:
+        device = 'cuda' if backend == 'cuda' else 'cpu'
+        import torch
+        resis = torch.tensor(resis, dtype=torch.int32, device=device)
+        sort_idx = torch.argsort(resis)
+        resis = resis[sort_idx]
+        names = np.array(names)[sort_idx.cpu().numpy()]
+        positions = torch.tensor(positions, dtype=torch.float32, device=device)[sort_idx]
+        occupancies = torch.tensor(occupancies, dtype=torch.float32, device=device)[sort_idx]
+        return calcu_RRCS_from_tensor(names, resis, positions, occupancies, device=device)
+
+
+class RRCS(mmpbsa):
+    HELP = """
+    RRCS analysis for GROMACS simulation
+    """
+    def __init__(self, args, printf=print):
+        super().__init__(args, printf)
+
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, required=True,
+                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
+        args.add_argument('-top', '--top-name', type = str, required=True,
+                          help=f"topology file name in each sub-folder.")
+        args.add_argument('-traj', '--traj-name', type = str, required=True,
+                          help=f"trajectory file name in each sub-folder.")
+        args.add_argument('-c', '--chains', type = str, default=None, nargs='+',
+                          help='chain of molecular to be included into calculation. Default is %(default)s.')
+        args.add_argument('-np', '--n-workers', type=int, default=4,
+                          help='number of workers to parallel. Default is %(default)s.')
+        args.add_argument('-b', '--begin-frame', type=int, default=0,
+                          help='First frame to start the analysis. Default is %(default)s.')
+        args.add_argument('-e', '--end-frame', type=int, default=None,
+                          help='First frame to start the analysis. Default is %(default)s.')
+        args.add_argument('-step', '--traj-step', type=int, default=1,
+                          help='Step while reading trajectory. Default is %(default)s.')
+        args.add_argument('--backend', type=str, default='numpy', choices=['numpy', 'torch', 'cuda'],
+                          help='backend for RRCS calculation. Default is %(default)s.')
+    
+    def main_process(self):
+        print(f'find {len(self.tasks)} tasks.')
+        # run tasks
+        pool = TaskPool('process', self.args.n_workers).start()
+        bar = tqdm(total=len(self.tasks), desc='Calculating RRCS')
+        for top_path, traj_path in self.tasks:
+            wdir = os.path.dirname(top_path)
+            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            # load pdbstr from traj
+            u = Universe(top_path, traj_path)
+            if self.args.chains is not None and len(self.args.chains):
+                idx = u.atoms.chainIDs == self.args.chains[0]
+                for chain_i in self.args.chains[1:]:
+                    idx = idx | (u.atoms.chainIDs == chain_i)
+                ag = u.atoms[idx]
+            else:
+                ag = u.atoms
+            print(f'find {np.unique(u.atoms.chainIDs)} chains, {len(ag)} atoms in {self.args.chains}')
+            # calcu interaction for each frame
+            sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
+            for frame in tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
+                              total=sum_frames//self.args.traj_step, desc='Calculation frames', leave=False):
+                if not hasattr(ag, 'occupancies'):
+                    occupancies = np.ones(len(ag))
+                else:
+                    occupancies = ag.occupancies
+                pool.add_task(frame.time, _calcu_RRCS, ag.resids.copy(), ag.names.copy(),
+                              ag.positions.copy(), occupancies.copy(), self.args.backend)
+                pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.01, update_result_queue=False)
+            # merge result
+            scores, frames = {}, list(pool.tasks.keys())
+            for k in frames:
+                df = pool.query_task(k, True, 10)
+                scores[k] = df.values
+            # save result
+            top_path = Path(top_path).resolve()
+            np.savez(str(top_path.parent / f'{top_path.stem}_RRCS.npz'),
+                     scores=scores, frames=np.array(frames), resis=ag.resids, resns=ag.resnames, chains=ag.chainIDs)
+            # other things
+            pool.task = {}
+            bar.update(1)
+        pool.close()
+        
+
 _str2func = {
     'simple': simple,
     'mmpbsa': mmpbsa,
     'interaction': interaction,
+    'rrcs': RRCS,
 }
 
 
@@ -396,6 +486,7 @@ def main(sys_args: List[str] = None):
 
 if __name__ == '__main__':
     # dev code
-    # main('interaction -bd data_tmp/gmx/run1 -top md.tpr -traj md_center.xtc --receptor-chain-name A --ligand-chain-name LIG --alter-ligand-chain Z --alter-ligand-res UNK --method plip --mode all'.split(' '))
+    # main('interaction -bd data_tmp/gmx/run1 -top md.tpr -traj md_center.xtc -np 8 --receptor-chain-name A --ligand-chain-name LIG --alter-ligand-chain Z --alter-ligand-res UNK --method plip --mode all'.split(' '))
+    # main('rrcs -d data_tmp/gmx/run1 -top md.tpr -traj md_center.xtc -c A Z -np 2 --backend cuda'.split(' '))
     
     main()
