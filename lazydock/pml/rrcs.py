@@ -1,7 +1,7 @@
 '''
 Date: 2024-09-30 19:28:57
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-14 15:00:02
+LastEditTime: 2025-02-14 17:22:05
 Description: RRCS calculation in PyMOL, RRCS is from article "Common activation mechanism of class A GPCRs": https://github.com/elifesciences-publications/RRCS/blob/master/RRCS.py
 '''
 from typing import Dict, Tuple
@@ -108,7 +108,7 @@ def calcu_RRCS_from_array(names: np.ndarray, resis: np.ndarray, positions: np.nd
     score_mat = np.where(d2_mat < 10.4329, ooc_mat, 0.0)
     score_mat = np.where((d2_mat >= 10.4329) & (d2_mat < 21.4369), (1-(d2_mat**0.5 - 3.23)/1.4) * ooc_mat, score_mat)
     score_mat = np.where(check_atm_mask & atm_mask, 0, score_mat * close_mask * ij_less_mask)
-    # 获取分组的唯一值及其索引
+    # 获取分组的唯一值及其索引, row_labels is unique index
     unique_values, row_labels = np.unique(resis, return_inverse=True)
     K = len(unique_values)
     idx_mat = (row_labels[:, None] * K + row_labels[None, :]).reshape(-1)
@@ -150,7 +150,7 @@ def calcu_RRCS_from_tensor(names: np.ndarray, resis: np.ndarray, positions: np.n
     score_mat = torch.where(d2_mat < 10.4329, ooc_mat, 0.0)
     score_mat = torch.where((d2_mat >= 10.4329) & (d2_mat < 21.4369), (1-(d2_mat**0.5 - 3.23)/1.4) * ooc_mat, score_mat)
     score_mat = torch.where(check_atm_mask & atm_mask, 0, score_mat * close_mask * ij_less_mask)
-    # 获取分组的唯一值及其索引
+    # 获取分组的唯一值及其索引, row_labels is unique index
     unique_values, row_labels = torch.unique(resis, return_inverse=True)
     K = len(unique_values)
     idx_mat = (row_labels[:, None] * K + row_labels[None, :]).reshape(-1)
@@ -184,18 +184,14 @@ def calcu_RRCS(model: str, backend: str = 'numpy', _cmd = None, device: str = 'c
         if backend == 'torch':
             import torch
             resis = torch.tensor(resis, dtype=torch.int16, device=device)
-            sort_idx = torch.argsort(resis)
-            resis = resis[sort_idx]
-            names = np.array(names)[sort_idx.cpu().numpy()]
-            positions = torch.tensor(positions, dtype=torch.float32, device=device)[sort_idx]
-            occupancies = torch.tensor(occupancies, dtype=torch.float32, device=device)[sort_idx]
+            names = np.array(names)
+            positions = torch.tensor(positions, dtype=torch.float32, device=device)
+            occupancies = torch.tensor(occupancies, dtype=torch.float32, device=device)
             return calcu_RRCS_from_tensor(names, resis, positions, occupancies, device=device)
         else:
-            sort_idx = np.argsort(resis)
-            resis = resis[sort_idx]
-            names = np.array(names)[sort_idx]
-            positions = np.array(positions)[sort_idx]
-            occupancies = np.array(occupancies)[sort_idx]
+            names = np.array(names)
+            positions = np.array(positions)
+            occupancies = np.array(occupancies)
             return calcu_RRCS_from_array(names, resis, positions, occupancies)
     elif backend == 'dict':
         dict_coord = {} # dict to store coordinates. dict_coord[res][atom] = (x, y, z, occupancy)
@@ -215,5 +211,5 @@ if __name__ == '__main__':
     from mbapy_lite.base import TimeCosts
     @TimeCosts(6)
     def test_calcu(idx):
-        calcu_RRCS('receptor', backend='torch', device='cuda')
+        calcu_RRCS('receptor', backend='numpy', device='cuda')
     test_calcu()
