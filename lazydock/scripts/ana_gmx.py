@@ -458,8 +458,9 @@ class RRCS(mmpbsa):
                 scores[k] = df.values
             # save result
             top_path = Path(top_path).resolve()
-            np.savez(str(top_path.parent / f'{top_path.stem}_RRCS.npz'),
-                     scores=scores, frames=np.array(frames), resis=ag.resids, resns=ag.resnames, chains=ag.chainIDs)
+            np.savez_compressed(str(top_path.parent / f'{top_path.stem}_RRCS.npz'),
+                                scores=scores, frames=np.array(frames), resis=ag.resids,
+                                resns=ag.resnames, chains=ag.chainIDs)
             # other things
             pool.task = {}
             bar.update(1)
