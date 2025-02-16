@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-12 09:56:08
+LastEditTime: 2025-02-16 20:56:23
 Description:
 '''
 import os
@@ -116,6 +116,13 @@ class Gromacs(BaseInfo):
         """
         cmd = self.gen_command(sub_commmand, **kwargs)
         return self.run_command_with_expect(cmd, expect_actions, expect_settings, enable_log)
+    
+    def run_cmd_with_expect(self, cmd: str, expect_actions: List[Dict[str, str]] = None,
+                            expect_settings: Dict[str, Any] = None, enable_log: bool = False):
+        """
+        Run command with expect script, add cd wdir to cmd in front of it.
+        """
+        return self.run_command_with_expect(f'cd "{self.working_dir}" && {cmd}', expect_actions, expect_settings, enable_log)
         
         
         
