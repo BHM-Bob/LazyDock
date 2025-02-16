@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-30 19:11:37
+LastEditTime: 2025-02-16 20:28:22
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -13,14 +13,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
+from lazydock.gmx.run import Gromacs
+from lazydock.scripts._script_utils_ import Command, clean_path
+from lazydock.utils import uuid4
 from mbapy_lite.base import format_secs, put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from pymol import cmd
 from tqdm import tqdm
-
-from lazydock.gmx.run import Gromacs
-from lazydock.scripts._script_utils_ import Command, clean_path
-from lazydock.utils import uuid4
 
 
 class simple_protein(Command):

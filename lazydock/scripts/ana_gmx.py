@@ -8,21 +8,22 @@ if 'MBAPY_PLT_AGG' in os.environ:
     matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import gaussian_kde
 import pandas as pd
-from tqdm import tqdm
-from MDAnalysis import Universe
-from mbapy_lite.base import put_err, put_log
-from mbapy.plot import save_show
-from mbapy_lite.file import get_paths_with_extension, opts_file
-from mbapy_lite.web import TaskPool
-from lazydock.gmx.run import Gromacs
 from lazydock.gmx.mda.convert import PDBConverter
+from lazydock.gmx.run import Gromacs
 from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
 from lazydock.pml.plip_interaction import run_plip_analysis
-from lazydock.pml.rrcs import calcu_RRCS_from_tensor, calcu_RRCS_from_array
-from lazydock.scripts.ana_interaction import simple_analysis, pml_mode, plip_mode
+from lazydock.pml.rrcs import calcu_RRCS_from_array, calcu_RRCS_from_tensor
 from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
+from lazydock.scripts.ana_interaction import (plip_mode, pml_mode,
+                                              simple_analysis)
+from mbapy.plot import save_show
+from mbapy_lite.base import put_err, put_log
+from mbapy_lite.file import get_paths_with_extension, opts_file
+from mbapy_lite.web import TaskPool
+from MDAnalysis import Universe
+from scipy.stats import gaussian_kde
+from tqdm import tqdm
 
 
 class simple(Command):

@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-26 15:03:09
+LastEditTime: 2025-02-16 20:28:30
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -11,12 +11,6 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-from mbapy_lite.base import Configs, put_err, put_log
-from mbapy_lite.file import get_paths_with_extension, opts_file
-from mbapy_lite.web import Browser, TaskPool, random_sleep
-from pymol import cmd
-from tqdm import tqdm
-
 from lazydock.config import CONFIG_FILE_PATH, GlobalConfig
 from lazydock.gmx.run import Gromacs
 from lazydock.gmx.thirdparty.cgenff_charmm2gmx import run_transform
@@ -24,6 +18,11 @@ from lazydock.gmx.thirdparty.sort_mol2_bonds import sort_bonds
 from lazydock.pml.align_to_axis import align_pose_to_axis
 from lazydock.scripts._script_utils_ import Command, clean_path
 from lazydock.web.cgenff import get_login_browser, get_result_from_CGenFF
+from mbapy_lite.base import Configs, put_err, put_log
+from mbapy_lite.file import get_paths_with_extension, opts_file
+from mbapy_lite.web import Browser, TaskPool, random_sleep
+from pymol import cmd
+from tqdm import tqdm
 
 
 class protein(Command):
