@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-16 20:27:57
+LastEditTime: 2025-02-17 22:28:54
 Description: 
 '''
 import argparse
@@ -13,7 +13,6 @@ import MDAnalysis as mda
 import networkx as nx
 import numpy as np
 import pandas as pd
-from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
 from lazydock_md_task.scripts.calc_correlation import plot_map
 from lazydock_md_task.scripts.contact_map_v2 import (calculate_contacts,
                                                      load_and_preprocess_traj,
@@ -21,8 +20,10 @@ from lazydock_md_task.scripts.contact_map_v2 import (calculate_contacts,
                                                      save_network_data)
 from mbapy.web_utils.task import TaskPool
 from mbapy_lite.base import put_err, put_log
-from mbapy_lite.file import get_paths_with_extension, opts_file
 from tqdm import tqdm
+
+from lazydock.scripts._script_utils_ import excute_command
+from lazydock.scripts.ana_gmx import mmpbsa
 
 
 def construct_graph(frame, atoms_inices: np.ndarray, threshold=6.7):
@@ -48,7 +49,7 @@ def calcu_nextwork_from_frame(g):
         return put_err(f'Error calculating BC for frame: {ex}')
 
 
-class network(Command):
+class network(mmpbsa):
     HELP = """
     network analysis for MD-TASK
     """
@@ -57,48 +58,47 @@ class network(Command):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type=str, default='.',
-                          help='directory to store the prepared files, default: %(default)s.')
-        args.add_argument('-xtc', '--xtc-name', type = str, required=True,
-                          help='trajectory file name in each sub-directory, such as center.xtc.')
-        args.add_argument('-gro', '--gro-name', type = str, required=True,
-                          help='gro file name for topology info in each sub-directory, such as md.gro.')
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, required=True,
+                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
+        args.add_argument('-top', '--top-name', type = str, required=True,
+                          help='topology file name in each sub-directory, such as md.tpr.')
+        args.add_argument('-traj', '--traj-name', type = str, required=True,
+                          help='trajectory file name in each sub-directory, such as md_center.xtc.')
         args.add_argument("--ligand", type=str, default=None,
                           help="MDAnalysis atoms select expression to be included in the network, default: %(default)s")
         args.add_argument("--threshold", type=float, default=6.7,
                           help="Maximum distance threshold in Angstroms when constructing graph (default: %(default)s)")
-        args.add_argument("--step", type=int, default=1,
-                          help="Size of step when iterating through trajectory frames, default: %(default)s")
-        args.add_argument('-mp', "--n-workers", type=int, default=4,
+        args.add_argument('-b', '--begin-frame', type=int, default=0,
+                          help='First frame to start the analysis. Default is %(default)s.')
+        args.add_argument('-e', '--end-frame', type=int, default=None,
+                          help='First frame to start the analysis. Default is %(default)s.')
+        args.add_argument('-step', '--traj-step', type=int, default=1,
+                          help='Step while reading trajectory. Default is %(default)s.')
+        args.add_argument('-np', "--n-workers", type=int, default=4,
                           help="Number of workers to parallelize the calculation, default: %(default)s")
         return args
 
     def process_args(self):
-        self.args.dir = clean_path(self.args.dir)
-        if not os.path.isdir(self.args.dir):
-            put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
-        self.paths = get_paths_with_extension(self.args.dir, [], name_substr=self.args.gro_name)
-        if len(self.paths) == 0:
-            put_err(f'No pdb files found in {self.args.dir}, exit.', _exit=True)
-        self.pool = TaskPool('process', self.args.n_workers)
+        super().process_args()
+        self.pool = TaskPool('process', self.args.n_workers).start()
     
-    def calcu_network(self, traj_path: Path, topol_path: Path):
+    def calcu_network(self, topol_path: Path, traj_path: Path):
         # prepare trajectory and topology
         u = mda.Universe(str(topol_path), str(traj_path))
         ligand = '' if self.args.ligand is None else f' or {self.args.ligand}'
         atoms = u.select_atoms("(name CB and protein) or (name CA and resname GLY)" + ligand)
         # prepare and run parallel calculation
-        total_frames = len(u.trajectory) // self.args.step
-        total_bc, total_dj_path = [None] * total_frames, [None] * total_frames
-        for current, frame in enumerate(tqdm(u.trajectory[::self.args.step], total=total_frames)):
+        sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
+        total_bc, total_dj_path = [None] * sum_frames, [None] * sum_frames
+        for current, frame in enumerate(tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
+                                             desc='Calculating network', total=sum_frames)):
             pg = construct_graph(frame, atoms.indices, self.args.threshold)
             self.pool.add_task(current, calcu_nextwork_from_frame, pg)
             self.pool.wait_till(lambda: self.pool.count_waiting_tasks() == 0, 0)
         # gather results
-        self.pool.wait_till(lambda: self.pool.count_done_tasks() == total_frames, 0)
-        for i, (_, (bc, path), _) in self.pool.tasks.items():
-            total_bc[i] = bc
-            total_dj_path[i] = path
+        self.pool.wait_till(lambda: self.pool.count_done_tasks() == sum_frames, 0)
+        for i in tqdm(list(self.pool.tasks.keys()), total=sum_frames, desc='Gathering results'):
+            total_bc[i], total_dj_path[i] = self.pool.query_task(i, True, 999)
         self.pool.clear()
         total_bc = np.asarray(total_bc)
         total_dj_path = np.asarray(total_dj_path)
@@ -107,16 +107,13 @@ class network(Command):
                  total_dj_path=total_dj_path.astype(np.int16))
     
     def main_process(self):
-        put_log(f'get {len(self.paths)} task(s)')
-        self.pool.start()
-        # process each complex
-        for path in tqdm(self.paths, total=len(self.paths)):
-            gro_path = Path(path).resolve()
-            xtc_path = gro_path.parent / self.args.xtc_name
-            if not xtc_path.exists():
-                put_err(f'xtc file not found: {xtc_path}, skip.')
-                continue
-            self.calcu_network(xtc_path, gro_path)
+        print(f'find {len(self.tasks)} tasks.')
+        # process each task
+        bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
+        for top_path, traj_path in self.tasks:
+            wdir = os.path.dirname(top_path)
+            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            self.calcu_network(top_path, traj_path)
         self.pool.close()
         
         
@@ -152,9 +149,10 @@ class correlation(network):
         ligand = '' if self.args.ligand is None else f' or {self.args.ligand}'
         atoms = u.select_atoms("(name CA and protein)" + ligand)
         # extract coords
-        total_frames = len(u.trajectory) // self.args.step
+        sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         coords = np.zeros((len(u.trajectory), len(atoms), 3), dtype=np.float64)
-        for current, _ in enumerate(tqdm(u.trajectory[::self.args.step], total=total_frames)):
+        for current, _ in enumerate(tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
+                                         desc='Gathering coordinates', total=sum_frames)):
             coords[current] = atoms.positions
         # calculate correlation matrix and save, show
         sorted_residx = np.argsort(atoms.resids)
