@@ -143,7 +143,7 @@ class correlation(network):
         
         return corr_matrix
     
-    def calcu_network(self, traj_path: Path, topol_path: Path):
+    def calcu_network(self, topol_path: Path, traj_path: Path):
         # prepare trajectory and topology
         u = mda.Universe(str(topol_path), str(traj_path))
         ligand = '' if self.args.ligand is None else f' or {self.args.ligand}'
