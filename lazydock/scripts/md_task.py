@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-17 22:28:54
+LastEditTime: 2025-02-17 22:52:06
 Description: 
 '''
 import argparse
@@ -76,6 +76,8 @@ class network(mmpbsa):
                           help='Step while reading trajectory. Default is %(default)s.')
         args.add_argument('-np', "--n-workers", type=int, default=4,
                           help="Number of workers to parallelize the calculation, default: %(default)s")
+        args.add_argument('-F', '--force', default=False, action='store_true',
+                          help='force to re-run the analysis, default is %(default)s.')
         return args
 
     def process_args(self):
@@ -113,7 +115,12 @@ class network(mmpbsa):
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
             bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
-            self.calcu_network(top_path, traj_path)
+            top_path, traj_path = Path(top_path), Path(traj_path)
+            if os.path.exists(os.path.join(wdir, f'{traj_path.stem}_network.npz')) and not self.args.force:
+                put_log(f'{traj_path.stem}_network.npz already exists, skip.')
+                continue
+            self.calcu_network(Path(top_path), Path(traj_path))
+            bar.update(1)
         self.pool.close()
         
         
