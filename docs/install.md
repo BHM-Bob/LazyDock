@@ -1,7 +1,7 @@
 <!--
  * @Date: 2025-02-06 16:18:51
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2025-02-08 22:48:16
+ * @LastEditTime: 2025-02-17 09:53:46
  * @Description: 
 -->
 #### install lazydock python package itself 
@@ -41,6 +41,7 @@ Now all needed functionality of MD-TASK for lazydock is included in lazydock_md_
 
 #### install MD-DaVis for lazydock
 ```bash
+pip install biopandas h5py
 pip install md-davis -U --no-deps
 ```
 
