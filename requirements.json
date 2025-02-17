@@ -7,13 +7,13 @@
         "openbabel-wheel",
         "networkx>=3",
         "DuIvyTools>=0.6.0",
-        "lazydock_md_task>=0.1.0",
         "toml"
     ],
     "all":
     [
         "compas",
         "md-davis",
-        "plip"
+        "plip",
+        "lazydock_md_task>=0.1.0"
     ]
 }
