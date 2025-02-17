@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-17 22:52:06
+LastEditTime: 2025-02-17 23:03:21
 Description: 
 '''
 import argparse
@@ -105,7 +105,7 @@ class network(mmpbsa):
         total_bc = np.asarray(total_bc)
         total_dj_path = np.asarray(total_dj_path)
         # save outputs, float32 and int16 for saving space
-        np.savez(f'{traj_path.stem}_network.npz', total_bc=total_bc.astype(np.float32),
+        np.savez(traj_path.parent / f'{traj_path.stem}_network.npz', total_bc=total_bc.astype(np.float32),
                  total_dj_path=total_dj_path.astype(np.int16))
     
     def main_process(self):
