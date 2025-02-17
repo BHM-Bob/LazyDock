@@ -63,17 +63,23 @@ class simple(Command):
                           help='group to calculate eigenval, default is %(default)s.')
         args.add_argument('-xmax', '--eigenval-xmax', type = int, default=15,
                           help='max value of eigenval, default is %(default)s.')
+        args.add_argument('-f', '--force', type=bool, default=False, action='store_true',
+                          help='force to re-run the analysis, default is %(default)s.')
         return args
 
     @staticmethod
-    def trjconv(gmx: Gromacs, main_name: str, center_group: str = '1', **kwargs):
+    def trjconv(gmx: Gromacs, main_name: str, center_group: str = '1', force: bool = False, **kwargs):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_center.xtc')) and not force:
+            return put_log(f'{main_name}_center.xtc already exists, skip trjconv.')
         gmx.run_gmx_with_expect('trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc', pbc='mol', center=True,
                                     expect_actions=[{'Select a group:': f'{center_group}\r', '\\timeout': f'{center_group}\r'},
                                                     {'Select a group:': '0\r', '\\timeout': '0\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
         
     @staticmethod
-    def rms(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
+    def rms(gmx: Gromacs, main_name: str, group: str = '4', force: bool = False, **kwargs):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsd.csv')) and not force:
+            return put_log(f'{main_name}_rmsd.csv already exists, skip rms.')
         gmx.run_gmx_with_expect('rms', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsd.xvg', tu='ns',
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
@@ -81,21 +87,27 @@ class simple(Command):
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsd.xvg -o rmsd.png -smv -ws 10 -t "RMSD of {main_name}" -csv {main_name}_rmsd.csv -ns')
         
     @staticmethod
-    def rmsf(gmx: Gromacs, main_name: str, group: str = '4', res: bool = True, **kwargs):
+    def rmsf(gmx: Gromacs, main_name: str, group: str = '4', res: bool = True, force: bool = False, **kwargs):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsf.csv')) and not force:
+            return put_log(f'{main_name}_rmsf.csv already exists, skip rmsf.')
         gmx.run_gmx_with_expect('rmsf', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsf.xvg', res=res,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsf.xvg -o rmsf.png -t "RMSF of {main_name}" -csv {main_name}_rmsf.csv -ns')
         
     @staticmethod
-    def gyrate(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
+    def gyrate(gmx: Gromacs, main_name: str, group: str = '4', force: bool = False, **kwargs):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_gyrate.csv')) and not force:
+            return put_log(f'{main_name}_gyrate.csv already exists, skip gyrate.')
         gmx.run_gmx_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate.xvg',
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f gyrate.xvg -o gyrate.png -smv -ws 10 -t "Gyrate of {main_name}" -csv {main_name}_gyrate.csv -ns')
         
     @staticmethod
-    def hbond(gmx: Gromacs, main_name: str, group: str = '1', dt=10, **kwargs):
+    def hbond(gmx: Gromacs, main_name: str, group: str = '1', dt=10, force: bool = False, **kwargs):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_hbond_num.csv')) and not force:
+            return put_log(f'{main_name}_hbond_num.csv already exists, skip hbond.')
         gmx.run_gmx_with_expect('hbond', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
                                     num=f'{main_name}_hbond_num.xvg', dist=f'{main_name}_hbond_dist.xvg',
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
@@ -105,7 +117,9 @@ class simple(Command):
         gmx.run_cmd_with_expect(f'dit xvg_show -f {main_name}_hbond_dist.xvg -o hbond_dist.png -ns')
 
     @staticmethod
-    def sasa(gmx: Gromacs, main_name: str, group: str = '4', **kwargs):
+    def sasa(gmx: Gromacs, main_name: str, group: str = '4', force: bool = False, **kwargs):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_sasa_tv.csv')) and not force:
+            return put_log(f'{main_name}_sasa_tv.csv already exists, skip sasa.')
         gmx.run_gmx_with_expect('sasa -or sasa_res.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
                                     o=f'sasa_total.xvg', odg=f'sasa_dg.xvg', tv='sasa_tv.xvg', tu='ns',
                                     expect_actions=[{'>': f'{group}\r', '\\timeout': f'{group}\r'}],
@@ -114,7 +128,9 @@ class simple(Command):
             gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f sasa_{ty}.xvg -o sasa_{ty}.png -smv -ws 10 -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}.csv -ns')
 
     @staticmethod
-    def covar(gmx: Gromacs, main_name: str, group: str = '4', xmax: int = 15, **kwargs):
+    def covar(gmx: Gromacs, main_name: str, group: str = '4', xmax: int = 15, force: bool = False, **kwargs):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_eigenval.csv')) and not force:
+            return put_log(f'{main_name}_eigenval.csv already exists, skip covar.')
         gmx.run_gmx_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'eigenval.xvg', tu='ns',
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
@@ -122,17 +138,23 @@ class simple(Command):
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f eigenval.xvg -o eigenval.png -xmin 0 -xmax {xmax} -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv -ns')
     
     @staticmethod
-    def free_energy_landscape(gmx: Gromacs, main_name: str, **kwargs):
+    def free_energy_landscape(gmx: Gromacs, main_name: str, force: bool = False, **kwargs):
         # MD-DaVis
+        if os.path.exists(os.path.join(gmx.working_dir, f'FEL.html')) and not force:
+            return put_log(f'FEL.html already exists, skip free energy landscape.')
         gmx.run_cmd_with_expect(f'md-davis landscape_xvg -c -T 300 -x rmsd.xvg -y gyrate.xvg -o FEL.html -n FEL -l "RMSD-Rg" --axis_labels "dict(x=\'RMSD (in nm)\', y=\'Rg (in nm)\', z=\'Free Energy (kJ mol<sup>-1</sup>)<br>\')"')
         # gmx and dit
+        if os.path.exists(os.path.join(gmx.working_dir, f'rmsd_gyrate.png')) and not force:
+            return put_log(f'rmsd_gyrate.png already exists, skip free energy landscape.')
         gmx.run_cmd_with_expect(f'dit xvg_combine -f rmsd.xvg gyrate.xvg -c 0,1 1 -l RMSD Gyrate -o rmsd_gyrate.xvg -x "Time (ps)"')
         gmx.run_gmx_with_expect(f'sham -f rmsd_gyrate.xvg -ls sham.xpm')
         gmx.run_cmd_with_expect(f'dit xpm_show -f sham.xpm -m 3d --x_precision 1 --y_precision 1 --z_precision 1 -cmap jet --colorbar_location right -o rmsd_gyrate.png -ns')
         
     
     @staticmethod
-    def plot_PDF(gmx: Gromacs, main_name: str, **kwargs):
+    def plot_PDF(gmx: Gromacs, main_name: str, force: bool = False, **kwargs):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_PDF.png')) and not force:
+            return put_log(f'{main_name}_PDF.png already exists, skip plot PDF.')
         """idea from https://pymolwiki.org/index.php/Geo_Measures_Plugin"""
         # read data and calculate density
         x = pd.read_csv(f'{gmx.working_dir}/{main_name}_rmsd.csv').values[:, -1]
@@ -176,18 +198,18 @@ class simple(Command):
             complex_path = Path(complex_path).resolve()
             gmx = Gromacs(working_dir=str(complex_path.parent))
             # perform trjconv
-            self.trjconv(gmx, main_name=complex_path.stem, center_group=self.args.center_group)
+            self.trjconv(gmx, main_name=complex_path.stem, center_group=self.args.center_group, force=self.args.force)
             # perform analysis
-            self.rms(gmx, main_name=complex_path.stem, group=self.args.rms_group)
-            self.rmsf(gmx, main_name=complex_path.stem, group=self.args.rms_group)
-            self.gyrate(gmx, main_name=complex_path.stem, group=self.args.rms_group)
-            self.hbond(gmx, main_name=complex_path.stem, group=self.args.hbond_group)
-            self.sasa(gmx, main_name=complex_path.stem, group=self.args.sasa_group)
-            self.covar(gmx, main_name=complex_path.stem, group=self.args.eigenval_group, xmax=self.args.eigenval_xmax)
+            self.rms(gmx, main_name=complex_path.stem, group=self.args.rms_group, force=self.args.force)
+            self.rmsf(gmx, main_name=complex_path.stem, group=self.args.rms_group, force=self.args.force)
+            self.gyrate(gmx, main_name=complex_path.stem, group=self.args.rms_group, force=self.args.force)
+            self.hbond(gmx, main_name=complex_path.stem, group=self.args.hbond_group, force=self.args.force)
+            self.sasa(gmx, main_name=complex_path.stem, group=self.args.sasa_group, force=self.args.force)
+            self.covar(gmx, main_name=complex_path.stem, group=self.args.eigenval_group, xmax=self.args.eigenval_xmax, force=self.args.force)
             # perform free energy landscape by MD-DaVis
-            self.free_energy_landscape(gmx, main_name=complex_path.stem)
+            self.free_energy_landscape(gmx, main_name=complex_path.stem, force=self.args.force)
             # plot PDF
-            self.plot_PDF(gmx, main_name=complex_path.stem)
+            self.plot_PDF(gmx, main_name=complex_path.stem, force=self.args.force)
             
             
 class mmpbsa(simple_analysis):
