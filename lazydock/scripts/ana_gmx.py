@@ -63,7 +63,7 @@ class simple(Command):
                           help='group to calculate eigenval, default is %(default)s.')
         args.add_argument('-xmax', '--eigenval-xmax', type = int, default=15,
                           help='max value of eigenval, default is %(default)s.')
-        args.add_argument('-f', '--force', type=bool, default=False, action='store_true',
+        args.add_argument('-f', '--force', default=False, action='store_true',
                           help='force to re-run the analysis, default is %(default)s.')
         return args
 
