@@ -91,13 +91,13 @@ class network(mmpbsa):
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         total_bc, total_dj_path = [None] * sum_frames, [None] * sum_frames
         for current, frame in enumerate(tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
-                                             desc='Calculating network', total=sum_frames)):
+                                             desc='Calculating network', total=sum_frames, leave=False)):
             pg = construct_graph(frame, atoms.indices, self.args.threshold)
             self.pool.add_task(current, calcu_nextwork_from_frame, pg)
             self.pool.wait_till(lambda: self.pool.count_waiting_tasks() == 0, 0)
         # gather results
         self.pool.wait_till(lambda: self.pool.count_done_tasks() == sum_frames, 0)
-        for i in tqdm(list(self.pool.tasks.keys()), total=sum_frames, desc='Gathering results'):
+        for i in tqdm(list(self.pool.tasks.keys()), total=sum_frames, desc='Gathering results', leave=False):
             total_bc[i], total_dj_path[i] = self.pool.query_task(i, True, 999)
         self.pool.clear()
         total_bc = np.asarray(total_bc)
@@ -152,7 +152,7 @@ class correlation(network):
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         coords = np.zeros((len(u.trajectory), len(atoms), 3), dtype=np.float64)
         for current, _ in enumerate(tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
-                                         desc='Gathering coordinates', total=sum_frames)):
+                                         desc='Gathering coordinates', total=sum_frames, leave=False)):
             coords[current] = atoms.positions
         # calculate correlation matrix and save, show
         sorted_residx = np.argsort(atoms.resids)
