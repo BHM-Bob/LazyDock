@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-23 19:53:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-18 11:22:40
+LastEditTime: 2025-02-18 15:39:50
 Description:
 '''
 import argparse
@@ -48,13 +48,16 @@ class Command:
         self.process_args()
         show_args(self.args, list(self.args.__dict__.keys()), self.printf)
         if self.iter_run_arg:
+            # [arg1_values: List, arg2_values: List, ...]
             iter_args = [getattr(self.args, n).copy() for n in self.iter_run_arg]
+            sum_run = min(len(i) for i in iter_args)
             for i, args in enumerate(zip(*iter_args)):
                 cur_arg_info = []
+                # args: [arg1_value1, arg2_value2, ...]
                 for n, v in zip(self.iter_run_arg, args):
                     setattr(self.args, n, v)
                     cur_arg_info.append(f'{n}={v}')
-                put_log(f'running iter[{i}] for args: {", ".join(cur_arg_info)}')
+                put_log(f'running iter[{i+1}/{sum_run}] for args: {", ".join(cur_arg_info)}')
                 self.main_process()
         else:
             return self.main_process()
