@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-23 19:53:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-04 21:42:20
+LastEditTime: 2025-02-18 11:22:40
 Description:
 '''
 import argparse
@@ -50,9 +50,11 @@ class Command:
         if self.iter_run_arg:
             iter_args = [getattr(self.args, n).copy() for n in self.iter_run_arg]
             for i, args in enumerate(zip(*iter_args)):
+                cur_arg_info = []
                 for n, v in zip(self.iter_run_arg, args):
                     setattr(self.args, n, v)
-                put_log(f'running iter[{i}] for args: {self.iter_run_arg}')
+                    cur_arg_info.append(f'{n}={v}')
+                put_log(f'running iter[{i}] for args: {", ".join(cur_arg_info)}')
                 self.main_process()
         else:
             return self.main_process()
