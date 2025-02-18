@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-23 19:53:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-18 15:39:50
+LastEditTime: 2025-02-18 16:16:43
 Description:
 '''
 import argparse
@@ -18,17 +18,28 @@ from mbapy_lite.file import opts_file
 def clean_path(path: str):
     return Path(path.replace('"', '').replace("'", '')).resolve()
 
+
 def _print(content: str, f, verbose = True):
     if f is not None:
         f.write(content+'\n')
     if verbose:
         print(content)
 
+
 def show_args(args, args_name: List[str], printf = print):
     printf('')
     for arg_name in args_name:
         printf(f'get arg: {arg_name}: {getattr(args, arg_name)}')
     printf('')
+
+
+def process_batch_dir_lst(batch_dir_lst: List[str]):
+    batch_dir_lst = list(map(clean_path, batch_dir_lst))
+    for root in batch_dir_lst:
+        if not os.path.isdir(root):
+            put_err(f'batch_dir argument should be a directory: {root}, exit.', _exit=True)
+    return batch_dir_lst
+
 
 class Command:
     def __init__(self, args: argparse.Namespace, printf = print,
@@ -78,8 +89,8 @@ class Command:
     def exec_from_session(self, session: Union[str, Dict[str, Any]]):
         if isinstance(session, str) and check_parameters_path(session):
             session = self.load_session(session)
-        
-    
+ 
+
 def excute_command(args_paser: argparse.ArgumentParser, sys_args: List[str],
                    _str2func: Dict[str, callable]):
     args = args_paser.parse_args(sys_args)
