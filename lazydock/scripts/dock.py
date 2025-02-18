@@ -1,19 +1,22 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-14 19:30:23
+LastEditTime: 2025-02-18 11:19:49
 Description: 
 '''
 
 import argparse
 import os
 import time
-from functools import wraps
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
 import pandas as pd
 import seaborn as sns
+from lazydock.pml.autodock_utils import DlgFile
+from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
+from lazydock.web.dinc import run_dock_on_DINC_ensemble
+from lazydock.web.hdock import run_dock_on_HDOCK, run_dock_on_HPEPDOCK
 from matplotlib import pyplot as plt
 from mbapy_lite.base import Configs, put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file, write_sheets
@@ -21,21 +24,16 @@ from mbapy_lite.plot import save_show
 from mbapy_lite.web import TaskPool, random_sleep
 from tqdm import tqdm
 
-from lazydock.pml.autodock_utils import DlgFile
-from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
-from lazydock.web.dinc import run_dock_on_DINC_ensemble
-from lazydock.web.hdock import run_dock_on_HDOCK, run_dock_on_HPEPDOCK
-
 
 class vina(Command):
     def __init__(self, args, printf = print):
-        super().__init__(args, printf)
+        super().__init__(args, printf, ['batch_dir'])
         self.taskpool = None
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type = str, default='.',
-                                help='config file directory contains config files, each sub-directory is a task. Default is %(default)s.')
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default='.',
+                          help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-c', '--config-name', type = str, default='config.txt',
                                 help='config file name, each config is a task. Default is %(default)s.')
         args.add_argument('-v', '--vina-name', type = str, default='vina',
@@ -47,10 +45,9 @@ class vina(Command):
         return args
     
     def process_args(self):
-        self.args.dir = clean_path(self.args.dir)
+        self.args.batch_dir = list(map(clean_path, self.args.batch_dir))
         if self.args.n_workers <= 0:
             put_err(f'n_workers must be positive integer, got {self.args.n_workers}, exit.', _exit=True)
-        self.taskpool = TaskPool('threads', self.args.n_workers).start()
         self.args.vina_args = '' if self.args.vina_args in {"''", '""', ''} else self.args.vina_args
         
     @staticmethod
@@ -66,11 +63,12 @@ class vina(Command):
         os.system(cmd_string)
         
     def main_process(self):
-        if os.path.isdir(self.args.dir):
-            configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr=self.args.config_name)
+        if os.path.isdir(self.args.batch_dir):
+            configs_path = get_paths_with_extension(self.args.batch_dir, ['.txt'], name_substr=self.args.config_name)
         else:
-            put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
+            return put_err(f'dir argument should be a directory: {self.args.batch_dir}, skip.')
         print(f'get {len(configs_path)} config(s) for docking')
+        self.taskpool = TaskPool('threads', self.args.n_workers).start()
         tasks = []
         for config_path in tqdm(configs_path, total=len(configs_path)):
             tasks.append(self.taskpool.add_task(None, self.run_vina, Path(config_path), self.args.vina_name, self.args.vina_args))
@@ -85,7 +83,7 @@ def hdock_run_fn_warpper(result_prefix: str = 'HDOCK', result_name: str = 'HDOCK
         def core_wrapper(*args, **kwargs):
             config_path = args[0] if len(args) > 0 else kwargs.get('config_path', None)
             if config_path is None:
-                put_err('config_path is required, exit.', _exit=True)
+                return put_err('config_path is required, skip.')
             # get parameters from config file
             if isinstance(config_path, Path):
                 root = config_path.parent
@@ -98,7 +96,7 @@ def hdock_run_fn_warpper(result_prefix: str = 'HDOCK', result_name: str = 'HDOCK
                 parameters = {'receptor_path': config_path[0], 'ligand_path': config_path[1]}
             # un-expected type
             else:
-                put_err(f'config_path type not support: {type(config_path)}, exit.', _exit=True)
+                return put_err(f'config_path type not support: {type(config_path)}, skip.')
             # check if done
             if (root / f'{result_prefix}_all_results.tar.gz').exists() or (root / result_name).exists():
                 return print(f'{root} has done, skip')
@@ -112,12 +110,12 @@ def hdock_run_fn_warpper(result_prefix: str = 'HDOCK', result_name: str = 'HDOCK
 
 class hdock(Command):
     def __init__(self, args, printf = print):
-        super().__init__(args, printf)
+        super().__init__(args, printf, ['batch_dir'])
     
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type = str, default='.',
-                          help='vina config file directory contains config files (named "config.txt"), each sub-directory is a task. Default is %(default)s.')
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default='.',
+                          help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-r', '--receptor', type = str, default=None,
                           help="receptor pdb file name, optional. If provided, will ignore config.txt.")
         args.add_argument('-l', '--ligand', type = str, default=None,
@@ -131,6 +129,9 @@ class hdock(Command):
         args.add_argument('-gui', '--gui', action='store_true', default=False,
                           help='show browser GUI. Default is %(default)s.')
         return args
+    
+    def process_args(self):
+        self.args.batch_dir = list(map(clean_path, self.args.batch_dir))
     
     @staticmethod
     def get_paramthers_from_config(config_path: Path) -> Dict:
@@ -152,11 +153,11 @@ class hdock(Command):
         raise NotImplementedError('local docking not implemented yet.')
 
     def main_process(self):
-        if not os.path.isdir(self.args.dir):
-            put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
+        if not os.path.isdir(self.args.batch_dir):
+            return put_err(f'dir argument should be a directory: {self.args.config}.')
         if self.args.receptor is not None and self.args.ligand is not None:
-            r_paths = get_paths_with_extension(self.args.dir, [], name_substr=self.args.receptor)
-            l_paths = get_paths_with_extension(self.args.dir, [], name_substr=self.args.ligand)
+            r_paths = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.receptor)
+            l_paths = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.ligand)
             if len(r_paths) != len(l_paths):
                 r_roots = [os.path.dirname(p) for p in r_paths]
                 l_roots = [os.path.dirname(p) for p in l_paths]
@@ -165,9 +166,9 @@ class hdock(Command):
                 return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:\n{invalid_roots}")
             configs_path = [(r, l) for r, l in zip(r_paths, l_paths)]
         elif self.args.config_name is not None:
-            configs_path = get_paths_with_extension(self.args.dir, ['.txt'], name_substr=self.args.config_name)
+            configs_path = get_paths_with_extension(self.args.batch_dir, ['.txt'], name_substr=self.args.config_name)
         else:
-            return put_err('config_name or receptor and ligand should be provided, exit.', _exit=True)
+            return put_err('config_name or receptor and ligand should be provided, skip.')
         print(f'get {len(configs_path)} config(s) for docking')
         # allow browser gui
         if self.args.gui:
@@ -256,13 +257,13 @@ def convert_result_run_convert(input_path: Path, output_path: Path, method: str)
 
 class convert_result(Command):
     def __init__(self, args, printf = print):
-        super().__init__(args, printf)
+        super().__init__(args, printf, ['batch_dir'])
         self.taskpool = None
 
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type = str, default='.',
-                                help='input directory. Default is %(default)s.')
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default='.',
+                          help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-n', '--name', type = str, default='',
                           help='input file name. Default is %(default)s.')
         args.add_argument('-i', '--input-type', type = str, default='pdbqt,dlg',
@@ -278,7 +279,7 @@ class convert_result(Command):
         return args
     
     def process_args(self):
-        self.args.dir = clean_path(self.args.dir)
+        self.args.batch_dir = list(map(clean_path, self.args.batch_dir))
         self.args.input_type = self.args.input_type.split(',')
         if self.args.n_workers <= 0:
             put_err(f'n_workers must be positive integer, got {self.args.n_workers}, exit.', _exit=True)
@@ -296,7 +297,7 @@ class convert_result(Command):
         os.system(f'obabel -i{ty1} "{str(input_path)}" -o{ty2} -O "{str(output_path)}"')
 
     def main_process(self):
-        input_paths = get_paths_with_extension(self.args.dir, self.args.input_type, name_substr=self.args.name)
+        input_paths = get_paths_with_extension(self.args.batch_dir, self.args.input_type, name_substr=self.args.name)
         print(f'get {len(input_paths)} input(s) for convert:\n', '\n'.join([f'{i+1}. {x}' for i, x in enumerate(input_paths)]))
         if input('start convert? (y/n) ').lower() != 'y':
             return 
@@ -313,15 +314,15 @@ class convert_result(Command):
 
 class cluster_result(Command):
     def __init__(self, args, printf = print):
-        super().__init__(args, printf)
+        super().__init__(args, printf, ['batch_dir'])
         self.taskpool = None
 
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type = str, default='.',
-                                help='input directory. Default is %(default)s.')
-        args.add_argument('-n', '--name', type = str, default='',
-                          help='input file name, such as "dock.pdbqt". Default is %(default)s.')
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default='.',
+                          help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
+        args.add_argument('-n', '--name', type = str, required=True,
+                          help='input file name, such as "dock.pdbqt".')
         args.add_argument('-m', '--method', type = str, default='pose', choices=['pose', 'interaction'],
                           help='cluster method to use. Currently support "pose, interaction". Default is %(default)s.')
         args.add_argument('--range', type = str, default='2,7',
@@ -333,7 +334,7 @@ class cluster_result(Command):
         return args
     
     def process_args(self):
-        self.args.dir = clean_path(self.args.dir)
+        self.args.batch_dir = list(map(clean_path, self.args.batch_dir))
         self.args.range = [int(x) for x in self.args.range.split(',')]
         if len(self.args.range) != 2 or self.args.range[0] >= self.args.range[1]:
             put_err(f'range should be "min,max", and min < max, got {self.args.range}, exit.', _exit=True)
@@ -375,7 +376,7 @@ class cluster_result(Command):
         raise NotImplementedError('interaction clustering not implemented yet.')
 
     def main_process(self):
-        input_paths = get_paths_with_extension(self.args.dir, [], name_substr=self.args.name)
+        input_paths = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.name)
         tasks = []
         for input_path in tqdm(input_paths, total=len(input_paths)):
             input_path = Path(input_path)
