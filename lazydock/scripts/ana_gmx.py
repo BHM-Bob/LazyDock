@@ -424,7 +424,7 @@ class RRCS(mmpbsa):
 
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '-bd', '--batch-dir', type = str, required=True,
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
         args.add_argument('-top', '--top-name', type = str, required=True,
                           help=f"topology file name in each sub-folder.")
@@ -442,17 +442,25 @@ class RRCS(mmpbsa):
                           help='Step while reading trajectory. Default is %(default)s.')
         args.add_argument('--backend', type=str, default='numpy', choices=['numpy', 'torch', 'cuda'],
                           help='backend for RRCS calculation. Default is %(default)s.')
+        args.add_argument('-F', '--force', default=False, action='store_true',
+                          help='force to re-run the analysis, default is %(default)s.')
     
     def main_process(self):
+        self.top_paths, self.traj_paths = self.check_top_traj()
+        self.tasks = self.find_tasks()
         print(f'find {len(self.tasks)} tasks.')
         # run tasks
         pool = TaskPool('process', self.args.n_workers).start()
         bar = tqdm(total=len(self.tasks), desc='Calculating RRCS')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
+            top_path = Path(top_path).resolve()
             bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            if os.path.exists(os.path.join(wdir, f'{top_path.stem}_RRCS.npz')) and not self.args.force:
+                put_log(f'{top_path.stem}_RRCS.npz already exists, skip free energy landscape.')
+                continue
             # load pdbstr from traj
-            u = Universe(top_path, traj_path)
+            u = Universe(str(top_path), traj_path)
             if self.args.chains is not None and len(self.args.chains):
                 idx = u.atoms.chainIDs == self.args.chains[0]
                 for chain_i in self.args.chains[1:]:
@@ -478,7 +486,6 @@ class RRCS(mmpbsa):
                 df = pool.query_task(k, True, 10)
                 scores[k] = df.values
             # save result
-            top_path = Path(top_path).resolve()
             np.savez_compressed(str(top_path.parent / f'{top_path.stem}_RRCS.npz'),
                                 scores=scores, frames=np.array(frames), resis=ag.resids,
                                 resns=ag.resnames, chains=ag.chainIDs)
