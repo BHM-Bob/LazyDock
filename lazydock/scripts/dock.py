@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-04 20:58:39
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-18 11:19:49
+LastEditTime: 2025-02-18 16:01:18
 Description: 
 '''
 
@@ -32,7 +32,7 @@ class vina(Command):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default='.',
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-c', '--config-name', type = str, default='config.txt',
                                 help='config file name, each config is a task. Default is %(default)s.')
@@ -44,8 +44,15 @@ class vina(Command):
                                 help='number of tasks to parallel docking. Default is %(default)s.')
         return args
     
+    def process_batch_dir_lst(self, batch_dir_lst: List[str]):
+        batch_dir_lst = list(map(clean_path, batch_dir_lst))
+        for root in batch_dir_lst:
+            if not os.path.isdir(root):
+                put_err(f'batch_dir argument should be a directory: {root}, exit.', _exit=True)
+        return batch_dir_lst
+    
     def process_args(self):
-        self.args.batch_dir = list(map(clean_path, self.args.batch_dir))
+        self.args.batch_dir = self.process_batch_dir_lst(self.args.batch_dir)
         if self.args.n_workers <= 0:
             put_err(f'n_workers must be positive integer, got {self.args.n_workers}, exit.', _exit=True)
         self.args.vina_args = '' if self.args.vina_args in {"''", '""', ''} else self.args.vina_args
@@ -108,13 +115,13 @@ def hdock_run_fn_warpper(result_prefix: str = 'HDOCK', result_name: str = 'HDOCK
     return ret_warpper
 
 
-class hdock(Command):
+class hdock(vina):
     def __init__(self, args, printf = print):
-        super().__init__(args, printf, ['batch_dir'])
+        super().__init__(args, printf)
     
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default='.',
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-r', '--receptor', type = str, default=None,
                           help="receptor pdb file name, optional. If provided, will ignore config.txt.")
@@ -131,7 +138,7 @@ class hdock(Command):
         return args
     
     def process_args(self):
-        self.args.batch_dir = list(map(clean_path, self.args.batch_dir))
+        self.args.batch_dir = self.process_batch_dir_lst(self.args.batch_dir)
     
     @staticmethod
     def get_paramthers_from_config(config_path: Path) -> Dict:
@@ -255,14 +262,14 @@ def convert_result_run_convert(input_path: Path, output_path: Path, method: str)
         put_err(f'unsupported convert method: {method}, exit.', _exit=True)
 
 
-class convert_result(Command):
+class convert_result(vina):
     def __init__(self, args, printf = print):
-        super().__init__(args, printf, ['batch_dir'])
+        super().__init__(args, printf)
         self.taskpool = None
 
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default='.',
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-n', '--name', type = str, default='',
                           help='input file name. Default is %(default)s.')
@@ -312,14 +319,14 @@ class convert_result(Command):
         self.taskpool.close()
 
 
-class cluster_result(Command):
+class cluster_result(vina):
     def __init__(self, args, printf = print):
-        super().__init__(args, printf, ['batch_dir'])
+        super().__init__(args, printf)
         self.taskpool = None
 
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default='.',
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-n', '--name', type = str, required=True,
                           help='input file name, such as "dock.pdbqt".')
@@ -334,7 +341,7 @@ class cluster_result(Command):
         return args
     
     def process_args(self):
-        self.args.batch_dir = list(map(clean_path, self.args.batch_dir))
+        self.args.batch_dir = self.process_batch_dir_lst(self.args.batch_dir)
         self.args.range = [int(x) for x in self.args.range.split(',')]
         if len(self.args.range) != 2 or self.args.range[0] >= self.args.range[1]:
             put_err(f'range should be "min,max", and min < max, got {self.args.range}, exit.', _exit=True)
@@ -400,13 +407,9 @@ _str2func = {
 def main(sys_args: List[str] = None):
     args_paser = argparse.ArgumentParser(description = 'perform docking with Vina or other docking software.')
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
-
-    vina_args = vina.make_args(subparsers.add_parser('vina', description='perform vina molecular docking.'))
-    hdock_args = hdock.make_args(subparsers.add_parser('hdock', description='perform HDOCK molecular docking.'))
-    hpepdock_args = hpepdock.make_args(subparsers.add_parser('hpepdock', description='perform HPEPDOCK molecular docking.'))
-    dinc_ensemble_args = dinc_ensemble.make_args(subparsers.add_parser('dinc-ensemble', description='perform DINC-Ensemble molecular docking.'))
-    convert_result_args = convert_result.make_args(subparsers.add_parser('convert-result', description='convert docking result file to pdb format.'))
-    cluster_result_args = cluster_result.make_args(subparsers.add_parser('cluster-result', description='cluster docking result.'))
+    
+    for k, v in _str2func.items():
+        v.make_args(subparsers.add_parser(k))
 
     excute_command(args_paser, sys_args, _str2func)
 
