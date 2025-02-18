@@ -1,10 +1,10 @@
 <!--
  * @Date: 2025-02-06 16:18:51
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2025-02-17 09:53:46
+ * @LastEditTime: 2025-02-18 16:51:24
  * @Description: 
 -->
-#### install lazydock python package itself 
+## install lazydock python package itself 
 - pypi
 ```bash
 pip install lazydock -U
@@ -28,9 +28,10 @@ pip install git+https://gitee.com/BHM-Bob/BA_PY.git
   9. md-davis: needed by `lazydock.scripts.ana_gmx` to run MD-DaVis.
   10. expect: a software for running shell command, needed by `lazydock.gmx.run.Gromacs`.
 
-#### install lazydock-pymol-plugin
+## install lazydock-pymol-plugin
 In pymol plugin installation GUI, install `path-to-site-packages/lazydock_pymol_plugin/__init__.py`.
 
+## install lazydock dependencies
 #### install plip for lazydock
 ```bash
 pip install plip -U --no-deps
@@ -57,3 +58,8 @@ Version are from gmx_MMPBSA's docs.
 ```bash
 sudo apt install expect
 ```
+
+## python env compatibility
+### matplotlib
+- matplotlib==3.7.5
+- contourpy==1.1.0
