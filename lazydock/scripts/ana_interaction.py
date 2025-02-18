@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-06 17:04:36
+LastEditTime: 2025-02-18 16:13:31
 Description: 
 '''
 import argparse
@@ -10,52 +10,40 @@ from pathlib import Path
 from typing import Callable, Dict, List, Set, Tuple
 
 import pandas as pd
+from lazydock.pml.autodock_utils import DlgFile
+from lazydock.pml.interaction_utils import SUPPORTED_MODE as pml_mode
+from lazydock.pml.interaction_utils import \
+    calcu_receptor_poses_interaction as calc_fn_pml
+from lazydock.pml.ligplus_interaction import SUPPORTED_MODE as ligplus_mode
+from lazydock.pml.ligplus_interaction import \
+    calcu_receptor_poses_interaction as calc_fn_ligplus
+from lazydock.pml.plip_interaction import SUPPORTED_MODE as plip_mode
+from lazydock.pml.plip_interaction import \
+    calcu_receptor_poses_interaction as calc_fn_plip
+from lazydock.scripts._script_utils_ import Command, clean_path, process_batch_dir_lst
 from mbapy_lite.base import put_err
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from pymol import cmd
 from tqdm import tqdm
 
-if __name__ == '__main__':
-    from lazydock.pml.autodock_utils import DlgFile
-    from lazydock.pml.interaction_utils import SUPPORTED_MODE as pml_mode
-    from lazydock.pml.interaction_utils import \
-        calcu_receptor_poses_interaction as calc_fn_pml
-    from lazydock.pml.ligplus_interaction import SUPPORTED_MODE as ligplus_mode
-    from lazydock.pml.ligplus_interaction import \
-        calcu_receptor_poses_interaction as calc_fn_ligplus
-    from lazydock.pml.plip_interaction import SUPPORTED_MODE as plip_mode
-    from lazydock.pml.plip_interaction import \
-        calcu_receptor_poses_interaction as calc_fn_plip
-    from lazydock.scripts._script_utils_ import Command, clean_path
-else:
-    from ..pml.autodock_utils import DlgFile
-    from ..pml.interaction_utils import SUPPORTED_MODE as pml_mode
-    from ..pml.interaction_utils import \
-        calcu_receptor_poses_interaction as calc_fn_pml
-    from ..pml.ligplus_interaction import SUPPORTED_MODE as ligplus_mode
-    from ..pml.ligplus_interaction import \
-        calcu_receptor_poses_interaction as calc_fn_ligplus
-    from ..pml.plip_interaction import SUPPORTED_MODE as plip_mode
-    from ..pml.plip_interaction import \
-        calcu_receptor_poses_interaction as calc_fn_plip
-    from ._script_utils_ import Command, clean_path
-    
-    
+
+# TODO: change it to nargs
+# TODO: add force option
 class simple_analysis(Command):
     METHODS: Dict[str, Tuple[Callable, List[str]]] = {'pymol': (calc_fn_pml, pml_mode),
                                                       'ligplus': (calc_fn_ligplus, ligplus_mode),
                                                       'plip': (calc_fn_plip, plip_mode)}
     def __init__(self, args: argparse.Namespace, printf=print) -> None:
-        super().__init__(args, printf)
+        super().__init__(args, printf, ['batch_dir'])
         self.tasks = []
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-r', '--receptor', type = str,
-                          help="receptor pdb file path or file name, will be loaded by pymol.")
+                          help="receptor pdb file name, will be loaded by pymol.")
         args.add_argument('-l', '--ligand', type = str,
-                          help=f"docking result path or file name, support Vina(pdbqt) and AutoDock(dlg) format.")
-        args.add_argument('-bd', '--batch-dir', type = str, default=None,
+                          help=f"docking result file name, support Vina(pdbqt) and AutoDock(dlg) format.")
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
         args.add_argument('--method', type = str, default='pymol', choices=simple_analysis.METHODS.keys(),
                           help='search input directory recursively, default is %(default)s.')
@@ -73,20 +61,7 @@ class simple_analysis(Command):
 
     def process_args(self):
         # process IO
-        if self.args.batch_dir:
-            self.args.batch_dir = clean_path(self.args.batch_dir)
-        else:
-            def check_file(path: str, name: str):
-                path = clean_path(path)
-                if not os.path.isfile(path):
-                    put_err(f"{name} file is not a file path: {path}, exit.")
-                    exit(1)
-                if not os.path.exists(path):
-                    put_err(f"{name} file is not exists: {path}, exit.")
-                    exit(1)
-                return path
-            self.args.receptor = check_file(self.args.receptor, "receptor")
-            self.args.ligand = check_file(self.args.ligand, "ligand")
+        self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         # check method and mode
         if ',' in self.args.mode:
             self.args.mode = [m.strip() for m in self.args.mode.split(',')]
