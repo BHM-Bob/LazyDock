@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-23 19:53:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-18 16:16:43
+LastEditTime: 2025-02-18 17:21:42
 Description:
 '''
 import argparse
@@ -34,11 +34,23 @@ def show_args(args, args_name: List[str], printf = print):
 
 
 def process_batch_dir_lst(batch_dir_lst: List[str]):
+    """transform the batch_dir_lst to a list of Path, check each path is a dir. If any path is not a dir, exit"""
     batch_dir_lst = list(map(clean_path, batch_dir_lst))
     for root in batch_dir_lst:
         if not os.path.isdir(root):
             put_err(f'batch_dir argument should be a directory: {root}, exit.', _exit=True)
     return batch_dir_lst
+
+
+def check_file_num_paried(r_paths: List[str], l_paths: List[str]):
+    """check file number paired, if not paired, return roots of not paired files, else return empty list"""
+    if len(r_paths)!= len(l_paths):
+        r_roots = [os.path.dirname(p) for p in r_paths]
+        l_roots = [os.path.dirname(p) for p in l_paths]
+        roots_count = {root: r_roots.count(root)+l_roots.count(root) for root in (set(r_roots) | set(l_roots))}
+        invalid_roots = '\n'.join([root for root, count in roots_count.items() if count!= 2])
+        return invalid_roots
+    return []
 
 
 class Command:
