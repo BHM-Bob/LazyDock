@@ -14,7 +14,7 @@ from lazydock.gmx.run import Gromacs
 from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
 from lazydock.pml.plip_interaction import run_plip_analysis
 from lazydock.pml.rrcs import calcu_RRCS_from_array, calcu_RRCS_from_tensor
-from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
+from lazydock.scripts._script_utils_ import Command, process_batch_dir_lst, excute_command
 from lazydock.scripts.ana_interaction import (plip_mode, pml_mode,
                                               simple_analysis)
 from mbapy.plot import save_show
@@ -43,12 +43,12 @@ class simple(Command):
     8. Probability Density Function from rmsd and gyrate
     """
     def __init__(self, args, printf=print):
-        super().__init__(args, printf)
+        super().__init__(args, printf, ['batch_dir'])
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type=str,
-                          help='directory to store the prepared files')
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
+                          help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-n', '--main-name', type = str,
                           help='main name in each sub-directory, such as md.tpr.')
         args.add_argument('-cg', '--center-group', type = str, default='1',
@@ -185,13 +185,11 @@ class simple(Command):
         plt.close(fig)
     
     def process_args(self):
-        self.args.dir = clean_path(self.args.dir)
-        if not os.path.isdir(self.args.dir):
-            put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
+        self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         
     def main_process(self):
         # get complex paths
-        complexs_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.main_name)
+        complexs_path = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.main_name)
         put_log(f'get {len(complexs_path)} task(s)')
         # process each complex
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
