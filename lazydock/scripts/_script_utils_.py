@@ -6,11 +6,12 @@ Description:
 '''
 import argparse
 import os
-from pathlib import Path
 import traceback
+from pathlib import Path
 from typing import Any, Dict, List, Union
 
-from mbapy_lite.base import check_parameters_path, parameter_checker, put_err
+from mbapy_lite.base import (check_parameters_path, parameter_checker, put_err,
+                             put_log)
 from mbapy_lite.file import opts_file
 
 
@@ -30,10 +31,12 @@ def show_args(args, args_name: List[str], printf = print):
     printf('')
 
 class Command:
-    def __init__(self, args: argparse.Namespace, printf = print) -> None:
+    def __init__(self, args: argparse.Namespace, printf = print,
+                 iter_run_arg: List[str] = None) -> None:
         self.args = args
         self.printf = printf
         self._pickle_except_list = []
+        self.iter_run_arg = iter_run_arg or []
         
     def process_args(self):
         pass
@@ -44,7 +47,15 @@ class Command:
     def excute(self):
         self.process_args()
         show_args(self.args, list(self.args.__dict__.keys()), self.printf)
-        return self.main_process()
+        if self.iter_run_arg:
+            iter_args = [getattr(self.args, n).copy() for n in self.iter_run_arg]
+            for i, args in enumerate(zip(*iter_args)):
+                for n, v in zip(self.iter_run_arg, args):
+                    setattr(self.args, n, v)
+                put_log(f'running iter[{i}] for args: {self.iter_run_arg}')
+                self.main_process()
+        else:
+            return self.main_process()
     
     def save_session(self, module_name: str, module_path: str = 'mbapy.scripts', path: str = os.curdir):
         if not Path(path).parent.exists():
