@@ -210,7 +210,7 @@ class simple(Command):
             self.plot_PDF(gmx, main_name=complex_path.stem, force=self.args.force)
             
             
-class mmpbsa(simple_analysis):
+class mmpbsa(simple):
     HELP = """
     mmpbsa analysis for GROMACS simulation
     """
@@ -219,8 +219,8 @@ class mmpbsa(simple_analysis):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser, mmpbsa_args: bool = True):
-        args.add_argument('-d', '-bd', '--batch-dir', type = str, required=True,
-                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, default='.',
+                          help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         if mmpbsa_args:
             args.add_argument('-i', '--input', type = str, required=True,
                               help=f"gmx_MMPBSA input file name in each sub-folder, such as mmpbsa.in")
@@ -245,20 +245,21 @@ class mmpbsa(simple_analysis):
     def check_top_traj(self):
         top_paths = get_paths_with_extension(self.args.batch_dir, [os.path.split(self.args.top_name)[-1]], name_substr=self.args.top_name)
         traj_paths = get_paths_with_extension(self.args.batch_dir, [os.path.split(self.args.traj_name)[-1]], name_substr=self.args.traj_name)
-        if not self.check_file_num_paried(top_paths, traj_paths):
-            put_err(f"The number of top and traj files is not equal, please check the input files.\ninvalid roots:{self.invalid_roots}", _exit=True)
+        invalid_roots = check_file_num_paried(top_paths, traj_paths)
+        if invalid_roots:
+            put_err(f"The number of top and traj files is not equal, please check the input files.\ninvalid roots:{invalid_roots}", _exit=True)
         return top_paths, traj_paths
-    
-    def process_args(self):
-        self.args.batch_dir = clean_path(self.args.batch_dir)
-        if not os.path.isdir(self.args.batch_dir):
-            put_err(f'batch_dir argument should be a directory: {self.args.batch_dir}, exit.', _exit=True)
-        # load origin dfs from data file
-        self.top_paths, self.traj_paths = self.check_top_traj()
+        
+    def find_tasks(self):
+        tasks = []
         for r_path, l_path in zip(self.top_paths, self.traj_paths):
-            self.tasks.append((r_path, l_path))
+            tasks.append((r_path, l_path))
+        return tasks
     
     def main_process(self):
+        # load origin dfs from data file
+        self.top_paths, self.traj_paths = self.check_top_traj()
+        self.tasks = self.find_tasks()
         print(f'find {len(self.tasks)} tasks.')
         # run tasks
         bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
