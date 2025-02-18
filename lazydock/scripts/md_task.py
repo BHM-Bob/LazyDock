@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-17 23:03:21
+LastEditTime: 2025-02-18 17:23:30
 Description: 
 '''
 import argparse
@@ -13,6 +13,8 @@ import MDAnalysis as mda
 import networkx as nx
 import numpy as np
 import pandas as pd
+from lazydock.scripts._script_utils_ import excute_command
+from lazydock.scripts.ana_gmx import mmpbsa
 from lazydock_md_task.scripts.calc_correlation import plot_map
 from lazydock_md_task.scripts.contact_map_v2 import (calculate_contacts,
                                                      load_and_preprocess_traj,
@@ -21,9 +23,6 @@ from lazydock_md_task.scripts.contact_map_v2 import (calculate_contacts,
 from mbapy.web_utils.task import TaskPool
 from mbapy_lite.base import put_err, put_log
 from tqdm import tqdm
-
-from lazydock.scripts._script_utils_ import excute_command
-from lazydock.scripts.ana_gmx import mmpbsa
 
 
 def construct_graph(frame, atoms_inices: np.ndarray, threshold=6.7):
@@ -58,7 +57,7 @@ class network(mmpbsa):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '-bd', '--batch-dir', type = str, required=True,
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
         args.add_argument('-top', '--top-name', type = str, required=True,
                           help='topology file name in each sub-directory, such as md.tpr.')
@@ -79,10 +78,6 @@ class network(mmpbsa):
         args.add_argument('-F', '--force', default=False, action='store_true',
                           help='force to re-run the analysis, default is %(default)s.')
         return args
-
-    def process_args(self):
-        super().process_args()
-        self.pool = TaskPool('process', self.args.n_workers).start()
     
     def calcu_network(self, topol_path: Path, traj_path: Path):
         # prepare trajectory and topology
@@ -109,6 +104,10 @@ class network(mmpbsa):
                  total_dj_path=total_dj_path.astype(np.int16))
     
     def main_process(self):
+        self.pool = TaskPool('process', self.args.n_workers).start()
+        # load origin dfs from data file
+        self.top_paths, self.traj_paths = self.check_top_traj()
+        self.tasks = self.find_tasks()
         print(f'find {len(self.tasks)} tasks.')
         # process each task
         bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
