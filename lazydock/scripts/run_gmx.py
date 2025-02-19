@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-16 20:28:22
+LastEditTime: 2025-02-19 17:25:04
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -192,7 +192,7 @@ class simple_protein(Command):
     def production_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         # STEP 15: grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
         gmx.run_gmx_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top',
-                                    o='md.tpr', n=self.indexs.get('md', None), maxwarn=self.args.maxwarn)
+                                    o='md.tpr', imd='md.gro', n=self.indexs.get('md', None), maxwarn=self.args.maxwarn)
         # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
         gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='md')
 
