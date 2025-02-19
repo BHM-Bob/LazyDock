@@ -9,16 +9,19 @@ if 'MBAPY_PLT_AGG' in os.environ:
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from lazydock.gmx.mda.convert import PDBConverter
 from lazydock.gmx.run import Gromacs
 from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
 from lazydock.pml.plip_interaction import run_plip_analysis
 from lazydock.pml.rrcs import calcu_RRCS_from_array, calcu_RRCS_from_tensor
-from lazydock.scripts._script_utils_ import Command, process_batch_dir_lst, excute_command
+from lazydock.scripts._script_utils_ import (Command, check_file_num_paried,
+                                             excute_command,
+                                             process_batch_dir_lst)
 from lazydock.scripts.ana_interaction import (plip_mode, pml_mode,
                                               simple_analysis)
 from mbapy.plot import save_show
-from mbapy_lite.base import put_err, put_log
+from mbapy_lite.base import put_err, put_log, split_list
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from mbapy_lite.web import TaskPool
 from MDAnalysis import Universe
@@ -51,6 +54,8 @@ class simple(Command):
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-n', '--main-name', type = str,
                           help='main name in each sub-directory, such as md.tpr.')
+        args.add_argument('--chain', type=str, default=None,
+                          help='chain id of the target molecular, default is %(default)s.')
         args.add_argument('-cg', '--center-group', type = str, default='1',
                           help='group to center the trajectory, default is %(default)s.')
         args.add_argument('-rg', '--rms-group', type = str, default='4',
@@ -219,7 +224,7 @@ class mmpbsa(simple):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser, mmpbsa_args: bool = True):
-        args.add_argument('-d', '-bd', '--batch-dir', type = str, default='.',
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         if mmpbsa_args:
             args.add_argument('-i', '--input', type = str, required=True,
@@ -228,6 +233,8 @@ class mmpbsa(simple):
                               help=f"npi np argument for gmx_MMPBSA")
         args.add_argument('-top', '--top-name', type = str, required=True,
                           help=f"topology file name in each sub-folder.")
+        args.add_argument('-gro', '--gro-name', type = str, required=True,
+                          help=f"gro file name in each sub-folder.")
         args.add_argument('-traj', '--traj-name', type = str, required=True,
                           help=f"trajectory file name in each sub-folder.")
         args.add_argument('--receptor-chain-name', type = str, required=True,
@@ -296,12 +303,12 @@ def run_pdbstr_interaction_analysis(pdbstr: str, receptor_chain: str, ligand_cha
     return inter
 
 
-class interaction(mmpbsa):
+class interaction(simple_analysis, mmpbsa):
     HELP = """
     interaction analysis for GROMACS simulation
     """
     def __init__(self, args, printf=print):
-        super().__init__(args, printf)
+        Command.__init__(self, args, printf, ['batch_dir'])
         self.alter_chain = None
         self.alter_res = None
         self.alter_atm = None
@@ -335,6 +342,10 @@ class interaction(mmpbsa):
                           help='First frame to start the analysis. Default is %(default)s.')
         args.add_argument('-step', '--traj-step', type=int, default=1,
                           help='Step while reading trajectory. Default is %(default)s.')
+        args.add_argument('-F', '--force', default=False, action='store_true',
+                          help='force to re-run the analysis, default is %(default)s.')
+        args.add_argument('--plot-time-unit', type=int, default=100,
+                          help='time unit for plot in X-Axis, default is %(default)s.')
     
     def process_args(self):
         # self.args.alter_ligand_chain will passed to final interaction calcu function
@@ -347,16 +358,46 @@ class interaction(mmpbsa):
             self.alter_res = {self.args.ligand_chain_name: self.args.alter_ligand_res}
         # set self.alter_atm
         if self.args.alter_ligand_atm is not None:
-            self.alter_atm = {self.args.ligand_chain_name: self.args.alter_ligand_atm}
+            self.alter_atm = {self.args.alter_ligand_chain: self.args.alter_ligand_atm}
         # output formater
         self.output_formater = getattr(self, f'output_fromater_{self.args.output_style}')
-        # check batch dir AND top and traj
-        mmpbsa.process_args(self)
-        # check method and mode AND load ref_res
-        self.args.batch_dir = str(self.args.batch_dir)
+        # check batch dir， check method and mode AND load ref_res
         simple_analysis.process_args(self)
         
+    def calcu_interaction(self, top_path: str, gro_path: str, traj_path: str, pool: TaskPool):
+        # load pdbstr from traj
+        u, u2 = Universe(top_path, traj_path), Universe(gro_path)
+        u.atoms.residues.resids = u2.atoms.residues.resids
+        rec_idx, lig_idx = self.get_complex_atoms_index(u)
+        complex_ag = u.atoms[rec_idx | lig_idx]
+        # calcu interaction for each frame
+        sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
+        for frame in tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
+                        total=sum_frames//self.args.traj_step, desc='Calculating frames', leave=False):
+            pdbstr = PDBConverter(complex_ag).fast_convert(alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm)
+            pool.add_task(frame.time, run_pdbstr_interaction_analysis, pdbstr,
+                        self.args.receptor_chain_name, self.args.alter_ligand_chain,
+                        self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only)
+            pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.001, update_result_queue=False)
+        # merge interactions
+        interactions, df = {}, pd.DataFrame()
+        for k in list(pool.tasks.keys()):
+            i = len(df)
+            interactions[k] = pool.query_task(k, True, 10)
+            df.loc[i, 'time'] = k
+            df.loc[i, 'ref_res'] = ''
+            for inter_mode, inter_value in interactions[k].items():
+                fmt_string = self.output_formater(inter_value, self.args.method)
+                df.loc[i, inter_mode] = fmt_string
+                for r in self.args.ref_res:
+                    if r in fmt_string and not r in df.loc[i,'ref_res']:
+                        df.loc[i,'ref_res'] += f'{r},'
+        return interactions, df
+        
     def main_process(self):
+        # load origin dfs from data file
+        self.top_paths, self.traj_paths = self.check_top_traj()
+        self.tasks = self.find_tasks()
         print(f'find {len(self.tasks)} tasks.')
         # run tasks
         pool = TaskPool('process', self.args.n_workers).start()
@@ -364,36 +405,34 @@ class interaction(mmpbsa):
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
             bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
-            # load pdbstr from traj
-            u = Universe(top_path, traj_path)
-            rec_idx, lig_idx = self.get_complex_atoms_index(u)
-            complex_ag = u.atoms[rec_idx | lig_idx]
-            # calcu interaction for each frame
-            sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
-            for frame in tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
-                              total=sum_frames//self.args.traj_step, desc='Calculation frames', leave=False):
-                pdbstr = PDBConverter(complex_ag).fast_convert(alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm)
-                pool.add_task(frame.time, run_pdbstr_interaction_analysis, pdbstr,
-                              self.args.receptor_chain_name, self.args.alter_ligand_chain,
-                              self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only)
-                pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.001, update_result_queue=False)
-            # merge interactions
-            interactions, df = {}, pd.DataFrame()
-            for k in list(pool.tasks.keys()):
-                i = len(df)
-                interactions[k] = pool.query_task(k, True, 10)
-                df.loc[i, 'time'] = k
-                df.loc[i, 'ref_res'] = ''
-                for inter_mode, inter_value in interactions[k].items():
-                    fmt_string = self.output_formater(inter_value, self.args.method)
-                    df.loc[i, inter_mode] = fmt_string
-                    for r in self.args.ref_res:
-                        if r in fmt_string and not r in df.loc[i,'ref_res']:
-                            df.loc[i,'ref_res'] += f'{r},'
-            # save result
+            # calcu interaction and save to file
             top_path = Path(top_path).resolve()
-            df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.csv'), index=False)
-            opts_file(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.pkl'), 'wb', way='pkl', data=interactions)
+            gro_path = str(top_path.parent / self.args.gro_name)
+            csv_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.csv')
+            pkl_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.pkl')
+            if (not os.path.exists(csv_path) or not os.path.exists(pkl_path)) or self.args.force:
+                interactions, df = self.calcu_interaction(str(top_path), gro_path, traj_path, pool)
+                df.to_csv(csv_path, index=False)
+                opts_file(pkl_path, 'wb', way='pkl', data=interactions)
+            else:
+                interactions = opts_file(pkl_path, 'rb', way='pkl')
+            # plot interaction
+            times = split_list(list(interactions.keys()), self.args.plot_time_unit)
+            plot_df = pd.DataFrame()
+            for i, time_u in tqdm(enumerate(times), desc='Gathering interactions', total=len(times)):
+                for time_i in time_u:
+                    lst = [single_v for v in interactions[time_i].values() if v for single_v in v if single_v]
+                    for single_inter in lst:
+                        receptor_res = f'{single_inter[0][1]}{single_inter[0][0]}'
+                        if i not in plot_df.index or receptor_res not in plot_df.columns:
+                            plot_df.loc[i, receptor_res] = 1
+                        elif np.isnan(plot_df.loc[i, receptor_res]):
+                            plot_df.loc[i, receptor_res] = 1
+                        else:
+                            plot_df.loc[i, receptor_res] += 1
+            plot_df /= self.args.plot_time_unit
+            sns.heatmap(plot_df, xticklabels=list(plot_df.columns))
+            save_show(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.png'), 600, show=False)
             # other things
             pool.task = {}
             bar.update(1)
