@@ -86,5 +86,13 @@
         "exec_names": ["md_task", "md-task"],
         "brief": "Optimized CLI tools for MD-TASK.",
         "detailed": "Optimized CLI tools for MD-TASK."
+    },
+    "md_ana":
+    {
+        "name": "md_ana",
+        "script name": "md_ana",
+        "exec_names": ["md_ana", "md-ana"],
+        "brief": "MDAnalysis CLI tools.",
+        "detailed": "MDAnalysis CLI tools."
     }
 }
