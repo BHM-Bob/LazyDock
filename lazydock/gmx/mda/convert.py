@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-05 14:26:31
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-19 16:32:45
+LastEditTime: 2025-02-19 17:03:06
 Description: 
 '''
 from typing import Dict
@@ -79,7 +79,7 @@ class PDBConverter(PDBWriter):
 
         # Make zero assumptions on what information the AtomGroup has!
         # theoretically we could get passed only indices!
-        def get_attr(attrname, default):
+        def get_attr(attrname, default, dtype=None):
             """Try and pull info off atoms, else fake it
 
             attrname - the field to pull of AtomGroup (plural!)
@@ -92,7 +92,7 @@ class PDBConverter(PDBWriter):
                     warnings.warn("Found no information for attr: '{}'"
                                   " Using default value of '{}'"
                                   "".format(attrname, default))
-                return np.array([default] * len(atoms))
+                return np.array([default] * len(atoms), dtype=dtype)
         altlocs = get_attr('altLocs', ' ')
         resnames = get_attr('resnames', 'UNK')
         icodes = get_attr('icodes', ' ')
@@ -103,10 +103,14 @@ class PDBConverter(PDBWriter):
         tempfactors = get_attr('tempfactors', 0.0)
         atomnames = get_attr('names', 'X')
         elements = get_attr('elements', ' ')
-        record_types = list(get_attr('record_types', 'ATOM'))
+        record_types = get_attr('record_types', 'ATOM', dtype=object)
+        # alter resnames and chainids if needed
         for alter_attr, alter_dict in zip([resnames, chainids], [alter_res, alter_chain]):
             for k, v in alter_dict.items():
                 alter_attr[alter_attr == k] = v
+        # alter recordtypes according to chain
+        for k, v in alter_atm.items():
+            record_types[chainids==k] = v
         formal_charges = self._format_PDB_charges(get_attr('formalcharges', 0))
 
         def validate_chainids(chainids, default):
@@ -176,8 +180,6 @@ class PDBConverter(PDBWriter):
             vals['charge'] = formal_charges[i]
 
             # record_type attribute, if exists, can be ATOM or HETATM
-            if chainids[i] in alter_atm:
-                record_types[i] = alter_atm[chainids[i]]
             try:
                 self.pdbfile.write(self.fmt[record_types[i]].format(**vals))
             except KeyError:
