@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-05 14:26:31
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-11 11:28:37
+LastEditTime: 2025-02-19 16:32:45
 Description: 
 '''
 from typing import Dict
@@ -103,8 +103,8 @@ class PDBConverter(PDBWriter):
         tempfactors = get_attr('tempfactors', 0.0)
         atomnames = get_attr('names', 'X')
         elements = get_attr('elements', ' ')
-        record_types = get_attr('record_types', 'ATOM')
-        for alter_attr, alter_dict in zip([resnames, chainids, record_types], [alter_res, alter_chain, alter_atm]):
+        record_types = list(get_attr('record_types', 'ATOM'))
+        for alter_attr, alter_dict in zip([resnames, chainids], [alter_res, alter_chain]):
             for k, v in alter_dict.items():
                 alter_attr[alter_attr == k] = v
         formal_charges = self._format_PDB_charges(get_attr('formalcharges', 0))
@@ -176,6 +176,8 @@ class PDBConverter(PDBWriter):
             vals['charge'] = formal_charges[i]
 
             # record_type attribute, if exists, can be ATOM or HETATM
+            if chainids[i] in alter_atm:
+                record_types[i] = alter_atm[chainids[i]]
             try:
                 self.pdbfile.write(self.fmt[record_types[i]].format(**vals))
             except KeyError:
@@ -189,8 +191,13 @@ class PDBConverter(PDBWriter):
                      alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None):
         """
         Convert the AtomGroup to a PDB string.
+        
+        Parameters
+            - alter_chain: Dict[str,str]: key is orignal chain name, value is target chain name
+            - alter_res: Dict[str,str]: key is orignal res name, value is target res name
+            - alter_atm: Dict[str,str]: key is target chain name, value is target atom record type
+            
         Returns
-        -------
         str
             The PDB string.
         """
