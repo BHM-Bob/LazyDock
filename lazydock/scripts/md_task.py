@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-18 17:23:30
+LastEditTime: 2025-02-19 23:21:18
 Description: 
 '''
 import argparse
@@ -163,7 +163,7 @@ class correlation(network):
         # calculate correlation matrix and save, show
         sorted_residx = np.argsort(atoms.resids)
         corr_matrix = self.correlate(coords[:, sorted_residx, :])
-        np.savez(f'{traj_path.stem}_corr_matrix.npz', corr_matrix=corr_matrix.astype(np.float32))
+        np.savez(traj_path.parent / f'{traj_path.stem}_corr_matrix.npz', corr_matrix=corr_matrix.astype(np.float32))
         plot_map(corr_matrix, traj_path.stem, traj_path.parent / f'{traj_path.stem}_corr_matrix')
      
         
