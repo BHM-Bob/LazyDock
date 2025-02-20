@@ -307,7 +307,7 @@ class interaction(simple_analysis, mmpbsa):
     """
     def __init__(self, args, printf=print):
         Command.__init__(self, args, printf, ['batch_dir'])
-        self.alter_chain = None
+        self.alter_chain = {}
         self.alter_res = None
         self.alter_atm = None
 
@@ -316,6 +316,8 @@ class interaction(simple_analysis, mmpbsa):
         mmpbsa.make_args(args, mmpbsa_args=False)
         args.add_argument('-gro', '--gro-name', type = str, required=True,
                           help=f"gro file name in each sub-folder.")
+        args.add_argument('--alter-receptor-chain', type = str, default=None,
+                          help='alter receptor chain name from topology to user-define, such as "A".')
         args.add_argument('--alter-ligand-chain', type = str, default=None,
                           help='alter ligand chain name from topology to user-define, such as "Z".')
         args.add_argument('--alter-ligand-res', type = str, default=None,
@@ -350,7 +352,7 @@ class interaction(simple_analysis, mmpbsa):
     def process_args(self):
         # self.args.alter_ligand_chain will passed to final interaction calcu function
         if self.args.alter_ligand_chain is not None:
-            self.alter_chain = {self.args.ligand_chain_name: self.args.alter_ligand_chain}
+            self.alter_chain[self.args.ligand_chain_name] = self.args.alter_ligand_chain
         else:
             self.args.alter_ligand_chain = self.args.ligand_chain_name
         # in lazydock, default ligand res name is the chain name too, so alter chain name to alter-ligand-res
@@ -359,6 +361,11 @@ class interaction(simple_analysis, mmpbsa):
         # set self.alter_atm
         if self.args.alter_ligand_atm is not None:
             self.alter_atm = {self.args.alter_ligand_chain: self.args.alter_ligand_atm}
+        # set alter receptor chain
+        if self.args.alter_receptor_chain is not None:
+            self.alter_chain[self.args.receptor_chain_name] = self.args.alter_receptor_chain
+        else:
+            self.args.alter_receptor_chain = self.args.receptor_chain_name
         # output formater
         self.output_formater = getattr(self, f'output_fromater_{self.args.output_style}')
         # check batch dir， check method and mode AND load ref_res
@@ -376,7 +383,7 @@ class interaction(simple_analysis, mmpbsa):
                         total=sum_frames//self.args.traj_step, desc='Calculating frames', leave=False):
             pdbstr = PDBConverter(complex_ag).fast_convert(alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm)
             pool.add_task(frame.time, run_pdbstr_interaction_analysis, pdbstr,
-                        self.args.receptor_chain_name, self.args.alter_ligand_chain,
+                        self.args.alter_receptor_chain, self.args.alter_ligand_chain,
                         self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only)
             pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.001, update_result_queue=False)
         # merge interactions
