@@ -233,8 +233,6 @@ class mmpbsa(simple):
                               help=f"npi np argument for gmx_MMPBSA")
         args.add_argument('-top', '--top-name', type = str, required=True,
                           help=f"topology file name in each sub-folder.")
-        args.add_argument('-gro', '--gro-name', type = str, required=True,
-                          help=f"gro file name in each sub-folder.")
         args.add_argument('-traj', '--traj-name', type = str, required=True,
                           help=f"trajectory file name in each sub-folder.")
         args.add_argument('--receptor-chain-name', type = str, required=True,
@@ -316,6 +314,8 @@ class interaction(simple_analysis, mmpbsa):
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         mmpbsa.make_args(args, mmpbsa_args=False)
+        args.add_argument('-gro', '--gro-name', type = str, required=True,
+                          help=f"gro file name in each sub-folder.")
         args.add_argument('--alter-ligand-chain', type = str, default=None,
                           help='alter ligand chain name from topology to user-define, such as "Z".')
         args.add_argument('--alter-ligand-res', type = str, default=None,
