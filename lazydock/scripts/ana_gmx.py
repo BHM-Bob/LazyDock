@@ -247,9 +247,10 @@ class mmpbsa(simple):
         put_log(f"receptor atoms: {rec_idx.sum()}, ligand atoms: {lig_idx.sum()}.")
         return rec_idx, lig_idx
     
-    def check_top_traj(self):
-        top_paths = get_paths_with_extension(self.args.batch_dir, [os.path.split(self.args.top_name)[-1]], name_substr=self.args.top_name)
-        traj_paths = get_paths_with_extension(self.args.batch_dir, [os.path.split(self.args.traj_name)[-1]], name_substr=self.args.traj_name)
+    def check_top_traj(self, bdir = None):
+        bdir = bdir or self.args.batch_dir
+        top_paths = get_paths_with_extension(bdir, [os.path.split(self.args.top_name)[-1]], name_substr=self.args.top_name)
+        traj_paths = get_paths_with_extension(bdir, [os.path.split(self.args.traj_name)[-1]], name_substr=self.args.traj_name)
         invalid_roots = check_file_num_paried(top_paths, traj_paths)
         if invalid_roots:
             put_err(f"The number of top and traj files is not equal, please check the input files.\ninvalid roots:{invalid_roots}", _exit=True)
