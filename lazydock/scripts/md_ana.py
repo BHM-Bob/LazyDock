@@ -178,8 +178,8 @@ class rmsd(elastic):
         for _ in tqdm(u.trajectory[start:stop:step], total=sum_frames//step, desc='Gathering coordinates', leave=False):
             coords.append(ag.positions.copy())
         coords = np.array(coords)
-        matrix = pairwise_rmsd(coords, block_size=args.block_size, backend=args.backend, verbose=True)
-        np.savez_compressed(w_dir / 'inter_frame_rmsd.npz', matrix=matrix)
+        matrix: np.ndarray = pairwise_rmsd(coords, block_size=args.block_size, backend=args.backend, verbose=True)
+        np.savez_compressed(w_dir / 'inter_frame_rmsd.npz', matrix=matrix.astype(np.float16))
         plt.imshow(matrix, cmap='viridis')
         plt.xlabel('Frame')
         plt.ylabel('Frame')
