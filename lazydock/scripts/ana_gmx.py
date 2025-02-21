@@ -441,9 +441,10 @@ class interaction(simple_analysis, mmpbsa):
             plot_df /= self.args.plot_time_unit
             plot_df = plot_df[sorted(list(plot_df.columns), key=lambda x: int(x[3:]))]
             plot_df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_plot_df.csv'), index=False)
-            sns.heatmap(plot_df, xticklabels=list(plot_df.columns))
-            save_show(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.png'), 600, show=False)
-            plt.close()
+            if not plot_df.empty:
+                sns.heatmap(plot_df, xticklabels=list(plot_df.columns))
+                save_show(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.png'), 600, show=False)
+                plt.close()
             # other things
             pool.task = {}
             bar.update(1)
