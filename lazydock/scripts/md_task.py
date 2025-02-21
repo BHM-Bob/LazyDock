@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-19 23:21:18
+LastEditTime: 2025-02-21 20:52:28
 Description: 
 '''
 import argparse
@@ -59,10 +59,10 @@ class network(mmpbsa):
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
-        args.add_argument('-top', '--top-name', type = str, required=True,
-                          help='topology file name in each sub-directory, such as md.tpr.')
-        args.add_argument('-traj', '--traj-name', type = str, required=True,
-                          help='trajectory file name in each sub-directory, such as md_center.xtc.')
+        args.add_argument('-top', '--top-name', type = str, default='md.tpr',
+                            help='topology file name in each sub-directory, such as md.tpr. Default is %(default)s.')
+        args.add_argument('-traj', '--traj-name', type = str, default='md_center.xtc',
+                            help='trajectory file name in each sub-directory, such as md_center.xtc. Default is %(default)s.')
         args.add_argument("--ligand", type=str, default=None,
                           help="MDAnalysis atoms select expression to be included in the network, default: %(default)s")
         args.add_argument("--threshold", type=float, default=6.7,
