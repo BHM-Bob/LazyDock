@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-21 19:28:28
+LastEditTime: 2025-02-21 20:37:52
 Description: 
 '''
 import argparse
@@ -27,6 +27,7 @@ from lazydock.scripts.ana_gmx import mmpbsa
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from mbapy_lite.plot import save_show
+from mbapy_lite.web_utils.task import TaskPool
 from MDAnalysis.analysis import (align, diffusionmap, dihedrals, gnm,
                                  helix_analysis, rms)
 from tqdm import tqdm
@@ -49,8 +50,6 @@ def make_args(args: argparse.ArgumentParser):
                         help='First frame to start the analysis. Default is %(default)s.')
     args.add_argument('-step', '--traj-step', type=int, default=1,
                         help='Step while reading trajectory. Default is %(default)s.')
-    # args.add_argument('-np', '--n-workers', type=int, default=4,
-    #                     help='number of workers to parallel. Default is %(default)s.')
     args.add_argument('-F', '--force', default=False, action='store_true',
                         help='force to re-run the analysis, default is %(default)s.')
     return args
@@ -74,35 +73,66 @@ class elastic(mmpbsa):
                             help='selection for analysis.')
         args.add_argument('-close', '--close', action='store_true', default=False,
                             help='Using a Gaussian network model with only close contacts.')
+        args.add_argument('-fast', '--fast', action='store_true', default=False,
+                            help='Using fast computation implement.')
         args.add_argument('--cutoff', type = float, default=7,
                             help='elastic network neighber cutoff, default is %(default)s.')
         args.add_argument('--backend', type = str, default='numpy', choices=['numpy', 'torch', 'cuda'],
                             help='calculation backend, default is %(default)s.')
         args.add_argument('--block-size', type = int, default=100,
                             help='calculation block size, default is %(default)s.')
+        args.add_argument('-np', '--n-workers', type=int, default=4,
+                          help='number of workers to parallel. Default is %(default)s.')
         return args
+    
+    def fast_calcu(self, u: mda.Universe, args: argparse.ArgumentParser):
+        start, step, stop = args.begin_frame, args.traj_step, args.end_frame
+        pool = TaskPool('process', args.n_workers).start()
+        put_log(f'Calculating elastic network using lazydock.gmx.mda.gnm.calcu_{"closeContact" if args.close else ""}GNMAnalysis')
+        ag, v, t = u.select_atoms(args.select), [], []
+        sum_frames = (len(u.trajectory) if stop is None else stop) - start
+        for frame in tqdm(u.trajectory[start:stop:step], total=sum_frames//step, desc='Calculating frames', leave=False):
+            t.append(frame.time)
+            if args.close:
+                atom2res, res_size = genarate_atom2residue(ag)
+                pool.add_task(frame.time, calcu_closeContactGNMAnalysis,
+                              ag.positions.copy(), args.cutoff,
+                              atom2res, res_size, ag.n_residues, 'size')
+            else:
+                pool.add_task(frame.time, calcu_GNMAnalysis, ag.positions.copy(), args.cutoff)
+            pool.wait_till(lambda : pool.count_waiting_tasks() == 0, wait_each_loop=0.001, update_result_queue=False)
+        # gether results
+        for t_i in t:
+            v.append(pool.query_task(t_i, True, 999)[0])
+        pool.close()
+        return np.array(t), np.array(v)
+    
+    def calcu(self, u: mda.Universe, args: argparse.ArgumentParser):
+        put_log(f'Calculating elastic network using MDAnalysis.analysis.gnm.{"closeContact" if args.close else ""}GNMAnalysis')
+        if args.close:
+            nma = gnm.closeContactGNMAnalysis(u, select=args.select, cutoff=args.cutoff, weights='size')
+        else:
+            nma = gnm.GNMAnalysis(u, select=args.select, cutoff=args.cutoff)
+        nma.run(start=args.begin_frame, step=args.traj_step, stop=args.end_frame, verbose=True)
+        t, v = np.array(nma.results['times']).copy(), np.array(nma.results['eigenvalues']).copy()
+        del nma
+        return t, v
 
     def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
-        force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
-        if os.path.exists(w_dir / 'elastic.xlsx') and not force:
+        file_name = 'elastic' + ('_close' if args.close else '')
+        if os.path.exists(w_dir / f'{file_name}.xlsx') and not args.force:
             return put_log('Elastic analysis already calculated, use -F to re-run.')
-        put_log('Calculating elastic network')
-        ag, v, t = u.select_atoms(args.select), [], []
-        for frame in tqdm(u.trajectory, total=len(u.trajectory)):
-            t.append(frame.time)
-            atom2res, res_size = genarate_atom2residue(ag)
-            v.append(calcu_closeContactGNMAnalysis(ag.positions.copy(), atom2res, res_size, ag.n_residues, args.cutoff, 'size')[0])
-        # nma1 = calcu_GNMAnalysis(u, select='name CA', cutoff=7.0, weights='size')
-        # nma1.run(verbose=True, start=start, step=step, stop=stop)
-        t, v = np.array(t), np.array(v)
+        if args.fast:
+            t, v = self.fast_calcu(u, args)
+        else:
+            t, v = self.calcu(u, args)
         df = pd.DataFrame({'times': t, 'eigenvalues': v})
-        df.to_excel(w_dir / 'elastic.xlsx', index=False)
+        df.to_excel(w_dir / f'{file_name}.xlsx', index=False)
         fig = plt.figure(figsize=(10, 8))
         sns.lineplot(data=df, x='times', y='eigenvalues', alpha=0.6, ax=fig.gca())
         sns.lineplot(x=df['times'][49:], y=smv(df['eigenvalues']), label='SMV', ax=fig.gca())
-        save_show(w_dir / 'elastic.png', 600, show=False)
+        save_show(w_dir / f'{file_name}.png', 600, show=False)
         plt.close(fig=fig)
-        del nma1
         
     def main_process(self):
         self.top_paths, self.traj_paths = self.check_top_traj()
@@ -329,5 +359,4 @@ def main(sys_args: List[str] = None):
 
 
 if __name__ == '__main__':
-    main('simple -d /home/pcmd36/Desktop/BHM/LFH/250118-complex-MDS/runs/WIN55212/t1 -F -top md.tpr -traj md_center.xtc -np 16 -b 0 -e 10000 -step 1'.split(' '))
     main()
