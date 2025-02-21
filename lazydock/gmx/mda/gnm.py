@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-20 22:02:45
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-21 17:30:18
+LastEditTime: 2025-02-21 19:39:33
 Description: 
 '''
 import numpy as np
@@ -84,7 +84,7 @@ def generate_matrix(positions, cutoff):
 
         
 def calcu_GNMAnalysis(positions: np.ndarray, cutoff: float = 7,
-                      gen_matrix_fn = generate_matrix, **kwargs):
+                      gen_matrix_fn = None, **kwargs):
     """Generate the Kirchhoff matrix of contacts.
 
     This generates the neighbour matrix by generating a grid of
@@ -96,6 +96,7 @@ def calcu_GNMAnalysis(positions: np.ndarray, cutoff: float = 7,
         eigenvectors
         eigenvalues
     """
+    gen_matrix_fn = gen_matrix_fn or generate_matrix
     matrix = gen_matrix_fn(positions, cutoff, **kwargs)
     try:
         _, w, v = np.linalg.svd(matrix)
@@ -192,8 +193,8 @@ def genarate_atom2residue(atoms: AtomGroup):
     return atoms.resindices.copy(), np.array([r.atoms.n_atoms for r in atoms.residues])
 
 
-def calcu_closeContactGNMAnalysis(positions: np.ndarray, atom2residue: np.ndarray, residue_size: np.ndarray,
-                                  n_residue: int, cutoff=7, weights="size"):
+def calcu_closeContactGNMAnalysis(positions: np.ndarray, cutoff: float, atom2residue: np.ndarray,
+                                  residue_size: np.ndarray, n_residue: int, weights="size"):
     """Generate the Kirchhoff matrix of contacts.
 
     This generates the neighbour matrix by generating a grid of
