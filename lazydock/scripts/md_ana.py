@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-21 18:39:19
+LastEditTime: 2025-02-21 19:28:28
 Description: 
 '''
 import argparse
@@ -36,12 +36,32 @@ def smv(arr: np.ndarray, w: int = 50):
     return np.convolve(arr, np.ones(w), "valid") / w
 
 
+def make_args(args: argparse.ArgumentParser):
+    args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
+                        help="dir which contains many sub-folders, each sub-folder contains docking result files. Default is %(default)s.")
+    args.add_argument('-top', '--top-name', type = str, default='md.tpr',
+                        help='topology file name in each sub-directory, such as md.tpr. Default is %(default)s.')
+    args.add_argument('-traj', '--traj-name', type = str, default='md_center.xtc',
+                        help='trajectory file name in each sub-directory, such as md_center.xtc. Default is %(default)s.')
+    args.add_argument('-b', '--begin-frame', type=int, default=0,
+                        help='First frame to start the analysis. Default is %(default)s.')
+    args.add_argument('-e', '--end-frame', type=int, default=None,
+                        help='First frame to start the analysis. Default is %(default)s.')
+    args.add_argument('-step', '--traj-step', type=int, default=1,
+                        help='Step while reading trajectory. Default is %(default)s.')
+    # args.add_argument('-np', '--n-workers', type=int, default=4,
+    #                     help='number of workers to parallel. Default is %(default)s.')
+    args.add_argument('-F', '--force', default=False, action='store_true',
+                        help='force to re-run the analysis, default is %(default)s.')
+    return args
+
+
 class elastic(mmpbsa):
     HELP = """
     simple analysis collections for MDAnalysis.
     input is centered trajectory file, such as md_center.xtc.
     
-    elastic network， using a Gaussian network model with only close contacts,
+    elastic network, using a Gaussian network model with only close contacts,
     analyzed the thermal fluctuation behavior of the system
     """
     def __init__(self, args, printf=print):
@@ -49,40 +69,29 @@ class elastic(mmpbsa):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
-                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
-        args.add_argument('-top', '--top-name', type = str, default='md.tpr',
-                          help='topology file name in each sub-directory, such as md.tpr.')
-        args.add_argument('-traj', '--traj-name', type = str, default='md_center.xtc',
-                          help='trajectory file name in each sub-directory, such as md_center.xtc.')
+        make_args(args)
         args.add_argument('-sele', '--select', type = str, default='protein and name CA',
-                          help='selection for analysis.')
-        args.add_argument('-b', '--begin-frame', type=int, default=0,
-                          help='First frame to start the analysis. Default is %(default)s.')
-        args.add_argument('-e', '--end-frame', type=int, default=None,
-                          help='First frame to start the analysis. Default is %(default)s.')
-        args.add_argument('-step', '--traj-step', type=int, default=1,
-                          help='Step while reading trajectory. Default is %(default)s.')
-        args.add_argument('-np', '--n-workers', type=int, default=4,
-                          help='number of workers to parallel. Default is %(default)s.')
+                            help='selection for analysis.')
+        args.add_argument('-close', '--close', action='store_true', default=False,
+                            help='Using a Gaussian network model with only close contacts.')
+        args.add_argument('--cutoff', type = float, default=7,
+                            help='elastic network neighber cutoff, default is %(default)s.')
         args.add_argument('--backend', type = str, default='numpy', choices=['numpy', 'torch', 'cuda'],
                             help='calculation backend, default is %(default)s.')
         args.add_argument('--block-size', type = int, default=100,
                             help='calculation block size, default is %(default)s.')
-        args.add_argument('-F', '--force', default=False, action='store_true',
-                          help='force to re-run the analysis, default is %(default)s.')
         return args
 
     def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
-        force, nw, start, step, stop = args.force, args.n_workers, args.begin_frame, args.traj_step, args.end_frame
+        force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
         if os.path.exists(w_dir / 'elastic.xlsx') and not force:
             return put_log('Elastic analysis already calculated, use -F to re-run.')
         put_log('Calculating elastic network')
-        ag, v, t = u.select_atoms('name CA'), [], []
+        ag, v, t = u.select_atoms(args.select), [], []
         for frame in tqdm(u.trajectory, total=len(u.trajectory)):
             t.append(frame.time)
             atom2res, res_size = genarate_atom2residue(ag)
-            v.append(calcu_closeContactGNMAnalysis(ag.positions.copy(), atom2res, res_size, ag.n_residues, 7, 'size')[0])
+            v.append(calcu_closeContactGNMAnalysis(ag.positions.copy(), atom2res, res_size, ag.n_residues, args.cutoff, 'size')[0])
         # nma1 = calcu_GNMAnalysis(u, select='name CA', cutoff=7.0, weights='size')
         # nma1.run(verbose=True, start=start, step=step, stop=stop)
         t, v = np.array(t), np.array(v)
@@ -116,14 +125,25 @@ class rmsd(elastic):
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
         
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        make_args(args)
+        args.add_argument('-sele', '--select', type = str, default='protein and name CA',
+                            help='selection for analysis.')
+        args.add_argument('--backend', type = str, default='numpy', choices=['numpy', 'torch', 'cuda'],
+                            help='calculation backend, default is %(default)s.')
+        args.add_argument('--block-size', type = int, default=100,
+                            help='calculation block size, default is %(default)s.')
+        return args
+        
     def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
-        force, nw, start, step, stop = args.force, args.n_workers, args.begin_frame, args.traj_step, args.end_frame
+        force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
         if os.path.exists(w_dir / 'inter_frame_rmsd.pkl') and not force:
             return put_log('Inter-frame RMSD already calculated, use -F to re-run.')
         put_log('Aligning inter-frame RMSD')
-        aligner = align.AlignTraj(u, u, select='name CA', in_memory=True).run(verbose=True, start=start, step=step, stop=stop)
+        aligner = align.AlignTraj(u, u, select=args.select, in_memory=True).run(verbose=True, start=start, step=step, stop=stop)
         # calcu interaction for each frame
-        ag, coords = u.select_atoms('name CA'), []
+        ag, coords = u.select_atoms(args.select), []
         sum_frames = (len(u.trajectory) if stop is None else stop) - start
         for _ in tqdm(u.trajectory[start:stop:step], total=sum_frames//step, desc='Gathering coordinates', leave=False):
             coords.append(ag.positions.copy())
@@ -146,9 +166,13 @@ class rama(elastic):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        elastic.make_args(args)
+        make_args(args)
         args.add_argument('-rstep', '--rama-step', type=int, default=100,
                           help='Step while reading trajectory for plotting amachandran plot and Janin plot. Default is %(default)s.')
+        args.add_argument('-alpha', '--alpha', type=float, default=0.2,
+                          help='Scatter alpha for plotting amachandran plot and Janin plot. Default is %(default)s.')
+        args.add_argument('-size', '--size', type=float, default=80,
+                          help='Scatter size for plotting amachandran plot and Janin plot. Default is %(default)s.')
 
     def ramachandran(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
         force, start, step, stop = args.force, args.begin_frame, args.rama_step, args.end_frame
@@ -158,7 +182,7 @@ class rama(elastic):
         rama = dihedrals.Ramachandran(protein).run(start=start, step=step, stop=stop)
         np.savez_compressed(w_dir / 'ramachandran.npz', angles = rama.results.angles)
         fig, ax = plt.subplots(figsize=(10, 8))
-        rama.plot(color='black', marker='.', ref=True, ax=ax, alpha=0.2, s=20)
+        rama.plot(color='black', marker='.', ref=True, ax=ax, alpha=args.alpha, s=args.size)
         save_show(w_dir / 'ramachandran.png', 600, show=False)
         plt.close(fig=fig)
 
@@ -170,7 +194,7 @@ class rama(elastic):
         janin = dihedrals.Janin(protein).run(start=start, step=step, stop=stop)
         np.savez_compressed(w_dir / 'janin.npz', angles = janin.results.angles)
         fig, ax = plt.subplots(figsize=(10, 8))
-        janin.plot(color='black', marker='.', ref=True, ax=ax, alpha=0.2, s=20)
+        janin.plot(color='black', marker='.', ref=True, ax=ax, alpha=args.alpha, s=args.size)
         save_show(w_dir / 'janin.png', 600, show=False)
         plt.close(fig=fig)
 
@@ -189,15 +213,16 @@ class sele_ana(elastic):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
-        self.ana_func = [self.twist, self.radial_dist]
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        elastic.make_args(args)
+        make_args(args)
         args.add_argument('--twist-select', type = str, nargs='+', default = [],
                           help='twist select group, can be multiple MDAnalysis selection string, default is %(default)s.')
         args.add_argument('--radial-select', type = str, nargs='+', default = [],
                           help='radial select group, can be multiple MDAnalysis selection string, default is %(default)s.')
+        args.add_argument('-np', '--n-workers', type=int, default=4,
+                          help='number of workers to parallel. Default is %(default)s.')
 
     def twist(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
         twist_select, nw, start, step, stop = args.twist_select, args.n_workers, args.begin_frame, args.traj_step, args.end_frame
@@ -225,6 +250,10 @@ class sele_ana(elastic):
             save_show(w_dir / f'radial_{i}.png', 600, show=False)
             plt.close(fig=fig)
         opts_file(w_dir / 'radial.pkl', 'wb', way='pkl', data=dfs)
+
+    def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
+        self.twist(u, w_dir, args)
+        self.radial_dist(u, w_dir, args)
         
         
 class pair_rmsd(elastic):
@@ -236,13 +265,12 @@ class pair_rmsd(elastic):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
-        self.ana_func = [self.pair_rmsd]
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-rd', '--ref-dir', type = str, required=True,
                           help="dir which contains ref input files, default is %(default)s.")
-        elastic.make_args(args)
+        make_args(args)
         args.add_argument('--ref-chain-name', type = str, required=True,
                           help='receptor chain name, such as "A".')
         args.add_argument('--chain-name', type = str, required=True,
@@ -252,7 +280,7 @@ class pair_rmsd(elastic):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         self.args.ref_dir = clean_path(self.args.ref_dir)
 
-    def pair_rmsd(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
+    def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
         force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
         if os.path.exists(w_dir / 'inter_frame_rmsd.pkl') and not force:
             return put_log('Inter-frame RMSD already calculated, use -F to re-run.')
