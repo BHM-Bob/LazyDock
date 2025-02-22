@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-21 20:52:28
+LastEditTime: 2025-02-22 18:00:17
 Description: 
 '''
 import argparse
@@ -44,8 +44,10 @@ def calcu_nextwork_from_frame(g):
         bc = nx.betweenness_centrality(g, normalized=False)
         bc = np.asarray(list(bc.values())).reshape(-1)
         path_dict = dict(nx.all_pairs_shortest_path_length(g))
-        path = pd.DataFrame(path_dict).values
-        return bc, path
+        path_df = pd.DataFrame(path_dict)
+        path_df.sort_index(axis=0, inplace=True)
+        path_df.sort_index(axis=1, inplace=True)
+        return bc, path_df.values
     except Exception as ex:
         return put_err(f'Error calculating BC for frame: {ex}')
 
@@ -93,7 +95,7 @@ class network(mmpbsa):
                                              desc='Calculating network', total=sum_frames, leave=False)):
             pg = construct_graph(frame, atoms.indices, self.args.threshold)
             self.pool.add_task(current, calcu_nextwork_from_frame, pg)
-            self.pool.wait_till(lambda: self.pool.count_waiting_tasks() == 0, 0)
+            self.pool.wait_till(lambda: self.pool.count_waiting_tasks() == 0, 0.001, update_result_queue=False)
         # gather results
         self.pool.wait_till(lambda: self.pool.count_done_tasks() == sum_frames, 0)
         for i in tqdm(list(self.pool.tasks.keys()), total=sum_frames, desc='Gathering results', leave=False):
