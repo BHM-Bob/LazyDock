@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-18 16:13:31
+LastEditTime: 2025-02-22 21:18:11
 Description: 
 '''
 import argparse
@@ -20,15 +20,15 @@ from lazydock.pml.ligplus_interaction import \
 from lazydock.pml.plip_interaction import SUPPORTED_MODE as plip_mode
 from lazydock.pml.plip_interaction import \
     calcu_receptor_poses_interaction as calc_fn_plip
-from lazydock.scripts._script_utils_ import Command, clean_path, process_batch_dir_lst
-from mbapy_lite.base import put_err
+from lazydock.scripts._script_utils_ import (Command, clean_path,
+                                             process_batch_dir_lst)
+from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from pymol import cmd
 from tqdm import tqdm
 
 
 # TODO: change it to nargs
-# TODO: add force option
 class simple_analysis(Command):
     METHODS: Dict[str, Tuple[Callable, List[str]]] = {'pymol': (calc_fn_pml, pml_mode),
                                                       'ligplus': (calc_fn_ligplus, ligplus_mode),
@@ -57,6 +57,8 @@ class simple_analysis(Command):
                           help='output style\n receptor: resn resi distance')
         args.add_argument('--ref-res', type = str, default='',
                           help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
+        args.add_argument('-F', '--force', default=False, action='store_true',
+                          help='force to re-run the analysis, default is %(default)s.')
         return args
 
     def process_args(self):
@@ -79,7 +81,6 @@ class simple_analysis(Command):
             self.args.ref_res = split_fn(self.args.ref_res)
         else:
             self.args.ref_res = set()
-            
         
     @staticmethod
     def output_fromater_receptor(inter_value: Dict[str, float], method: str):
@@ -171,9 +172,12 @@ class simple_analysis(Command):
         for r_path, l_path, method, mode in self.tasks:
             wdir = os.path.dirname(l_path)
             bar.set_description(f"{wdir}: {os.path.basename(r_path)} and {os.path.basename(l_path)}")
-            self.calc_interaction_from_dlg(r_path, l_path, method, mode, self.args.cutoff,
-                                           getattr(self, f'output_fromater_{self.args.output_style}'),
-                                           self.args.hydrogen_atom_only, self.args.ref_res)
+            if os.path.exists(os.path.join(wdir, f'{Path(l_path).stem}_{method}_interactions.xlsx')) and not self.args.force:
+                put_log('Interaction already calculated, use -F to re-run.')
+            else:
+                self.calc_interaction_from_dlg(r_path, l_path, method, mode, self.args.cutoff,
+                                            getattr(self, f'output_fromater_{self.args.output_style}'),
+                                            self.args.hydrogen_atom_only, self.args.ref_res)
             bar.update(1)
 
 _str2func = {
