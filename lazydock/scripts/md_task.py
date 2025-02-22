@@ -20,8 +20,10 @@ from lazydock_md_task.scripts.contact_map_v2 import (calculate_contacts,
                                                      load_and_preprocess_traj,
                                                      plot_network,
                                                      save_network_data)
+from matplotlib import pyplot as plt
 from mbapy.web_utils.task import TaskPool
 from mbapy_lite.base import put_err, put_log
+from mbapy_lite.plot import save_show
 from tqdm import tqdm
 
 
@@ -97,10 +99,25 @@ class network(mmpbsa):
         for i in tqdm(list(self.pool.tasks.keys()), total=sum_frames, desc='Gathering results', leave=False):
             total_bc[i], total_dj_path[i] = self.pool.query_task(i, True, 999)
         self.pool.clear()
-        total_bc = np.asarray(total_bc)
-        total_dj_path = np.asarray(total_dj_path)
+        return np.asarray(total_bc), np.asarray(total_dj_path)
+        
+    def save_results(self, top_path: Path, total_bc: np.ndarray, total_dj_path: np.ndarray):
+        total_bc, total_dj_path = total_bc.mean(axis=0), total_dj_path.mean(axis=0)
+        # plot Average Shortest Path figure
+        plt.plot(total_bc)
+        plt.xlabel('Residue Index')
+        plt.ylabel('Betweenness Centrality')
+        save_show(top_path.parent / 'Betweenness Centrality.png', 600, show=False)
+        plt.close()
+        # plot Average Shortest Path figure
+        plt.imshow(total_dj_path, cmap='viridis')
+        plt.xlabel('Residue Index')
+        plt.ylabel('Residue Index')
+        plt.colorbar(label=r'Average Shortest Path')
+        save_show(top_path.parent / 'Average Shortest Path.png', 600, show=False)
+        plt.close()
         # save outputs, float32 and int16 for saving space
-        np.savez(traj_path.parent / f'{traj_path.stem}_network.npz', total_bc=total_bc.astype(np.float32),
+        np.savez(top_path.parent / f'{top_path.stem}_network.npz', total_bc=total_bc.astype(np.float32),
                  total_dj_path=total_dj_path.astype(np.int16))
     
     def main_process(self):
@@ -115,10 +132,11 @@ class network(mmpbsa):
             wdir = os.path.dirname(top_path)
             bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             top_path, traj_path = Path(top_path), Path(traj_path)
-            if os.path.exists(os.path.join(wdir, f'{traj_path.stem}_network.npz')) and not self.args.force:
-                put_log(f'{traj_path.stem}_network.npz already exists, skip.')
+            if os.path.exists(os.path.join(wdir, f'{top_path.stem}_network.npz')) and not self.args.force:
+                put_log(f'{top_path.stem}_network.npz already exists, skip.')
                 continue
-            self.calcu_network(Path(top_path), Path(traj_path))
+            total_bc, total_dj_path = self.calcu_network(Path(top_path), Path(traj_path))
+            self.save_results(top_path, total_bc, total_dj_path)
             bar.update(1)
         self.pool.close()
         
