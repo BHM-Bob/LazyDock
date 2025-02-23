@@ -18,9 +18,9 @@ import MDAnalysis as mda
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from lazydock.algorithm.rms import pairwise_rmsd
 from lazydock.gmx.mda.gnm import (calcu_closeContactGNMAnalysis,
                                   calcu_GNMAnalysis, genarate_atom2residue)
-from lazydock.gmx.mda.rms import pairwise_rmsd
 from lazydock.scripts._script_utils_ import (clean_path, excute_command,
                                              process_batch_dir_lst)
 from lazydock.scripts.ana_gmx import mmpbsa
