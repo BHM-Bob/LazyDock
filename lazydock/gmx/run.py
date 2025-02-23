@@ -1,20 +1,16 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-16 20:56:23
+LastEditTime: 2025-02-23 21:45:18
 Description:
 '''
 import os
+from pathlib import Path
 from typing import Any, Dict, List
 
 from mbapy_lite.base import get_fmt_time, put_log
 from mbapy_lite.file import opts_file
 from mbapy_lite.game import BaseInfo
-
-if __name__ == '__main__':
-    from lazydock.utils import get_storage_path
-else:
-    from ..utils import get_storage_path
 
 
 class Gromacs(BaseInfo):
@@ -22,6 +18,7 @@ class Gromacs(BaseInfo):
         super().__init__()
         self.call_name = call_name
         self.working_dir = os.path.abspath(working_dir)
+        self.wdir = Path(self.working_dir).resolve()
         
     def kwargs2cmd(self, kwargs: Dict[str, str]):
         return ' '.join([f'{"--" if k.startswith("_") else "-"}{k} {v}' for k, v in kwargs.items()])
