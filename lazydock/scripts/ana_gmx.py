@@ -238,10 +238,11 @@ class simple(trjconv):
                 for ty in ['total', 'res', 'dg', 'tv']:
                     (gmx.wdir / f'{main_name}_sasa_{ty}.xvg').unlink(missing_ok=True)
                     (gmx.wdir / f'{main_name}_sasa_{ty}.png').unlink(missing_ok=True)
+                    (gmx.wdir / f'{main_name}_sasa_{ty}.csv').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_sasa_tv.csv already exists, skip.')
         gmx.run_gmx_with_expect(f'sasa -or {main_name}_sasa_res.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
-                                    o=f'{main_name}_sasa_total.xvg', odg=f'{main_name}_sasa_dg.xvg', tv='{main_name}_sasa_tv.xvg', tu='ns', n=index,
+                                    o=f'{main_name}_sasa_total.xvg', odg=f'{main_name}_sasa_dg.xvg', tv=f'{main_name}_sasa_tv.xvg', tu='ns', n=index,
                                     expect_actions=[{'>': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
         for ty in ['total', 'res', 'dg', 'tv']:
