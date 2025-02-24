@@ -497,7 +497,7 @@ class interaction(simple_analysis, mmpbsa):
                           help='output style\n receptor: resn resi distance')
         args.add_argument('--ref-res', type = str, default='',
                           help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
-        args.add_argument('-np', '--n-workers', type=int, default=4,
+        args.add_argument('-nw', '--n-workers', type=int, default=4,
                           help='number of workers to parallel. Default is %(default)s.')
         args.add_argument('-b', '--begin-frame', type=int, default=0,
                           help='First frame to start the analysis. Default is %(default)s.')
