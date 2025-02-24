@@ -13,7 +13,7 @@ import seaborn as sns
 from lazydock.gmx.mda.convert import PDBConverter
 from lazydock.gmx.run import Gromacs
 from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
-from lazydock.pml.plip_interaction import run_plip_analysis
+from lazydock.pml.plip_interaction import run_plip_analysis, check_support_mode
 from lazydock.pml.rrcs import calcu_RRCS_from_array, calcu_RRCS_from_tensor
 from lazydock.scripts._script_utils_ import (Command, check_file_num_paried,
                                              excute_command,
@@ -457,7 +457,8 @@ def run_pdbstr_interaction_analysis(pdbstr: str, receptor_chain: str, ligand_cha
     if method == 'pymol':
         inter = calcu_pdbstr_interaction(f'chain {receptor_chain}', f'chain {ligand_chain}', pdbstr, mode, cutoff, hydrogen_atom_only)
     elif method == 'plip':
-       inter = run_plip_analysis(pdbstr, receptor_chain, ligand_chain, mode, cutoff)
+        mode = check_support_mode(mode)
+        inter = run_plip_analysis(pdbstr, receptor_chain, ligand_chain, mode, cutoff)
     else:
         return put_err(f"method {method} not supported, return None.")
     return inter
