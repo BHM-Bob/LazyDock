@@ -684,7 +684,7 @@ class RRCS(mmpbsa):
             # calcu interaction for each frame
             sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
             for frame in tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
-                              total=sum_frames//self.args.traj_step, desc='Calculation frames', leave=False):
+                              total=sum_frames//self.args.traj_step, desc='Calculating frames', leave=False):
                 if not hasattr(ag, 'occupancies'):
                     occupancies = np.ones(len(ag))
                 else:
