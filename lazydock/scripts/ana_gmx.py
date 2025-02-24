@@ -161,6 +161,10 @@ class simple(trjconv):
                           help='group to calculate sasa, default is %(default)s.')
         args.add_argument('-eg', '--eigenval-group', type = str, default='4',
                           help='group to calculate eigenval, default is %(default)s.')
+        args.add_argument('-dg', '--dssp-group', type = str, default=None,
+                          help='group to calculate DSSP, default is %(default)s.')
+        args.add_argument('--dssp-num', action='store_true', default=False,
+                          help='wheter to calculate DSSP number, default is %(default)s.')
         args.add_argument('-xmax', '--eigenval-xmax', type = int, default=15,
                           help='max value of eigenval, default is %(default)s.')
         args.add_argument('-F', '--force', default=False, action='store_true',
@@ -264,6 +268,27 @@ class simple(trjconv):
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_eigenval.xvg -o {main_name}_eigenval.png -xmin 0 -xmax {xmax} -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv -ns')
     
     @staticmethod
+    def dssp(gmx: Gromacs, main_name: str, index: str = None, group: str = None, num: bool = False,
+             force: bool = False, delete: bool = False, **kwargs):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_dssp_mat.dat')):
+            if delete:
+                (gmx.wdir / f'{main_name}_dssp_num.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_mat.dat').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_mat.xpm').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_mat.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_num.png').unlink(missing_ok=True)
+            if not force:
+                return put_log(f'{main_name}_dssp_mat.dat already exists, skip.')
+        if num:
+            kwgs = {'num': f'{main_name}_dssp_num.xvg'}
+        gmx.run_gmx_with_expect('dssp', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_dssp_mat.dat',
+                                sel=group, n=index, _hmode='dssp', _clear=True, tu='ns', **kwgs)
+        gmx.run_cmd_with_expect(f'dit dssp -f {main_name}_dssp_mat.dat -o {main_name}_dssp_mat.xpm')
+        gmx.run_cmd_with_expect(f'dit xpm_show -f {main_name}_dssp_mat.xpm -o {main_name}_dssp_mat.png -xs 0.01 --x_precision 0 -x "Time (ns)"')
+        if num:
+            gmx.run_cmd_with_expect(f'dit xvg_compare -c 1-10 -f {main_name}_dssp_num.xvg -o {main_name}_dssp_num.png -t "DSSP number of {main_name}" -csv {main_name}_dssp_num.csv -ns')
+    
+    @staticmethod
     def free_energy_landscape(gmx: Gromacs, main_name: str, force: bool = False, delete: bool = False, **kwargs):
         # MD-DaVis
         if os.path.exists(os.path.join(gmx.working_dir, f'FEL.html')):
@@ -330,12 +355,20 @@ class simple(trjconv):
             complex_path = Path(complex_path).resolve()
             gmx = Gromacs(working_dir=str(complex_path.parent))
             # perform analysis
-            self.rms(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group, force=self.args.force, delete=self.args.delete)
-            self.rmsf(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group, force=self.args.force, delete=self.args.delete)
-            self.gyrate(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group, force=self.args.force, delete=self.args.delete)
-            self.hbond(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.hbond_group, force=self.args.force, delete=self.args.delete)
-            self.sasa(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.sasa_group, force=self.args.force, delete=self.args.delete)
-            self.covar(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.eigenval_group, xmax=self.args.eigenval_xmax, force=self.args.force, delete=self.args.delete)
+            self.rms(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group,
+                     force=self.args.force, delete=self.args.delete)
+            self.rmsf(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group,
+                      force=self.args.force, delete=self.args.delete)
+            self.gyrate(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group,
+                        force=self.args.force, delete=self.args.delete)
+            self.hbond(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.hbond_group,
+                       force=self.args.force, delete=self.args.delete)
+            self.sasa(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.sasa_group,
+                      force=self.args.force, delete=self.args.delete)
+            self.covar(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.eigenval_group,
+                       xmax=self.args.eigenval_xmax, force=self.args.force, delete=self.args.delete)
+            self.dssp(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.dssp_group,
+                       num=self.args.dssp_num, force=self.args.force, delete=self.args.delete)
             # perform free energy landscape by MD-DaVis
             self.free_energy_landscape(gmx, main_name=complex_path.stem, force=self.args.force, delete=self.args.delete)
             # plot PDF
