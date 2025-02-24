@@ -1,7 +1,7 @@
 '''
 Date: 2024-10-11 10:33:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-11-30 17:29:27
+LastEditTime: 2025-02-24 20:05:54
 Description: 
 '''
 import time
@@ -10,15 +10,14 @@ from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from lazydock.pml.interaction_utils import sort_func
+from lazydock.utils import uuid4
 from mbapy_lite.base import put_err
 from mbapy_lite.web import TaskPool
 from plip.exchange.report import BindingSiteReport
 from plip.structure.preparation import PDBComplex
 from pymol import cmd
 from tqdm import tqdm
-
-from lazydock.pml.interaction_utils import sort_func
-from lazydock.utils import uuid4
 
 
 def get_atom_level_interactions(mol, receptor_chain: str, ligand_chain: str, mode: List[str], cutoff: float = 4.):
@@ -27,14 +26,18 @@ def get_atom_level_interactions(mol, receptor_chain: str, ligand_chain: str, mod
     interactions = {}
     for ligand, interaction in mol.interaction_sets.items():
         info = BindingSiteReport(interaction)
-        for name, feat, values in [['Hydrophobic Interactions', info.hydrophobic_features, info.hydrophobic_info],
-                                  ['Hydrogen Bonds', info.hbond_features, info.hbond_info],
-                                  ['Water Bridges', info.waterbridge_features, info.waterbridge_info],
-                                  ['Salt Bridges', info.saltbridge_features, info.saltbridge_info],
-                                  ['pi-Stacking', info.pistacking_features, info.pistacking_info],
-                                  ['pi-Cation Interactions', info.pication_features, info.pication_info],
-                                  ['Halogen Bonds', info.halogen_features, info.halogen_info],
-                                  ['Metal Complexes', info.metal_features, info.metal_info]]:
+        mode_dict = {
+            'Hydrophobic Interactions': [info.hydrophobic_features, info.hydrophobic_info],
+            'Hydrogen Bonds': [info.hbond_features, info.hbond_info],
+            'Water Bridges': [info.waterbridge_features, info.waterbridge_info],
+            'Salt Bridges': [info.saltbridge_features, info.saltbridge_info],
+            'pi-Stacking': [info.pistacking_features, info.pistacking_info],
+            'pi-Cation Interactions': [info.pication_features, info.pication_info],
+            'Halogen Bonds': [info.halogen_features, info.halogen_info],
+            'Metal Complexes': [info.metal_features, info.metal_info],
+        }
+        modes = [[n, mode_dict[n][0], mode_dict[n][1]] for n in mode]
+        for name, feat, values in modes:
             interactions.setdefault(name, [])
             for value in values:
                 find_idx_fn = lambda x: feat.index(list(filter(lambda y: x == y, feat))[0])
