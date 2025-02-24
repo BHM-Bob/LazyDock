@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-23 21:45:18
+LastEditTime: 2025-02-24 16:55:54
 Description:
 '''
 import os
@@ -21,7 +21,7 @@ class Gromacs(BaseInfo):
         self.wdir = Path(self.working_dir).resolve()
         
     def kwargs2cmd(self, kwargs: Dict[str, str]):
-        return ' '.join([f'{"--" if k.startswith("_") else "-"}{k} {v}' for k, v in kwargs.items()])
+        return ' '.join([f'{"--" if k.startswith("_") else "-"}{k[1:] if k.startswith("_") else k} {v}' for k, v in kwargs.items()])
     
     def gen_command(self, sub_commmand: str, **kwargs):
         """
