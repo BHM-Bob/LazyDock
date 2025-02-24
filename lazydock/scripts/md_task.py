@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-22 18:00:17
+LastEditTime: 2025-02-24 11:32:57
 Description: 
 '''
 import argparse
@@ -58,6 +58,7 @@ class network(mmpbsa):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
+        self.result_suffix = 'network'
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
@@ -134,11 +135,11 @@ class network(mmpbsa):
             wdir = os.path.dirname(top_path)
             bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             top_path, traj_path = Path(top_path), Path(traj_path)
-            if os.path.exists(os.path.join(wdir, f'{top_path.stem}_network.npz')) and not self.args.force:
+            if os.path.exists(os.path.join(wdir, f'{top_path.stem}_{self.result_suffix}.npz')) and not self.args.force:
                 put_log(f'{top_path.stem}_network.npz already exists, skip.')
                 continue
-            total_bc, total_dj_path = self.calcu_network(Path(top_path), Path(traj_path))
-            self.save_results(top_path, total_bc, total_dj_path)
+            results = self.calcu_network(Path(top_path), Path(traj_path))
+            self.save_results(top_path, *results)
             bar.update(1)
         self.pool.close()
         
@@ -149,6 +150,7 @@ class correlation(network):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
+        self.result_suffix = 'corr_matrix'
         
     def correlate(self, coords):
         # residues shape: (n_traj_frame, n_res, 3)
@@ -169,6 +171,10 @@ class correlation(network):
         
         return corr_matrix
     
+    def save_results(self, top_path: Path, corr_matrix: np.ndarray):
+        np.savez(top_path.parent / f'{top_path.stem}_corr_matrix.npz', corr_matrix=corr_matrix.astype(np.float32))
+        plot_map(corr_matrix, top_path.stem, top_path.parent / f'{top_path.stem}_corr_matrix')
+    
     def calcu_network(self, topol_path: Path, traj_path: Path):
         # prepare trajectory and topology
         u = mda.Universe(str(topol_path), str(traj_path))
@@ -183,8 +189,7 @@ class correlation(network):
         # calculate correlation matrix and save, show
         sorted_residx = np.argsort(atoms.resids)
         corr_matrix = self.correlate(coords[:, sorted_residx, :])
-        np.savez(traj_path.parent / f'{traj_path.stem}_corr_matrix.npz', corr_matrix=corr_matrix.astype(np.float32))
-        plot_map(corr_matrix, traj_path.stem, traj_path.parent / f'{traj_path.stem}_corr_matrix')
+        return [corr_matrix]
      
         
 class prs(network):
