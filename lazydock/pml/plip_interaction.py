@@ -84,6 +84,13 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str],
 
 SUPPORTED_MODE = ['Hydrophobic Interactions', 'Hydrogen Bonds', 'Water Bridges', 'Salt Bridges', 'pi-Stacking', 'pi-Cation Interactions', 'Halogen Bonds', 'Metal Complexes']
 
+def check_support_mode(mode: Union[str, List[str]]):
+    if mode == 'all':
+        return SUPPORTED_MODE
+    elif isinstance(mode, str) and mode in SUPPORTED_MODE:
+        return [mode]
+    elif any(m not in SUPPORTED_MODE for m in mode):
+        put_err(f'Unsupported mode: {mode}, supported: {SUPPORTED_MODE}', _exit=True)
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Union[str, List[str]] = 'all', cutoff: float = 4.,
                                      taskpool: TaskPool = None, verbose: bool = False, **kwargs):
@@ -107,12 +114,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
             interaction_df.loc[ligand_res, receptor_res] = score
     """
     # set mode
-    if mode == 'all':
-        mode = SUPPORTED_MODE
-    elif isinstance(mode, str) and mode in SUPPORTED_MODE:
-        mode = [mode]
-    elif any(m not in SUPPORTED_MODE for m in mode):
-        put_err(f'Unsupported mode: {mode}, supported: {SUPPORTED_MODE}', _exit=True)
+    mode = check_support_mode(mode)
     # else: mode = mode
     # prepare interactions
     receptor_chain = cmd.get_chains(receptor)[0]
