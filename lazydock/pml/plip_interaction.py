@@ -5,6 +5,7 @@ LastEditTime: 2024-11-30 17:29:27
 Description: 
 '''
 import time
+import traceback
 from typing import Dict, List, Tuple, Union
 
 import numpy as np
@@ -60,6 +61,7 @@ def run_plip_analysis(complex_pdbstr: str, receptor_chain: str, ligand_chain: st
         mol.analyze()
         return get_atom_level_interactions(mol, receptor_chain, ligand_chain, mode, cutoff)
     except Exception as e:
+        traceback.print_exc()
         return e
 
 
