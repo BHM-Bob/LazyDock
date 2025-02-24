@@ -279,6 +279,7 @@ class simple(trjconv):
                 (gmx.wdir / f'{main_name}_dssp_num.png').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_dssp_mat.dat already exists, skip.')
+        kwgs = {}
         if num:
             kwgs = {'num': f'{main_name}_dssp_num.xvg'}
         gmx.run_gmx_with_expect('dssp', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_dssp_mat.dat',
