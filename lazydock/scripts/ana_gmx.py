@@ -46,6 +46,8 @@ class trjconv(Command):
                           help='index file name in each sub-directory, such as tc_index.ndx, default is %(default)s.')
         args.add_argument('-pbc', type=str, default='mol', choices=['mol', 'atom', 'res', 'whole', 'cluster', 'nojump'],
                           help='pbc option for gmx trjconv, default is %(default)s.')
+        args.add_argument('-ur', type=str, default='compact', choices=['rect', 'tric', 'compact'],
+                          help='ur option for gmx trjconv, default is %(default)s.')
         args.add_argument('-F', '--force', default=False, action='store_true',
                           help='force to re-run the analysis, default is %(default)s.')
         args.add_argument('-D', '--delete', default=False, action='store_true',
@@ -76,7 +78,7 @@ class trjconv(Command):
             for g in self.args.groups:
                 exp_acts.append({'Select a group:': f'{g}\r', '\\timeout': f'{g}\r'})
             gmx.run_gmx_with_expect('trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc', n=self.args.index,
-                                    pbc=self.args.pbc, center=True, expect_actions=exp_acts, expect_settings={'timeout': 10})
+                                    pbc=self.args.pbc, ur=self.args.ur, center=True, expect_actions=exp_acts, expect_settings={'timeout': 10})
 
 
 class make_ndx(trjconv):
