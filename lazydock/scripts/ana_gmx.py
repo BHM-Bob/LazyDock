@@ -167,6 +167,8 @@ class simple(trjconv):
                           help='group to calculate DSSP, default is %(default)s.')
         args.add_argument('--dssp-num', action='store_true', default=False,
                           help='wheter to calculate DSSP number, default is %(default)s.')
+        args.add_argument('--dssp-clear', action='store_true', default=False,
+                          help='wheter to send --clear arg to gmx dssp, default is %(default)s.')
         args.add_argument('-xmax', '--eigenval-xmax', type = int, default=15,
                           help='max value of eigenval, default is %(default)s.')
         args.add_argument('-F', '--force', default=False, action='store_true',
@@ -270,7 +272,7 @@ class simple(trjconv):
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_eigenval.xvg -o {main_name}_eigenval.png -xmin 0 -xmax {xmax} -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv -ns')
     
     @staticmethod
-    def dssp(gmx: Gromacs, main_name: str, index: str = None, group: str = None, num: bool = False,
+    def dssp(gmx: Gromacs, main_name: str, index: str = None, group: str = None, num: bool = False, clear: bool = False,
              force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_dssp_mat.dat')):
             if delete:
@@ -284,8 +286,10 @@ class simple(trjconv):
         kwgs = {}
         if num:
             kwgs = {'num': f'{main_name}_dssp_num.xvg'}
+        if clear:
+            kwgs.update({'_clear': True})
         gmx.run_gmx_with_expect('dssp', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_dssp_mat.dat',
-                                sel=group, n=index, _hmode='dssp', _clear=True, tu='ns', **kwgs)
+                                sel=group, n=index, _hmode='dssp', tu='ns', **kwgs)
         gmx.run_cmd_with_expect(f'dit dssp -f {main_name}_dssp_mat.dat -o {main_name}_dssp_mat.xpm')
         gmx.run_cmd_with_expect(f'dit xpm_show -f {main_name}_dssp_mat.xpm -o {main_name}_dssp_mat.png -xs 0.01 --x_precision 0 -x "Time (ns)"')
         if num:
@@ -371,7 +375,7 @@ class simple(trjconv):
             self.covar(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.eigenval_group,
                        xmax=self.args.eigenval_xmax, force=self.args.force, delete=self.args.delete)
             self.dssp(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.dssp_group,
-                       num=self.args.dssp_num, force=self.args.force, delete=self.args.delete)
+                       num=self.args.dssp_num, clear=self.args.dssp_clear, force=self.args.force, delete=self.args.delete)
             # perform free energy landscape by MD-DaVis
             self.free_energy_landscape(gmx, main_name=complex_path.stem, force=self.args.force, delete=self.args.delete)
             # plot PDF
