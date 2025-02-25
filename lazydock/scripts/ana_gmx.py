@@ -677,7 +677,7 @@ class RRCS(mmpbsa):
             top_path = Path(top_path).resolve()
             bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             if os.path.exists(os.path.join(wdir, f'{top_path.stem}_RRCS.npz')) and not self.args.force:
-                put_log(f'{top_path.stem}_RRCS.npz already exists, skip free energy landscape.')
+                put_log(f'{top_path.stem}_RRCS.npz already exists, skip.')
                 continue
             # load pdbstr from traj
             u = Universe(str(top_path), traj_path)
@@ -705,15 +705,32 @@ class RRCS(mmpbsa):
             for k in frames:
                 df = pool.query_task(k, True, 10)
                 scores[k] = df.values
+            scores = np.stack(list(scores.values()), axis=0)
             # save result
             np.savez_compressed(str(top_path.parent / f'{top_path.stem}_RRCS.npz'),
                                 scores=scores, frames=np.array(frames), resis=ag.resids,
                                 resns=ag.resnames, chains=ag.chainIDs)
+            # plot matrix figure
+            plt.imshow(scores.mean(axis=0), cmap='viridis')
+            plt.xlabel('Residue Index')
+            plt.ylabel('Residue Index')
+            plt.colorbar(label=r'Average RRCS')
+            save_show(str(top_path.parent / f'{top_path.stem}_RRCS.png'), 600, show=False)
+            plt.close()
+            # plot diag vs frames
+            diags = np.stack([np.diag(score, k=-1) for score in scores], axis=0).T
+            fig, ax = plt.subplots(figsize=(12, 6))
+            sns.heatmap(diags, cmap='viridis', cbar_kws={'label': r'RRCS'}, xticklabels=1000, ax=ax)
+            ax.set_aspect('auto')
+            plt.xlabel('Frames')
+            plt.ylabel('Residue Index')
+            save_show(str(top_path.parent / f'{top_path.stem}_RRCS_vs_Frame.png'), 600, show=False)
+            plt.close()
             # other things
             pool.task = {}
             bar.update(1)
         pool.close()
-        
+
 
 _str2func = {
     'trjconv': trjconv,
