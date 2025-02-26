@@ -512,7 +512,7 @@ class interaction(simple_analysis, mmpbsa):
                           help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
         args.add_argument('-nw', '--n-workers', type=int, default=4,
                           help='number of workers to parallel. Default is %(default)s.')
-        args.add_argument('-b', '--begin-frame', type=int, default=0,
+        args.add_argument('-b', '--begin-frame', type=int, default=1,
                           help='First frame to start the analysis. Default is %(default)s.')
         args.add_argument('-e', '--end-frame', type=int, default=None,
                           help='First frame to start the analysis. Default is %(default)s.')
@@ -522,6 +522,10 @@ class interaction(simple_analysis, mmpbsa):
                           help='force to re-run the analysis, default is %(default)s.')
         args.add_argument('--plot-time-unit', type=int, default=100,
                           help='time unit for plot in X-Axis, default is %(default)s.')
+        args.add_argument('--yticks-interval', type=int, default=10,
+                          help='interval for y axis ticks, default is %(default)s.')
+        args.add_argument('--fig-size', type=int, nargs=2, default=[9, 6],
+                          help='figure size, default is %(default)s.')
     
     def process_args(self):
         # self.args.alter_ligand_chain will passed to final interaction calcu function
@@ -629,9 +633,19 @@ class interaction(simple_analysis, mmpbsa):
             # save to csv and plot
             plot_df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_plot_df.csv'), index=False)
             if not plot_df.empty:
-                sns.heatmap(plot_df, xticklabels=list(plot_df.columns))
+                fig, ax = plt.subplots(figsize=self.args.fig_size)
+                sns.heatmap(plot_df, xticklabels=list(plot_df.columns),
+                            cmap='viridis', cbar_kws={'label': 'Interaction frequency'}, ax=ax)
+                y_ticks = list(range(0, len(plot_df)+1, self.args.yticks_interval))
+                ax.set_yticks(y_ticks, list(map(str, y_ticks)))
+                ax.tick_params(labelsize=14, axis='both')
+                plt.xlabel('Residue', fontsize=16, weight='bold')
+                plt.ylabel('Time (ns)', fontsize=16, weight='bold')
+                cbar = ax.collections[0].colorbar
+                cbar.ax.tick_params(labelsize=14)
+                cbar.ax.set_ylabel('Interaction frequency', fontsize=16)
                 save_show(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.png'), 600, show=False)
-                plt.close()
+                plt.close(fig)
             # other things
             pool.task = {}
             bar.update(1)
