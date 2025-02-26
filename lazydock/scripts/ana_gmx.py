@@ -12,6 +12,7 @@ import pandas as pd
 import seaborn as sns
 from lazydock.gmx.mda.convert import PDBConverter
 from lazydock.gmx.run import Gromacs
+from lazydock.pml.thirdparty.modevectors import modevectors
 from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
 from lazydock.pml.plip_interaction import run_plip_analysis, check_support_mode
 from lazydock.pml.rrcs import calcu_RRCS_from_array, calcu_RRCS_from_tensor
@@ -750,6 +751,86 @@ class RRCS(mmpbsa):
         pool.close()
 
 
+def run_porcupine(top_path: str, traj_path: str, start: int = 0, stop: int = None, step: int = 1):
+    from pymol import cmd
+    cmd.reinitialize()
+    u = Universe(top_path, traj_path)
+    sum_frames = len(u.trajectory)
+    put_log(f'{traj_path} has {len(u.atoms)} atoms with {sum_frames} frames')
+    del u
+    # load top and traj
+    stop = stop or sum_frames
+    sum_frames = (stop - start)//step
+    cmd.load(top_path, 'mol')
+    cmd.load_traj(traj_path, 'mol', interval=step, start=start, stop=stop)
+    cmd.split_states('mol')
+    # run modevectors
+    modevectors(f'mol_{1:0>4d}', f'mol_{sum_frames:0>4d}',
+                cutoff=.0, head_length=0.3, head=0.2, headrgb="1.0,0.2,0.1", tailrgb="1.0,0.2,0.1", notail=0)
+    cmd.set('cartoon_trace', 0)
+    cmd.set('cartoon_tube_radius', 0.3)
+    cmd.disable('all')
+    cmd.enable(f'mol_{1:0>4d}', 1)
+    cmd.enable('modevectors', 1)
+    cmd.set('ray_shadow', 0)
+    top_path: Path = Path(top_path)
+    cmd.save(str(top_path.parent / f'{top_path.stem}_porcupine.pse'), f'mol_{1:0>4d} or modevectors', format='pse')
+
+
+class porcupine(mmpbsa):
+    HELP = """
+    porcupine plot analysis for GROMACS simulation
+    """
+    def __init__(self, args, printf=print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
+                          help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
+        args.add_argument('-top', '--top-name', type = str, required=True,
+                          help=f"topology file name in each sub-folder.")
+        args.add_argument('-traj', '--traj-name', type = str, required=True,
+                          help=f"trajectory file name in each sub-folder.")
+        args.add_argument('-b', '--begin-frame', type=int, default=0,
+                          help='First frame to start the analysis. Default is %(default)s.')
+        args.add_argument('-e', '--end-frame', type=int, default=None,
+                          help='First frame to start the analysis. Default is %(default)s.')
+        args.add_argument('-step', '--traj-step', type=int, default=1,
+                          help='Step while reading trajectory. Default is %(default)s.')
+        args.add_argument('-nw', '--n-workers', type=int, default=4,
+                          help='number of workers to parallel. Default is %(default)s.')
+        args.add_argument('-F', '--force', default=False, action='store_true',
+                          help='force to re-run the analysis, default is %(default)s.')
+        args.add_argument('-D', '--delete', default=False, action='store_true',
+                          help='delete the exist analysis result, default is %(default)s.')
+        
+    def main_process(self):
+        # load origin dfs from data file
+        self.top_paths, self.traj_paths = self.check_top_traj()
+        self.tasks = self.find_tasks()
+        print(f'find {len(self.tasks)} tasks.')
+        # process each complex
+        pool, tasks = TaskPool('process', self.args.n_workers).start(), []
+        for top_path, traj_path in self.tasks:
+            top_path = Path(top_path).resolve()
+            # check result exists
+            result_path = top_path.parent / f'{top_path.stem}_porcupine.pse'
+            if result_path.exists():
+                if self.args.delete:
+                    result_path.unlink()
+                    put_log(f'{top_path.stem}_porcupine.pse deleted.')
+                elif not self.args.force:
+                    put_log(f'{top_path.stem}_porcupine.pse already exists, skip.')
+                    continue
+            # perform porcupine
+            tasks.append(pool.add_task(None, run_porcupine, str(top_path), traj_path,
+                                       self.args.begin_frame, self.args.end_frame, self.args.traj_step))
+            pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.01, update_result_queue=False)
+        pool.wait_till_tasks_done(tasks)
+        pool.close()
+
+
 _str2func = {
     'trjconv': trjconv,
     'make_ndx': make_ndx,
@@ -757,6 +838,7 @@ _str2func = {
     'mmpbsa': mmpbsa,
     'interaction': interaction,
     'rrcs': RRCS,
+    'porcupine': porcupine,
 }
 
 
