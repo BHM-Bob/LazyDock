@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-24 11:32:57
+LastEditTime: 2025-02-26 11:19:35
 Description: 
 '''
 import argparse
@@ -88,7 +88,7 @@ class network(mmpbsa):
         # prepare trajectory and topology
         u = mda.Universe(str(topol_path), str(traj_path))
         ligand = '' if self.args.ligand is None else f' or {self.args.ligand}'
-        atoms = u.select_atoms("(name CB and protein) or (name CA and resname GLY)" + ligand)
+        atoms = u.select_atoms("(name CB and protein) or (name CA and resname GLY and protein)" + ligand)
         # prepare and run parallel calculation
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         total_bc, total_dj_path = [None] * sum_frames, [None] * sum_frames
