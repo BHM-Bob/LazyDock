@@ -503,6 +503,10 @@ class interaction(simple_analysis, mmpbsa):
                           help='only consider hydrogen bond acceptor and donor atoms, this only works when method is pymol, default is %(default)s.')
         args.add_argument('--output-style', type = str, default='receptor', choices=['receptor'],
                           help='output style\n receptor: resn resi distance')
+        args.add_argument('--max-plot', type=int, default=None,
+                          help='max res to plot, filter by (max, mean) interaction freq. Default is %(default)s.')
+        args.add_argument('--skip-plot', action='store_true', default=False,
+                          help='skip plot. Default is %(default)s.')
         args.add_argument('--ref-res', type = str, default='',
                           help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
         args.add_argument('-nw', '--n-workers', type=int, default=4,
@@ -581,7 +585,7 @@ class interaction(simple_analysis, mmpbsa):
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
             bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
-            # calcu interaction and save to file
+            # calcu interaction and save to file OR load results if have been calculated before and not force recalculate
             top_path = Path(top_path).resolve()
             gro_path = str(top_path.parent / self.args.gro_name)
             csv_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.csv')
@@ -592,7 +596,12 @@ class interaction(simple_analysis, mmpbsa):
                 opts_file(pkl_path, 'wb', way='pkl', data=interactions)
             else:
                 interactions = opts_file(pkl_path, 'rb', way='pkl')
-            # plot interaction
+            # ckeck whether to plot
+            if self.args.skip_plot:
+                pool.task = {}
+                bar.update(1)
+                continue
+            # transform interaction df to plot matrix df
             times = split_list(list(interactions.keys()), self.args.plot_time_unit)
             plot_df = pd.DataFrame()
             for i, time_u in tqdm(enumerate(times), desc='Gathering interactions', total=len(times)):
@@ -607,7 +616,16 @@ class interaction(simple_analysis, mmpbsa):
                         else:
                             plot_df.loc[i, receptor_res] += 1
             plot_df /= self.args.plot_time_unit
+            # filter plot df by (max, mean) inter value
+            if self.args.max_plot is not None and len(plot_df.columns) > self.args.max_plot:
+                sort_val = {k: (v.max(), v.mean()) for k, v in plot_df.items()}
+                sorted_val = sorted(list(sort_val.keys()), key=lambda k: sort_val[k])
+                to_del = sorted_val[:len(sort_val)-self.args.max_plot]
+                put_log(f'delete {to_del} from plot_df')
+                plot_df.drop(to_del, axis=1, inplace=True)
+            # sort residue index
             plot_df = plot_df[sorted(list(plot_df.columns), key=lambda x: int(x[3:]))]
+            # save to csv and plot
             plot_df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_plot_df.csv'), index=False)
             if not plot_df.empty:
                 sns.heatmap(plot_df, xticklabels=list(plot_df.columns))
