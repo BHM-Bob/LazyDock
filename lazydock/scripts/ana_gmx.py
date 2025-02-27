@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
@@ -159,6 +160,8 @@ class simple(trjconv):
                           help='index file name in each sub-directory, such as ana_index.ndx, default is %(default)s.')
         args.add_argument('--methods', type = str, nargs='+', default=simple.SUPPORT_METHODS, choices=simple.SUPPORT_METHODS,
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
+        args.add_argument('--dit-style', type = str, default=None,
+                          help='DIT.mplstyle style file path, default is %(default)s.')
         args.add_argument('-rg', '--rms-group', type = str, default='4',
                           help='group to calculate rmsd, rmsf, and gyrate, default is %(default)s.')
         args.add_argument('-hg', '--hbond-group', type = str, default='1',
@@ -295,7 +298,7 @@ class simple(trjconv):
         gmx.run_gmx_with_expect('dssp', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_dssp_mat.dat',
                                 sel=group, n=index, _hmode='dssp', tu='ns', **kwgs)
         gmx.run_cmd_with_expect(f'dit dssp -f {main_name}_dssp_mat.dat -o {main_name}_dssp_mat.xpm')
-        gmx.run_cmd_with_expect(f'dit xpm_show -f {main_name}_dssp_mat.xpm -o {main_name}_dssp_mat.png -xs 0.01 --x_precision 0 -x "Time (ns)"')
+        gmx.run_cmd_with_expect(f'dit xpm_show -f {main_name}_dssp_mat.xpm -o {main_name}_dssp_mat.png -xs 0.01 --x_precision 0 -x "Time (ns)" -y "Residues (aa)"')
         if num:
             gmx.run_cmd_with_expect(f'dit xvg_compare -c 1-10 -f {main_name}_dssp_num.xvg -o {main_name}_dssp_num.png -t "DSSP number of {main_name}" -csv {main_name}_dssp_num.csv -ns')
     
@@ -365,6 +368,9 @@ class simple(trjconv):
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
             complex_path = Path(complex_path).resolve()
             gmx = Gromacs(working_dir=str(complex_path.parent))
+            # copy DIT.mplstyle file to working directory
+            if self.args.dit_style and os.path.exists(self.args.dit_style):
+                shutil.copy(self.args.dit_style, str(complex_path.parent))
             # perform analysis
             if 'rms' in self.args.methods:
                 self.rms(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group,
