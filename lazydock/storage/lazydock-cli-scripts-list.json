@@ -71,11 +71,11 @@
         "brief": "GROMACS molecular analysis tools.",
         "detailed": "GROMACS molecular analysis tools."
     },
-    "distrbute_file":
+    "distribute_file":
     {
-        "name": "distrbute_file",
-        "script name": "distrbute_file",
-        "exec_names": ["distrbute_file", "distrbute-file"],
+        "name": "distribute_file",
+        "script name": "distribute_file",
+        "exec_names": ["distribute_file", "distribute-file"],
         "brief": "MD and MDS files distrbute tools.",
         "detailed": "MD and MDS files distrbute tools."
     },
