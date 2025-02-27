@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-26 11:19:35
+LastEditTime: 2025-02-26 16:06:59
 Description: 
 '''
 import argparse
@@ -68,8 +68,8 @@ class network(mmpbsa):
                             help='topology file name in each sub-directory, such as md.tpr. Default is %(default)s.')
         args.add_argument('-traj', '--traj-name', type = str, default='md_center.xtc',
                             help='trajectory file name in each sub-directory, such as md_center.xtc. Default is %(default)s.')
-        args.add_argument("--ligand", type=str, default=None,
-                          help="MDAnalysis atoms select expression to be included in the network, default: %(default)s")
+        args.add_argument('-c', '--chain', type = str, default=None,
+                          help='chain of molecular to be included into calculation. Default is %(default)s.')
         args.add_argument("--threshold", type=float, default=6.7,
                           help="Maximum distance threshold in Angstroms when constructing graph (default: %(default)s)")
         args.add_argument('-b', '--begin-frame', type=int, default=0,
@@ -87,8 +87,9 @@ class network(mmpbsa):
     def calcu_network(self, topol_path: Path, traj_path: Path):
         # prepare trajectory and topology
         u = mda.Universe(str(topol_path), str(traj_path))
-        ligand = '' if self.args.ligand is None else f' or {self.args.ligand}'
-        atoms = u.select_atoms("(name CB and protein) or (name CA and resname GLY and protein)" + ligand)
+        atoms = u.select_atoms("(name CB and protein) or (name CA and resname GLY and protein)")
+        if self.args.chain is not None:
+            atoms = atoms[atoms.chainIDs == self.args.chains]
         # prepare and run parallel calculation
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         total_bc, total_dj_path = [None] * sum_frames, [None] * sum_frames
@@ -178,8 +179,9 @@ class correlation(network):
     def calcu_network(self, topol_path: Path, traj_path: Path):
         # prepare trajectory and topology
         u = mda.Universe(str(topol_path), str(traj_path))
-        ligand = '' if self.args.ligand is None else f' or {self.args.ligand}'
-        atoms = u.select_atoms("(name CA and protein)" + ligand)
+        atoms = u.select_atoms("(name CA and protein)")
+        if self.args.chain is not None:
+            atoms = atoms[atoms.chainIDs == self.args.chains]
         # extract coords
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         coords = np.zeros((len(u.trajectory), len(atoms), 3), dtype=np.float64)
