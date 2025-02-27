@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-27 21:57:16
+LastEditTime: 2025-02-27 22:05:09
 Description: 
 '''
 import argparse
@@ -59,7 +59,7 @@ class network(mmpbsa):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
-        self.result_suffix = 'network'
+        self.result_suffix = 'network.npz'
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
@@ -137,8 +137,8 @@ class network(mmpbsa):
             wdir = os.path.dirname(top_path)
             bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             top_path, traj_path = Path(top_path), Path(traj_path)
-            if os.path.exists(os.path.join(wdir, f'{top_path.stem}_{self.result_suffix}.npz')) and not self.args.force:
-                put_log(f'{top_path.stem}_network.npz already exists, skip.')
+            if os.path.exists(os.path.join(wdir, f'{top_path.stem}_{self.result_suffix}')) and not self.args.force:
+                put_log(f'{top_path.stem}_{self.result_suffix} already exists, skip.')
                 continue
             results = self.calcu_network(Path(top_path), Path(traj_path))
             self.save_results(top_path, *results)
@@ -152,7 +152,7 @@ class correlation(network):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
-        self.result_suffix = 'corr_matrix'
+        self.result_suffix = 'corr_matrix.npz'
         
     def correlate(self, coords):
         # residues shape: (n_traj_frame, n_res, 3)
@@ -201,6 +201,7 @@ class prs(network):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
+        self.result_suffix = 'PRS.png'
 
     def calcu_network(self, topol_path: Path, traj_path: Path):
         from mbapy_lite.game import BaseInfo
@@ -225,6 +226,7 @@ class contact_map(network):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
+        self.result_suffix = 'contact_map.png'
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
