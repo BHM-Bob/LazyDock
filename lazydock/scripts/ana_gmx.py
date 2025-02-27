@@ -639,7 +639,7 @@ class interaction(simple_analysis, mmpbsa):
                 y_ticks = list(range(0, len(plot_df)+1, self.args.yticks_interval))
                 ax.set_yticks(y_ticks, list(map(str, y_ticks)))
                 ax.tick_params(labelsize=14, axis='both')
-                plt.xlabel('Residue', fontsize=16, weight='bold')
+                plt.xlabel('Residues (aa)', fontsize=16, weight='bold')
                 plt.ylabel('Time (ns)', fontsize=16, weight='bold')
                 cbar = ax.collections[0].colorbar
                 cbar.ax.tick_params(labelsize=14)
