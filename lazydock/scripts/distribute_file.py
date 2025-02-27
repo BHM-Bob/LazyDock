@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-25 21:19:19
+LastEditTime: 2025-02-27 19:37:44
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -25,7 +25,7 @@ def main(sys_args: List[str] = None):
                             help='sub string in source files or directory name.')
     args_paser.add_argument('-st', '--source-type', type = str,
                             help='file type in source directory, multiple types can be separated by comma.')
-    args_paser.add_argument('-m', '--mode', type = str, choice=['file', 'dir'], default='file',
+    args_paser.add_argument('-m', '--mode', type = str, choices=['file', 'dir'], default='file',
                             help='source search mode, file or directory. Default is %(default)s.')
     args_paser.add_argument('-dr', '--dist-root', type = str,
                             help='path to the dist root directory.')
