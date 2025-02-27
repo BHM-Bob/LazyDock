@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-26 16:06:59
+LastEditTime: 2025-02-27 21:57:16
 Description: 
 '''
 import argparse
@@ -20,6 +20,7 @@ from lazydock_md_task.scripts.contact_map_v2 import (calculate_contacts,
                                                      load_and_preprocess_traj,
                                                      plot_network,
                                                      save_network_data)
+from lazydock_md_task.scripts.prs import main as prs_main
 from matplotlib import pyplot as plt
 from mbapy.web_utils.task import TaskPool
 from mbapy_lite.base import put_err, put_log
@@ -201,12 +202,21 @@ class prs(network):
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
 
-    def calcu_network(self, traj_path: Path, topol_path: Path):
-        raise NotImplementedError
-        # prepare trajectory and topology
-        u = mda.Universe(str(topol_path), str(traj_path))
-        ligand = '' if self.args.ligand is None else f' or {self.args.ligand}'
-        atoms = u.select_atoms("(name CA and protein)" + ligand)
+    def calcu_network(self, topol_path: Path, traj_path: Path):
+        from mbapy_lite.game import BaseInfo
+        args = BaseInfo(trajectory=str(traj_path), topology=str(topol_path), step=self.args.traj_step,
+                        initial=self.args.begin_frame, final=self.args.end_frame, num_frames=None, aln=False,
+                        perturbations=250, prefix=topol_path.parent / f'{topol_path.stem}_PRS')
+        return [prs_main(args)]
+    
+    def save_results(self, top_path: Path, max_RHD: np.ndarray):
+        # plot Average Shortest Path figure
+        plt.plot(max_RHD)
+        plt.xlabel('Residue (aa)', fontsize=16, weight='bold')
+        plt.ylabel('Correlation coefficient', fontsize=16, weight='bold')
+        save_show(top_path.parent / f'{top_path.stem}_PRS.png', 600, show=False)
+        plt.close()
+
 
 
 class contact_map(network):
@@ -258,6 +268,7 @@ class contact_map(network):
 _str2func = {
     'network': network,
     'correlation': correlation,
+    'prs': prs,
     'contact-map': contact_map,
 }
 
