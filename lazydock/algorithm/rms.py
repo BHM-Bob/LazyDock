@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-20 10:49:33
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-23 23:08:22
+LastEditTime: 2025-02-27 16:07:13
 Description: 
 '''
 import numpy as np
@@ -128,18 +128,6 @@ def batch_inner_product(batch_coords1, batch_coords2, weights=None):
     E0 = 0.5 * (G1 + G2)
     return A_flat, E0
 
-def batch_calc_rmsd(batch_ref, batch_conf, batch_rot=None, weights=None):
-    """
-    批量计算RMSD和旋转矩阵
-    :param batch_ref: 参考坐标 [n_frames, n_atoms, 3]
-    :param batch_conf: 目标坐标 [n_frames, n_atoms, 3]
-    :param batch_rot: 输出旋转矩阵 [n_frames, 9]
-    :param weights: 权重 [n_atoms,] 或 [n_frames, n_atoms]
-    :return: RMSD数组 [n_frames,]
-    """
-    A_flat, E0 = batch_inner_product(batch_ref, batch_conf, weights)
-    return batch_fast_calc_rmsd(batch_rot, A_flat, E0, batch_ref.shape[1])
-
 def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms):
     """
     批量快速计算RMSD和旋转矩阵的核心算法
@@ -198,9 +186,20 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms):
     
     return rmsd
 
+def batch_calc_rmsd(batch_ref, batch_conf, batch_rot=None, weights=None):
+    """
+    批量计算RMSD和旋转矩阵
+    :param batch_ref: 参考坐标 [n_frames, n_atoms, 3]
+    :param batch_conf: 目标坐标 [n_frames, n_atoms, 3]
+    :param batch_rot: 输出旋转矩阵 [n_frames, 9]
+    :param weights: 权重 [n_atoms,] 或 [n_frames, n_atoms]
+    :return: RMSD数组 [n_frames,]
+    """
+    A_flat, E0 = batch_inner_product(batch_ref, batch_conf, weights)
+    return batch_fast_calc_rmsd(batch_rot, A_flat, E0, batch_ref.shape[1])
 
-def fit_to(mobile_coordinates, ref_coordinates, mobile_atoms,
-            mobile_com, ref_com, weights=None):
+
+def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=None):
     r"""Perform an rmsd-fitting to determine rotation matrix and align atoms
 
     Parameters
@@ -209,8 +208,6 @@ def fit_to(mobile_coordinates, ref_coordinates, mobile_atoms,
         Coordinates of atoms to be aligned
     ref_coordinates : ndarray
         Coordinates of atoms to be fit against
-    mobile_atoms : AtomGroup
-        Atoms to be translated
     mobile_com: ndarray
         array of xyz coordinate of mobile center of mass
     ref_com : ndarray
@@ -231,11 +228,10 @@ def fit_to(mobile_coordinates, ref_coordinates, mobile_atoms,
     rot = np.zeros(9, dtype=np.float64)
     min_rmsd, R = calc_rms_rotational_matrix(ref_coordinates, mobile_coordinates,
                                              rot,  weights=weights)
-    mobile_atoms.translate(-mobile_com)
-    mobile_atoms.rotate(R.reshape(3, 3))
-    mobile_atoms.translate(ref_com)
-
-    return mobile_atoms, min_rmsd
+    mobile_coordinates = mobile_coordinates.copy() - mobile_com
+    mobile_coordinates = np.matmul(mobile_coordinates, R.reshape(3, 3))
+    mobile_coordinates += ref_com
+    return mobile_coordinates, min_rmsd
 
 
 def rmsd(a, b, weights=None, center=False, superposition=False, backend: str = 'numpy'):
