@@ -12,10 +12,10 @@ import pandas as pd
 import seaborn as sns
 from lazydock.gmx.mda.convert import PDBConverter
 from lazydock.gmx.run import Gromacs
-from lazydock.pml.thirdparty.modevectors import modevectors
 from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
-from lazydock.pml.plip_interaction import run_plip_analysis, check_support_mode
+from lazydock.pml.plip_interaction import check_support_mode, run_plip_analysis
 from lazydock.pml.rrcs import calcu_RRCS_from_array, calcu_RRCS_from_tensor
+from lazydock.pml.thirdparty.modevectors import modevectors
 from lazydock.scripts._script_utils_ import (Command, check_file_num_paried,
                                              excute_command,
                                              process_batch_dir_lst)
@@ -145,6 +145,7 @@ class simple(trjconv):
     7. free energy landscape from rmsd and gyrate by MD-DaVis
     8. Probability Density Function from rmsd and gyrate
     """
+    SUPPORT_METHODS = ['rms', 'rmsf', 'gyrate', 'hbond', 'sasa', 'covar', 'dssp', 'FEL', 'PDF']
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
         
@@ -156,6 +157,8 @@ class simple(trjconv):
                           help='main name in each sub-directory, such as md.tpr.')
         args.add_argument('-ndx', '--index', type=str, default=None,
                           help='index file name in each sub-directory, such as ana_index.ndx, default is %(default)s.')
+        args.add_argument('--methods', type = str, nargs='+', default=simple.SUPPORT_METHODS, choices=simple.SUPPORT_METHODS,
+                          help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-rg', '--rms-group', type = str, default='4',
                           help='group to calculate rmsd, rmsf, and gyrate, default is %(default)s.')
         args.add_argument('-hg', '--hbond-group', type = str, default='1',
@@ -363,24 +366,33 @@ class simple(trjconv):
             complex_path = Path(complex_path).resolve()
             gmx = Gromacs(working_dir=str(complex_path.parent))
             # perform analysis
-            self.rms(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group,
-                     force=self.args.force, delete=self.args.delete)
-            self.rmsf(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group,
-                      force=self.args.force, delete=self.args.delete)
-            self.gyrate(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group,
+            if 'rms' in self.args.methods:
+                self.rms(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group,
                         force=self.args.force, delete=self.args.delete)
-            self.hbond(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.hbond_group,
-                       force=self.args.force, delete=self.args.delete)
-            self.sasa(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.sasa_group,
-                      force=self.args.force, delete=self.args.delete)
-            self.covar(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.eigenval_group,
-                       xmax=self.args.eigenval_xmax, force=self.args.force, delete=self.args.delete)
-            self.dssp(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.dssp_group,
-                       num=self.args.dssp_num, clear=self.args.dssp_clear, force=self.args.force, delete=self.args.delete)
+            if 'rmsf' in self.args.methods:
+                self.rmsf(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group,
+                        force=self.args.force, delete=self.args.delete)
+            if 'gyrate' in self.args.methods:
+                self.gyrate(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.rms_group,
+                            force=self.args.force, delete=self.args.delete)
+            if 'hbond' in self.args.methods:
+                self.hbond(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.hbond_group,
+                        force=self.args.force, delete=self.args.delete)
+            if 'sasa' in self.args.methods:
+                self.sasa(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.sasa_group,
+                        force=self.args.force, delete=self.args.delete)
+            if 'covar' in self.args.methods:
+                self.covar(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.eigenval_group,
+                        xmax=self.args.eigenval_xmax, force=self.args.force, delete=self.args.delete)
+            if 'dssp' in self.args.methods:
+                self.dssp(gmx, main_name=complex_path.stem, index=self.args.index, group=self.args.dssp_group,
+                        num=self.args.dssp_num, clear=self.args.dssp_clear, force=self.args.force, delete=self.args.delete)
             # perform free energy landscape by MD-DaVis
-            self.free_energy_landscape(gmx, main_name=complex_path.stem, force=self.args.force, delete=self.args.delete)
+            if 'FEL' in self.args.methods:
+                self.free_energy_landscape(gmx, main_name=complex_path.stem, force=self.args.force, delete=self.args.delete)
             # plot PDF
-            self.plot_PDF(gmx, main_name=complex_path.stem, force=self.args.force, delete=self.args.delete)
+            if 'PDF' in self.args.methods:
+                self.plot_PDF(gmx, main_name=complex_path.stem, force=self.args.force, delete=self.args.delete)
             
             
 class mmpbsa(simple):
