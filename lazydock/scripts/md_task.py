@@ -109,16 +109,16 @@ class network(mmpbsa):
         total_bc, total_dj_path = total_bc.mean(axis=0), total_dj_path.mean(axis=0)
         # plot Average Shortest Path figure
         plt.plot(total_bc)
-        plt.xlabel('Residue Index')
-        plt.ylabel('Betweenness Centrality')
-        save_show(top_path.parent / 'Betweenness Centrality.png', 600, show=False)
+        plt.xlabel('Residue (aa)', fontsize=16, weight='bold')
+        plt.ylabel('Betweenness Centrality', fontsize=16, weight='bold')
+        save_show(top_path.parent / f'{top_path.stem}_Betweenness Centrality.png', 600, show=False)
         plt.close()
         # plot Average Shortest Path figure
         plt.imshow(total_dj_path, cmap='viridis')
-        plt.xlabel('Residue Index')
-        plt.ylabel('Residue Index')
+        plt.xlabel('Residue (aa)', fontsize=16, weight='bold')
+        plt.ylabel('Residue (aa)', fontsize=16, weight='bold')
         plt.colorbar(label=r'Average Shortest Path')
-        save_show(top_path.parent / 'Average Shortest Path.png', 600, show=False)
+        save_show(top_path.parent / f'{top_path.stem}_Average Shortest Path.png', 600, show=False)
         plt.close()
         # save outputs, float32 and int16 for saving space
         np.savez(top_path.parent / f'{top_path.stem}_network.npz', total_bc=total_bc.astype(np.float32),
@@ -220,7 +220,6 @@ class contact_map(network):
     def make_args(args: argparse.ArgumentParser):
         network.make_args(args)
         args.add_argument("--residue", type=str, required=True, help="traget residue name, such as LYS111")
-        args.add_argument("--chain", type=str, default="A", help="traget residue chain, such as A, default: %(default)s.")
         args.add_argument("--nodesize", type=int, default=2900, help="node size in drawing, default: %(default)s.")
         args.add_argument("--nodefontsize", type=float, default=9.5, help="node font size in drawing, default: %(default)s.")
         args.add_argument("--edgewidthfactor", type=float, default=10.0, help="edge width factor in drawing, default: %(default)s.")
