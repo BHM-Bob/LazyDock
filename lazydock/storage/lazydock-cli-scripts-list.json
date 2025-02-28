@@ -94,5 +94,13 @@
         "exec_names": ["md_ana", "md-ana"],
         "brief": "MDAnalysis CLI tools.",
         "detailed": "MDAnalysis CLI tools."
+    },
+    "md_traj":
+    {
+        "name": "md_traj",
+        "script name": "md_traj",
+        "exec_names": ["md_traj", "md-traj"],
+        "brief": "MDTraj CLI tools.",
+        "detailed": "MDTraj CLI tools."
     }
 }
