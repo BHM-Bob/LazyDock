@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-27 22:05:09
+LastEditTime: 2025-02-27 22:15:45
 Description: 
 '''
 import argparse
@@ -207,7 +207,7 @@ class prs(network):
         from mbapy_lite.game import BaseInfo
         args = BaseInfo(trajectory=str(traj_path), topology=str(topol_path), step=self.args.traj_step,
                         initial=self.args.begin_frame, final=self.args.end_frame, num_frames=None, aln=False,
-                        perturbations=250, prefix=topol_path.parent / f'{topol_path.stem}_PRS')
+                        perturbations=250, prefix=str(topol_path.parent / f'{topol_path.stem}_PRS'))
         return [prs_main(args)]
     
     def save_results(self, top_path: Path, max_RHD: np.ndarray):
@@ -215,6 +215,7 @@ class prs(network):
         plt.plot(max_RHD)
         plt.xlabel('Residue (aa)', fontsize=16, weight='bold')
         plt.ylabel('Correlation coefficient', fontsize=16, weight='bold')
+        plt.gca().tick_params(labelsize=14, axis='both')
         save_show(top_path.parent / f'{top_path.stem}_PRS.png', 600, show=False)
         plt.close()
 
