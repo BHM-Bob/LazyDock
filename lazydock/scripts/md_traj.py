@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-27 22:08:05
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-28 12:35:01
+LastEditTime: 2025-02-28 21:08:42
 Description: 
 '''
 
@@ -64,7 +64,7 @@ def run_md_traj_simple_analysis(top_path: str, traj_path: str, args: argparse.Na
     np.savez_compressed(root / f'{main_name}_kabsch_sander.npz', csr_matrixs=csr_matrixs)
     mean_mat = np.zeros_like(csr_matrixs[0].toarray())
     frame_avg = np.zeros(len(mol.time))
-    for i, mat_i in tqdm(enumerate(csr_matrixs)):
+    for i, mat_i in enumerate(csr_matrixs):
         mat_i = mat_i.toarray()
         mean_mat += mat_i
         frame_avg[i] = mat_i.mean().mean()
@@ -84,8 +84,8 @@ def run_md_traj_simple_analysis(top_path: str, traj_path: str, args: argparse.Na
     scatter = plt.scatter(phi_[:, 0], psi_[:, 0], c=t.time, alpha=0.1, cmap='viridis')
     sm = mpl.cm.ScalarMappable(norm=scatter.norm, cmap=scatter.cmap)
     sm.set_array(t.time)
-    cbar = plt.colorbar(sm)
-    cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x/1000:d}'))
+    cbar = plt.colorbar(sm, ax=plt.gca())
+    cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x/1000:.0f}'))
     cbar.ax.tick_params(labelsize=14)
     cbar.ax.set_ylabel('Time (ns)', fontsize=16, weight='bold')
     plt.gca().tick_params(labelsize=14)
