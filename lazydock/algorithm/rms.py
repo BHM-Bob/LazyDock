@@ -360,10 +360,10 @@ def batch_rmsd(a: np.ndarray, b: np.ndarray, backend: str = 'numpy'):
     a = a - _backend.mean(a, 1, **keepdim_kwg)
     b = b - _backend.mean(b, 1, **keepdim_kwg)
     # perform superposition and calc RMSD
-    if backend == 'cuda':
-        rot = torch.zeros(a.shape[0], 9, dtype=torch.float64, device='cuda')
+    if backend in {'torch', 'cuda'}:
+        rot = torch.zeros(a.shape[0], 9, dtype=torch.float64, device=a.device)
     else:
-        rot = _backend.zeros(a.shape[0], 9, dtype=_backend.float64)
+        rot = np.zeros((a.shape[0], 9), dtype=np.float64)
     return batch_calc_rmsd_rotational_matrix(a, b, rot, weights=None, backend=backend)
 
 
