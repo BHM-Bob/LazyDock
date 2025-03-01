@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from lazydock.algorithm.rms import (batch_calc_rmsd, batch_fast_calc_rmsd,
+from lazydock.algorithm.rms import (batch_calc_rmsd_rotational_matrix, batch_fast_calc_rmsd,
                                     batch_inner_product, batch_rmsd,
                                     calc_rms_rotational_matrix,
                                     fast_calc_rmsd_rotation, fit_to,
@@ -122,7 +122,7 @@ class TestRMSDAPIs(unittest.TestCase):
                 # Batch computation
                 batch_ref_t = self._convert_to_backend(batch_ref, backend)
                 batch_mobile_t = self._convert_to_backend(batch_mobile, backend)
-                batch_rmsds = batch_calc_rmsd(batch_ref_t, batch_mobile_t, backend=backend)
+                batch_rmsds = batch_calc_rmsd_rotational_matrix(batch_ref_t, batch_mobile_t, backend=backend)
                 
                 # Single frame computations
                 single_rmsds = []
@@ -138,7 +138,10 @@ class TestRMSDAPIs(unittest.TestCase):
                     batch_rmsds = batch_rmsds.cpu().numpy()
                     single_rmsds = [r.cpu().numpy() for r in single_rmsds]
                 
-                np.testing.assert_allclose(batch_rmsds, single_rmsds, atol=0.01)
+                err_tol = 1e-5 if backend == 'numpy' else 0.005  # Different tolerance for 'cuda' and 'torch'
+                np.testing.assert_allclose(single_rmsds, self.mda_rmsds, atol=err_tol)
+                np.testing.assert_allclose(batch_rmsds, self.mda_rmsds, atol=err_tol)
+                np.testing.assert_allclose(batch_rmsds, single_rmsds, atol=err_tol)
 
     def test_rmsd_function(self):
         """Test rmsd function with different parameters"""
