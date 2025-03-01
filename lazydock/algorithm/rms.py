@@ -262,7 +262,10 @@ def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=Non
     min_rmsd, R = calc_rms_rotational_matrix(ref_coordinates, mobile_coordinates,
                                              rot,  weights=weights, backend=backend)
     # apply rotation matrix to mobile_coordinates
-    mobile_coordinates = mobile_coordinates.copy() - mobile_com
+    if backend == 'numpy':
+        mobile_coordinates = mobile_coordinates.copy() - mobile_com
+    else:
+        mobile_coordinates = mobile_coordinates.clone().detach() - mobile_com
     mobile_coordinates = _backend.matmul(mobile_coordinates, R.reshape(3, 3))
     mobile_coordinates += ref_com
     return mobile_coordinates, min_rmsd
