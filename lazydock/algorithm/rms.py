@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-20 10:49:33
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-01 11:10:14
+LastEditTime: 2025-03-01 19:55:53
 Description: 
 '''
 import numpy as np
@@ -122,7 +122,6 @@ def batch_inner_product(batch_coords1, batch_coords2, weights=None, backend: str
     # dermine the backend
     if backend in {'torch', 'cuda'}:
         import torch
-    arr_fn = torch.tensor if backend  in {'torch', 'cuda'} else np.array
     _backend = torch if backend  in {'torch', 'cuda'} else np
     # calculate the inner product matrix and E0 value
     if weights is not None:
@@ -161,7 +160,6 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms, backend: str = 'numpy')
     # dermine the backend
     if backend in {'torch', 'cuda'}:
         import torch
-    arr_fn = torch.tensor if backend  in {'torch', 'cuda'} else np.array
     _backend = torch if backend  in {'torch', 'cuda'} else np
     # 展平旋转矩阵到输出数组
     n_frames = A_flat.shape[0]
@@ -269,6 +267,50 @@ def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=Non
     mobile_coordinates = _backend.matmul(mobile_coordinates, R.reshape(3, 3))
     mobile_coordinates += ref_com
     return mobile_coordinates, min_rmsd
+
+
+def batch_fit_to(batch_mobile_coordinates, batch_ref_coordinates, weights=None, backend: str = 'numpy'):
+    """Perform an rmsd-fitting to determine rotation matrix and align atoms
+
+    Parameters
+        mobile_coordinates, ref_coordinates : ndarray: [n_frames, n_atoms, 3]
+            Coordinates of atoms to be aligned, the com of is calculated by the input coordinates.
+        weights : array_like (optional)
+            choose weights. With ``None`` weigh each atom equally. If a float array
+            of the same length as `mobile_coordinates` is provided, use each element
+            of the `array_like` as a weight for the corresponding atom in
+            `mobile_coordinates`.
+        backend : str (optional)
+            The backend to use for calculations, default is 'numpy', supports 'numpy' and 'cuda'. Defaults to 'numpy'.
+
+    Returns
+        mobile_coords : ndarray: [n_frames, n_atoms, 3]
+            AtomGroup of translated and rotated atoms
+        min_rmsd : ndarray: [n_frames,]
+            Minimum rmsd of coordinates
+    """
+    # determine backend
+    if backend in {'torch', 'cuda'}:
+        import torch
+    _backend = torch if backend  in {'torch', 'cuda'} else np
+    # calculate rmsd and rotation matrix
+    if backend == 'cuda':
+        rot = torch.zeros((batch_mobile_coordinates.shape[0], 9), dtype=torch.float64, device='cuda')
+    else:
+        rot = _backend.zeros((batch_mobile_coordinates.shape[0], 9), dtype=_backend.float64)
+    min_rmsd, R = batch_calc_rmsd_rotational_matrix(batch_ref_coordinates, batch_mobile_coordinates,
+                                                    rot, weights=weights, backend=backend)
+    # calculate com
+    batch_ref_com = _backend.mean(batch_ref_coordinates, axis=1)
+    batch_mobile_com = _backend.mean(batch_mobile_coordinates, axis=1)
+    # apply rotation matrix to mobile_coordinates
+    if backend == 'numpy':
+        batch_mobile_coordinates = batch_mobile_coordinates.copy() - batch_mobile_com[:, None, :]
+    else:
+        batch_mobile_coordinates = batch_mobile_coordinates.clone().detach() - batch_mobile_com[:, None, :]
+    batch_mobile_coordinates = _backend.matmul(batch_mobile_coordinates, R.reshape(batch_mobile_coordinates.shape[0], 3, 3))
+    batch_mobile_coordinates += batch_ref_com[:, None, :]
+    return batch_mobile_coordinates, min_rmsd    
 
 
 def rmsd(a, b, weights=None, center=True, superposition=True, backend: str = 'numpy'):
