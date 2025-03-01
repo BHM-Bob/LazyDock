@@ -209,7 +209,7 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms, backend: str = 'numpy')
     batch_rot[:, 6] = 2*(q1*q3 - q0*q2)
     batch_rot[:, 7] = 2*(q2*q3 + q0*q1)
     batch_rot[:, 8] = q0**2 - q1**2 - q2**2 + q3**2
-    return rmsd
+    return rmsd, batch_rot
 
 def batch_calc_rmsd_rotational_matrix(batch_ref, batch_conf, batch_rot=None, weights=None, backend: str = 'numpy'):
     """perform RMSD calculation between two sets of coordinates.
@@ -364,7 +364,7 @@ def batch_rmsd(a: np.ndarray, b: np.ndarray, backend: str = 'numpy'):
         rot = torch.zeros(a.shape[0], 9, dtype=torch.float64, device=a.device)
     else:
         rot = np.zeros((a.shape[0], 9), dtype=np.float64)
-    return batch_calc_rmsd_rotational_matrix(a, b, rot, weights=None, backend=backend)
+    return batch_calc_rmsd_rotational_matrix(a, b, rot, weights=None, backend=backend)[0]
 
 
 def pairwise_rmsd(traj: np.ndarray, traj2: np.ndarray = None, block_size: int = 100,
