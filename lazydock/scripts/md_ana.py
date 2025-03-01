@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-21 20:37:52
+LastEditTime: 2025-03-01 22:19:45
 Description: 
 '''
 import argparse
@@ -18,18 +18,18 @@ import MDAnalysis as mda
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from lazydock.algorithm.rms import pairwise_rmsd
+from lazydock.algorithm.rms import pairwise_rmsd, batch_rmsd, batch_fit_to
 from lazydock.gmx.mda.gnm import (calcu_closeContactGNMAnalysis,
                                   calcu_GNMAnalysis, genarate_atom2residue)
 from lazydock.scripts._script_utils_ import (clean_path, excute_command,
                                              process_batch_dir_lst)
 from lazydock.scripts.ana_gmx import mmpbsa
 from mbapy_lite.base import put_err, put_log
-from mbapy_lite.file import get_paths_with_extension, opts_file
+from mbapy_lite.file import opts_file
 from mbapy_lite.plot import save_show
 from mbapy_lite.web_utils.task import TaskPool
 from MDAnalysis.analysis import (align, diffusionmap, dihedrals, gnm,
-                                 helix_analysis, rms)
+                                 helix_analysis)
 from tqdm import tqdm
 
 
@@ -160,6 +160,8 @@ class rmsd(elastic):
         make_args(args)
         args.add_argument('-sele', '--select', type = str, default='protein and name CA',
                             help='selection for analysis.')
+        args.add_argument('-f', '-fit', '--fit', action='store_true', default=False,
+                            help='Using pair-wise centering and comformation fitting before the RMSD, else use MDAnalysis.align to align mobile to the ref\'s first frame.')
         args.add_argument('--backend', type = str, default='numpy', choices=['numpy', 'torch', 'cuda'],
                             help='calculation backend, default is %(default)s.')
         args.add_argument('--block-size', type = int, default=100,
@@ -170,23 +172,61 @@ class rmsd(elastic):
         force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
         if os.path.exists(w_dir / 'inter_frame_rmsd.pkl') and not force:
             return put_log('Inter-frame RMSD already calculated, use -F to re-run.')
-        put_log('Aligning inter-frame RMSD')
-        aligner = align.AlignTraj(u, u, select=args.select, in_memory=True).run(verbose=True, start=start, step=step, stop=stop)
         # calcu interaction for each frame
         ag, coords = u.select_atoms(args.select), []
         sum_frames = (len(u.trajectory) if stop is None else stop) - start
         for _ in tqdm(u.trajectory[start:stop:step], total=sum_frames//step, desc='Gathering coordinates', leave=False):
-            coords.append(ag.positions.copy())
+            coords.append(ag.positions.copy().astype(np.float64))
         coords = np.array(coords)
-        matrix: np.ndarray = pairwise_rmsd(coords, block_size=args.block_size, backend=args.backend, verbose=True)
+        if args.backend != 'numpy':
+            import torch
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            coords = torch.tensor(coords, device=device, dtype=torch.float64)
+        # do center as MDAnalysis.align.AlignTraj._single_frame
+        coords: np.ndarray = coords - coords.mean(axis=1, keepdims=True)
+        # do fit and calcu RMSD depend on backend
+        if args.fit:
+            # NOTE: if the frames already aligned to the first frame,
+            #       the RMSD between the i-j will also like pair-wise-align RMSD.
+            #       Because BOTH are aligned to the same first frame, like it aligned to each other!
+            #       So the result wit and without fit will be the same!
+            matrix = np.zeros((coords.shape[0], coords.shape[0])) if args.backend == 'numpy' else torch.zeros((coords.shape[0], coords.shape[0]), dtype=torch.float64, device=device)
+            # calcu rmsd for each block
+            K = int(np.ceil(coords.shape[0] / args.block_size))
+            for i in tqdm(range(K), total=K, desc='Calculating RMSD matrix', leave=False):
+                # prepare block i
+                start_i = i * args.block_size
+                end_i = (i + 1) * args.block_size if i < K - 1 else coords.shape[0]
+                # do center as MDAnalysis.align.AlignTraj._prepare, but coords[0] already centered
+                if args.backend == 'numpy':
+                    refs = np.repeat(coords[start_i:end_i, :, :], coords.shape[0], axis=0)
+                    mobile = np.repeat(coords[:, :, :], args.block_size, axis=0)
+                else:
+                    refs = coords[start_i:end_i, :, :].repeat(coords.shape[0], 1, 1)
+                    mobile = coords[:, :, :].repeat(args.block_size, 1, 1)
+                # do fit as MDAnalysis.align.AlignTraj._single_frame, it use _fit_to
+                matrix[start_i:end_i, :] = batch_fit_to(mobile, refs, backend=args.backend)[1].reshape(args.block_size, coords.shape[0])
+            if args.backend != 'numpy':
+                matrix = matrix.cpu().numpy()
+        else:
+            # do center as MDAnalysis.align.AlignTraj._prepare, but coords[0] already centered
+            if args.backend == 'numpy':
+                refs = np.repeat(coords[0][None, :, :], coords.shape[0], axis=0)
+            else:
+                refs = coords[0][None, :, :].repeat(coords.shape[0], 1, 1)
+            # do fit as MDAnalysis.align.AlignTraj._single_frame, it use _fit_to
+            coords = batch_fit_to(coords, refs, backend=args.backend)[0]
+            matrix: np.ndarray = pairwise_rmsd(coords, block_size=args.block_size, backend=args.backend, verbose=True)
         np.savez_compressed(w_dir / 'inter_frame_rmsd.npz', matrix=matrix.astype(np.float16))
         plt.imshow(matrix, cmap='viridis')
-        plt.xlabel('Frame')
-        plt.ylabel('Frame')
-        plt.colorbar(label=r'RMSD ($\AA$)')
+        plt.xlabel('Frame', fontsize=16, weight='bold')
+        plt.ylabel('Frame', fontsize=16, weight='bold')
+        plt.gca().tick_params(labelsize=14)
+        cbar = plt.colorbar()
+        cbar.ax.set_ylabel('RMSD ($\AA$)', fontsize=16, weight='bold')
+        cbar.ax.tick_params(labelsize=14)
         save_show(w_dir / 'inter_frame_rmsd.png', 600, show=False)
         plt.close()
-        del aligner, matrix
         
 
 class rama(elastic):
