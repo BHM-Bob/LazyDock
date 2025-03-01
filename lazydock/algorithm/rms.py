@@ -1,14 +1,14 @@
 '''
 Date: 2025-02-20 10:49:33
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-27 16:07:13
+LastEditTime: 2025-03-01 10:55:31
 Description: 
 '''
 import numpy as np
 from tqdm import tqdm
 
 
-def inner_product(coords1, coords2, weights=None, backend = None):
+def inner_product(coords1, coords2, weights=None, backend: str = 'numpy'):
     """Calculate the weighted inner product matrix and the E0 value.计算加权内积矩阵和E0值
 
     Parameters:
@@ -20,19 +20,23 @@ def inner_product(coords1, coords2, weights=None, backend = None):
     Returns:
         tuple: A flattened inner product matrix A and the E0 value.
     """
-    backend = backend or np
+    # dermine the backend
+    if backend in {'torch', 'cuda'}:
+        import torch
+    _backend = torch if backend  in {'torch', 'cuda'} else np
+    # calculate the inner product matrix and E0 value
     if weights is not None:
         w = weights[:, np.newaxis]
         A = (coords1 * w).T @ coords2
-        G1 = backend.sum((coords1 * w) * coords1)
-        G2 = backend.sum(weights * np.sum(coords2**2, axis=1))
+        G1 = _backend.sum((coords1 * w) * coords1)
+        G2 = _backend.sum(weights * np.sum(coords2**2, axis=1))
     else:
         A = coords1.T @ coords2
-        G1 = backend.sum(coords1**2)
-        G2 = backend.sum(coords2**2)
+        G1 = _backend.sum(coords1**2)
+        G2 = _backend.sum(coords2**2)
     return A.ravel(), 0.5 * (G1 + G2)
 
-def fast_calc_rmsd_rotation(rot, A_flat, E0, N):
+def fast_calc_rmsd_rotation(rot, A_flat, E0, N, backend: str = 'numpy'):
     """Calculate RMSD and rotation matrix based on the inner product matrix.
     基于内积矩阵快速计算RMSD和旋转矩阵
 
@@ -45,9 +49,14 @@ def fast_calc_rmsd_rotation(rot, A_flat, E0, N):
     Returns:
         float or tuple: If rot is None, return only the RMSD value. Otherwise, return a tuple of (RMSD, flattened rotation matrix).
     """
+    # dermine the backend
+    if backend in {'torch', 'cuda'}:
+        import torch
+    arr_fn = torch.tensor if backend  in {'torch', 'cuda'} else np.array
+    _backend = torch if backend  in {'torch', 'cuda'} else np
     # 构造4x4关键矩阵
     Sxx, Sxy, Sxz, Syx, Syy, Syz, Szx, Szy, Szz = A_flat
-    K = np.array([
+    K = arr_fn([
         [Sxx + Syy + Szz, Syz - Szy,      Szx - Sxz,      Sxy - Syx],
         [Syz - Szy,      Sxx - Syy - Szz, Sxy + Syx,      Szx + Sxz],
         [Szx - Sxz,      Sxy + Syx,      -Sxx + Syy - Szz, Syz + Szy],
@@ -55,20 +64,20 @@ def fast_calc_rmsd_rotation(rot, A_flat, E0, N):
     ])
     
     # 计算最大特征值和对应特征向量
-    eigenvalues, eigenvectors = np.linalg.eigh(K)
-    max_idx = np.argmax(eigenvalues)
+    eigenvalues, eigenvectors = _backend.linalg.eigh(K)
+    max_idx = _backend.argmax(eigenvalues)
     max_eigen = eigenvalues[max_idx]
     quat = eigenvectors[:, max_idx]
     
     # 计算RMSD
-    rmsd = np.sqrt(max(0.0, 2.0 * (E0 - max_eigen) / N))
+    rmsd = _backend.sqrt(max(0.0, 2.0 * (E0 - max_eigen) / N))
     
     if rot is None:
         return rmsd
     
     # 四元数转旋转矩阵
-    q1, q2, q3, q4 = quat / np.linalg.norm(quat)
-    rot_matrix = np.array([
+    q1, q2, q3, q4 = quat / _backend.linalg.norm(quat)
+    rot_matrix = arr_fn([
         [q1**2 + q2**2 - q3**2 - q4**2, 2*(q2*q3 - q1*q4),     2*(q2*q4 + q1*q3)],
         [2*(q2*q3 + q1*q4),     q1**2 - q2**2 + q3**2 - q4**2, 2*(q3*q4 - q1*q2)],
         [2*(q2*q4 - q1*q3),     2*(q3*q4 + q1*q2),     q1**2 - q2**2 - q3**2 + q4**2]
@@ -78,7 +87,7 @@ def fast_calc_rmsd_rotation(rot, A_flat, E0, N):
     rot[:] = rot_matrix.ravel()
     return rmsd, rot
 
-def calc_rms_rotational_matrix(ref, conf, rot=None, weights=None):
+def calc_rms_rotational_matrix(ref, conf, rot=None, weights=None, backend: str = 'numpy'):
     """Calculate RMSD and rotation matrix between two coordinate sets.
     
     Parameters:
@@ -90,11 +99,11 @@ def calc_rms_rotational_matrix(ref, conf, rot=None, weights=None):
     Returns:
         tuple or float: If rot is None, returns RMSD only. Otherwise returns (RMSD, rotation matrix)
     """
-    A, E0 = inner_product(ref, conf, weights)
-    return fast_calc_rmsd_rotation(rot, A, E0, ref.shape[0])
+    A, E0 = inner_product(ref, conf, weights, backend)
+    return fast_calc_rmsd_rotation(rot, A, E0, ref.shape[0], backend)
 
 
-def batch_inner_product(batch_coords1, batch_coords2, weights=None):
+def batch_inner_product(batch_coords1, batch_coords2, weights=None, backend: str = 'numpy'):
     """Batch calculation of inner product matrix and E0 value for multiple frames.
     
     Args:
@@ -107,28 +116,33 @@ def batch_inner_product(batch_coords1, batch_coords2, weights=None):
             - A_flat: Flattened inner product matrix [n_frames, 9]
             - E0: Precomputed value [n_frames,]
     """
+    # dermine the backend
+    if backend in {'torch', 'cuda'}:
+        import torch
+    arr_fn = torch.tensor if backend  in {'torch', 'cuda'} else np.array
+    _backend = torch if backend  in {'torch', 'cuda'} else np
+    # calculate the inner product matrix and E0 value
     if weights is not None:
-        weights = np.asarray(weights)
         if weights.ndim == 1:
-            weights = weights[np.newaxis, :, np.newaxis]  # 广播到所有帧
+            weights = weights[None, :, None]  # 广播到所有帧
         else:
-            weights = weights[:, :, np.newaxis]
+            weights = weights[:, :, None]
         
         # 加权内积计算
         weighted_coords1 = batch_coords1 * weights
-        G1 = np.sum(weighted_coords1 * batch_coords1, axis=(1,2))
-        G2 = np.sum(weights * np.sum(batch_coords2**2, axis=2), axis=1)
-        A = np.einsum('fai,faj->fij', weighted_coords1, batch_coords2)
+        G1 = _backend.sum(weighted_coords1 * batch_coords1, (1,2))
+        G2 = _backend.sum(weights * _backend.sum(batch_coords2**2, 2), 1)
+        A = _backend.einsum('fai,faj->fij', weighted_coords1, batch_coords2)
     else:
-        G1 = np.sum(batch_coords1**2, axis=(1,2))
-        G2 = np.sum(batch_coords2**2, axis=(1,2))
-        A = np.einsum('fai,faj->fij', batch_coords1, batch_coords2)
+        G1 = _backend.sum(batch_coords1**2, (1,2))
+        G2 = _backend.sum(batch_coords2**2, (1,2))
+        A = _backend.einsum('fai,faj->fij', batch_coords1, batch_coords2)
     
     A_flat = A.reshape(A.shape[0], 9)
     E0 = 0.5 * (G1 + G2)
     return A_flat, E0
 
-def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms):
+def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms, backend: str = 'numpy'):
     """
     批量快速计算RMSD和旋转矩阵的核心算法
     :param batch_rot: 输出旋转矩阵 [n_frames, 9]
@@ -137,11 +151,20 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms):
     :param n_atoms: 原子数
     :return: RMSD数组 [n_frames,]
     """
+    # dermine the backend
+    if backend in {'torch', 'cuda'}:
+        import torch
+    arr_fn = torch.tensor if backend  in {'torch', 'cuda'} else np.array
+    _backend = torch if backend  in {'torch', 'cuda'} else np
+    # 展平旋转矩阵到输出数组
     n_frames = A_flat.shape[0]
     S = A_flat.reshape(n_frames, 3, 3)
     
     # 构造4x4关键矩阵K [n_frames, 4, 4]
-    K = np.zeros((n_frames, 4, 4))
+    if backend in {'torch', 'cuda'}:
+        K = torch.zeros((n_frames, 4, 4), device=A_flat.device)
+    else:
+        K = np.zeros((n_frames, 4, 4))
     K[:, 0, 0] = S[:, 0, 0] + S[:, 1, 1] + S[:, 2, 2]
     K[:, 0, 1] = S[:, 1, 2] - S[:, 2, 1]
     K[:, 0, 2] = S[:, 2, 0] - S[:, 0, 2]
@@ -160,18 +183,18 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms):
     K[:, 3, 3] = -S[:, 0, 0] - S[:, 1, 1] + S[:, 2, 2]
     
     # 批量特征值分解
-    eigenvalues, eigenvectors = np.linalg.eigh(K)
+    eigenvalues, eigenvectors = _backend.linalg.eigh(K)
     max_eigenvalues = eigenvalues[:, -1]  # 取最大特征值
     quaternions = eigenvectors[:, :, -1]  # 对应特征向量
     
     # 计算RMSD
-    rmsd = np.sqrt(np.maximum(0.0, 2.0 * (E0 - max_eigenvalues) / n_atoms))
-    
+    zero = _backend.zeros(1, device=A_flat.device) if backend in {'torch', 'cuda'} else np.zeros(1)
+    rmsd = _backend.sqrt(_backend.clip(2.0 * (E0 - max_eigenvalues) / n_atoms, zero, None))
     if batch_rot is None:
         return rmsd
     
     # 批量四元数转旋转矩阵
-    q = quaternions / np.linalg.norm(quaternions, axis=1, keepdims=True)
+    q = quaternions / _backend.linalg.norm(quaternions, axis=1, keepdims=True)
     q0, q1, q2, q3 = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
     
     batch_rot[:, 0] = q0**2 + q1**2 - q2**2 - q3**2
@@ -186,7 +209,7 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms):
     
     return rmsd
 
-def batch_calc_rmsd(batch_ref, batch_conf, batch_rot=None, weights=None):
+def batch_calc_rmsd(batch_ref, batch_conf, batch_rot=None, weights=None, backend: str = 'numpy'):
     """
     批量计算RMSD和旋转矩阵
     :param batch_ref: 参考坐标 [n_frames, n_atoms, 3]
@@ -195,8 +218,8 @@ def batch_calc_rmsd(batch_ref, batch_conf, batch_rot=None, weights=None):
     :param weights: 权重 [n_atoms,] 或 [n_frames, n_atoms]
     :return: RMSD数组 [n_frames,]
     """
-    A_flat, E0 = batch_inner_product(batch_ref, batch_conf, weights)
-    return batch_fast_calc_rmsd(batch_rot, A_flat, E0, batch_ref.shape[1])
+    A_flat, E0 = batch_inner_product(batch_ref, batch_conf, weights, backend)
+    return batch_fast_calc_rmsd(batch_rot, A_flat, E0, batch_ref.shape[1], backend)
 
 
 def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=None):
@@ -262,34 +285,85 @@ def rmsd(a, b, weights=None, center=False, superposition=False, backend: str = '
     rmsd : float
         RMSD between `a` and `b`
     """
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
+    # determine backend
+    if backend in {'torch', 'cuda'}:
+        import torch
+    arr_fn = torch.tensor if backend  in {'torch', 'cuda'} else np.array
+    _backend = torch if backend  in {'torch', 'cuda'} else np
+    # check input
     N = b.shape[0]
     if a.shape != b.shape:
         raise ValueError('a and b must have same shape')
-
     # superposition only works if structures are centered
     if center or superposition:
-        # make copies (do not change the user data!)
-        # weights=None is equivalent to all weights 1
-        a = a - np.average(a, axis=0, weights=weights)
-        b = b - np.average(b, axis=0, weights=weights)
-
+        if backend == 'numpy':
+            a = a - np.average(a, 0, weights=weights)
+            b = b - np.average(b, 0, weights=weights)
+        else:
+            if weights is None:
+                a = a - torch.mean(a, 0)
+                b = b - torch.mean(b, 0)
+            else:
+                a = a*weights[:, None] - torch.mean(a, 0, keepdim=True)
+                b = b*weights[:, None] - torch.mean(b, 0, keepdim=True)
+    # check weights
     if weights is not None:
         if len(weights) != len(a):
             raise ValueError('weights must have same length as a and b')
         # weights are constructed as relative to the mean
-        weights = np.asarray(weights, dtype=np.float64) / np.mean(weights)
-
+        weights = arr_fn(weights, dtype=np.float64) / np.mean(weights)
+    # calculate RMSD
     if superposition:
-        rot = np.zeros(9, dtype=np.float64)
-        return calc_rms_rotational_matrix(a, b, rot, weights)[0] #calc_rmsd_and_rotation(a, b, weights)
+        if backend == 'cuda':
+            rot = torch.zeros(9, dtype=torch.float64, device='cuda')
+        else:
+            rot = _backend.zeros(9, dtype=_backend.float64)
+        return calc_rms_rotational_matrix(a, b, rot, weights, backend=backend)[0] #calc_rmsd_and_rotation(a, b, weights)
     else:
         if weights is not None:
-            return np.sqrt(np.sum(weights[:, np.newaxis]
+            return _backend.sqrt(_backend.sum(weights[:, None]
                                   * ((a - b) ** 2)) / N)
         else:
-            return np.sqrt(np.sum((a - b) ** 2) / N)
+            return _backend.sqrt(_backend.sum((a - b) ** 2) / N)
+        
+        
+def batch_rmsd(a: np.ndarray, b: np.ndarray, backend: str = 'numpy'):
+    """
+    batch calculate RMSD between two coordinate sets `a` and `b`, with center and superposition.
+    
+    Parameters
+    ----------
+    a, b : array_like: [n_frames, n_atoms, 3]
+        coordinates to align, a is the reference, b is the mobile.
+    backend : str, optional
+        backend to use, default is 'numpy', support 'torch' and 'cuda'
+    
+    Returns
+    -------
+    rmsd : array_like: [n_frames]
+        RMSD between `a` and `b`
+    """
+    # determine backend
+    if backend in {'torch', 'cuda'}:
+        import torch
+    _backend = torch if backend  in {'torch', 'cuda'} else np
+    # check input
+    if a.shape != b.shape:
+        raise ValueError('a and b must have same shape')
+    # center
+    keepdim_kwg = {'keepdims' if backend == 'numpy' else 'keepdim': True}
+    a = a - _backend.mean(a, 1, **keepdim_kwg)
+    b = b - _backend.mean(b, 1, **keepdim_kwg)
+    # perform superposition and calc RMSD
+    if backend == 'cuda':
+        rot = torch.zeros(a.shape[0], 9, dtype=torch.float64, device='cuda')
+    else:
+        rot = _backend.zeros(a.shape[0], 9, dtype=_backend.float64)
+    return batch_calc_rmsd(a, b, rot, weights=None, backend=backend)
+    
+    
+    
+    
 
 
 def pairwise_rmsd(traj: np.ndarray, traj2: np.ndarray = None, block_size: int = 100,
