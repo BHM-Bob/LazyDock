@@ -168,9 +168,9 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms, backend: str = 'numpy')
     S = A_flat.reshape(n_frames, 3, 3)
     # 构造4x4关键矩阵K [n_frames, 4, 4]
     if backend in {'torch', 'cuda'}:
-        K = torch.zeros((n_frames, 4, 4), device=A_flat.device)
+        K = torch.zeros((n_frames, 4, 4), device=A_flat.device, dtype=A_flat.dtype)
     else:
-        K = np.zeros((n_frames, 4, 4))
+        K = np.zeros((n_frames, 4, 4), dtype=A_flat.dtype)
     K[:, 0, 0] = S[:, 0, 0] + S[:, 1, 1] + S[:, 2, 2]
     K[:, 0, 1] = S[:, 1, 2] - S[:, 2, 1]
     K[:, 0, 2] = S[:, 2, 0] - S[:, 0, 2]
@@ -192,7 +192,7 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms, backend: str = 'numpy')
     max_eigenvalues = eigenvalues[:, -1]  # 取最大特征值
     quaternions = eigenvectors[:, :, -1]  # 对应特征向量
     # 计算RMSD
-    zero = _backend.zeros(1, device=A_flat.device) if backend in {'torch', 'cuda'} else np.zeros(1)
+    zero = _backend.zeros(1, device=A_flat.device, dtype=A_flat.dtype) if backend in {'torch', 'cuda'} else np.zeros(1, dtype=A_flat.dtype)
     rmsd = _backend.sqrt(_backend.clip(2.0 * (E0 - max_eigenvalues) / n_atoms, zero, None))
     if batch_rot is None:
         return rmsd
