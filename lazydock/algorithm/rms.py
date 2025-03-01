@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-20 10:49:33
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-01 19:55:53
+LastEditTime: 2025-03-01 20:46:27
 Description: 
 '''
 import numpy as np
@@ -433,8 +433,9 @@ def pairwise_rmsd(traj: np.ndarray, traj2: np.ndarray = None, block_size: int = 
         rmsd_matrix = np.zeros((n_frames, n_frames), dtype=np.float32)
     elif backend in {'torch', 'cuda'}:
         import torch
-        traj = torch.from_numpy(traj)
-        traj2 = torch.tensor(traj2)
+        if not isinstance(traj, torch.Tensor):
+            traj = torch.from_numpy(traj)
+            traj2 = torch.tensor(traj2)
         rmsd_matrix = torch.zeros((n_frames, n_frames), dtype=torch.float32)
     # calcu rmsd for each block
     for i in tqdm(range(K), total=K, desc='Calculating RMSD matrix', leave=False, disable=not verbose):
