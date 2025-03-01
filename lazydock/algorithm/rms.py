@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-20 10:49:33
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-01 10:55:31
+LastEditTime: 2025-03-01 11:10:14
 Description: 
 '''
 import numpy as np
@@ -15,7 +15,7 @@ def inner_product(coords1, coords2, weights=None, backend: str = 'numpy'):
         coords1 (np.ndarray): The first set of coordinates, shape (n_atoms, 3).
         coords2 (np.ndarray): The second set of coordinates, shape (n_atoms, 3).
         weights (np.ndarray, optional): Weights for each atom, shape (n_atoms,).
-        backend (module, optional): The backend to use for calculations, default is numpy.
+        backend (module, optional): The backend to use for calculations, default is numpy, support torch and cuda.
 
     Returns:
         tuple: A flattened inner product matrix A and the E0 value.
@@ -45,6 +45,7 @@ def fast_calc_rmsd_rotation(rot, A_flat, E0, N, backend: str = 'numpy'):
         A_flat (np.ndarray): Flattened inner product matrix, shape (9,).
         E0 (float): Precomputed value E0.
         N (int): Number of atoms.
+        backend (module, optional): The backend to use for calculations, default is numpy, support torch and cuda.
 
     Returns:
         float or tuple: If rot is None, return only the RMSD value. Otherwise, return a tuple of (RMSD, flattened rotation matrix).
@@ -95,6 +96,7 @@ def calc_rms_rotational_matrix(ref, conf, rot=None, weights=None, backend: str =
         conf (np.ndarray): Target coordinates, shape (n_atoms, 3)
         rot (np.ndarray, optional): Output array for rotation matrix, shape (9,)
         weights (np.ndarray, optional): Weights for each atom, shape (n_atoms,)
+        backend (str, optional): Backend to use for computation, support 'numpy', 'torch', 'cuda'. Default is 'numpy'.
         
     Returns:
         tuple or float: If rot is None, returns RMSD only. Otherwise returns (RMSD, rotation matrix)
@@ -110,6 +112,7 @@ def batch_inner_product(batch_coords1, batch_coords2, weights=None, backend: str
         batch_coords1 (np.ndarray): Reference coordinates [n_frames, n_atoms, 3]
         batch_coords2 (np.ndarray): Target coordinates [n_frames, n_atoms, 3]
         weights (np.ndarray, optional): Weights [n_atoms,] or [n_frames, n_atoms]
+        backend (str, optional): Backend to use for computation, support 'numpy', 'torch', 'cuda'. Default is 'numpy'.
         
     Returns:
         tuple: (A_flat, E0) where:
@@ -143,13 +146,17 @@ def batch_inner_product(batch_coords1, batch_coords2, weights=None, backend: str
     return A_flat, E0
 
 def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms, backend: str = 'numpy'):
-    """
-    批量快速计算RMSD和旋转矩阵的核心算法
-    :param batch_rot: 输出旋转矩阵 [n_frames, 9]
-    :param A_flat: 内积矩阵 [n_frames, 9]
-    :param E0: 预计算值 [n_frames,]
-    :param n_atoms: 原子数
-    :return: RMSD数组 [n_frames,]
+    """Batch calculation of RMSD and rotation matrix based on the inner product matrix.
+    
+    Parameters:
+        batch_rot (np.ndarray or None): Output array for the flattened rotation matrix, shape (n_frames, 9). If None, only return RMSD.
+        A_flat (np.ndarray): Flattened inner product matrix, shape (n_frames, 9).
+        E0 (np.ndarray): Precomputed value E0, shape (n_frames,).
+        n_atoms (int): Number of atoms.
+        backend (str): Backend to use for computation, support 'numpy', 'torch', 'cuda'. Default is 'numpy'.
+        
+    Returns:
+        np.ndarray or tuple: If batch_rot is None, returns RMSD only. Otherwise returns (RMSD, rotation matrix)
     """
     # dermine the backend
     if backend in {'torch', 'cuda'}:
@@ -159,7 +166,6 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms, backend: str = 'numpy')
     # 展平旋转矩阵到输出数组
     n_frames = A_flat.shape[0]
     S = A_flat.reshape(n_frames, 3, 3)
-    
     # 构造4x4关键矩阵K [n_frames, 4, 4]
     if backend in {'torch', 'cuda'}:
         K = torch.zeros((n_frames, 4, 4), device=A_flat.device)
@@ -181,22 +187,19 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms, backend: str = 'numpy')
     K[:, 3, 1] = K[:, 1, 3]
     K[:, 3, 2] = K[:, 2, 3]
     K[:, 3, 3] = -S[:, 0, 0] - S[:, 1, 1] + S[:, 2, 2]
-    
     # 批量特征值分解
     eigenvalues, eigenvectors = _backend.linalg.eigh(K)
     max_eigenvalues = eigenvalues[:, -1]  # 取最大特征值
     quaternions = eigenvectors[:, :, -1]  # 对应特征向量
-    
     # 计算RMSD
     zero = _backend.zeros(1, device=A_flat.device) if backend in {'torch', 'cuda'} else np.zeros(1)
     rmsd = _backend.sqrt(_backend.clip(2.0 * (E0 - max_eigenvalues) / n_atoms, zero, None))
     if batch_rot is None:
         return rmsd
-    
     # 批量四元数转旋转矩阵
     q = quaternions / _backend.linalg.norm(quaternions, axis=1, keepdims=True)
     q0, q1, q2, q3 = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
-    
+    # 展平旋转矩阵到输出数组
     batch_rot[:, 0] = q0**2 + q1**2 - q2**2 - q3**2
     batch_rot[:, 1] = 2*(q1*q2 - q0*q3)
     batch_rot[:, 2] = 2*(q1*q3 + q0*q2)
@@ -206,47 +209,44 @@ def batch_fast_calc_rmsd(batch_rot, A_flat, E0, n_atoms, backend: str = 'numpy')
     batch_rot[:, 6] = 2*(q1*q3 - q0*q2)
     batch_rot[:, 7] = 2*(q2*q3 + q0*q1)
     batch_rot[:, 8] = q0**2 - q1**2 - q2**2 + q3**2
-    
     return rmsd
 
 def batch_calc_rmsd(batch_ref, batch_conf, batch_rot=None, weights=None, backend: str = 'numpy'):
-    """
-    批量计算RMSD和旋转矩阵
-    :param batch_ref: 参考坐标 [n_frames, n_atoms, 3]
-    :param batch_conf: 目标坐标 [n_frames, n_atoms, 3]
-    :param batch_rot: 输出旋转矩阵 [n_frames, 9]
-    :param weights: 权重 [n_atoms,] 或 [n_frames, n_atoms]
-    :return: RMSD数组 [n_frames,]
+    """perform RMSD calculation between two sets of coordinates.
+    
+    Parameters:
+        batch_ref (np.ndarray): Reference coordinates, shape (n_frames, n_atoms, 3)
+        batch_conf (np.ndarray): Target coordinates, shape (n_frames, n_atoms, 3)
+        batch_rot (np.ndarray, optional): Output array for rotation matrix, shape (n_frames, 9). Defaults to None.
+        weights (np.ndarray, optional): Weights for each atom, shape (n_atoms,) or (n_frames, n_atoms). Defaults to None.
+        backend (str, optional): The backend to use for calculations, default is 'numpy', supports 'numpy' and 'cuda'. Defaults to 'numpy'.
+        
+    Returns:
+        np.ndarray or tuple: If batch_rot is None, returns RMSD only. Otherwise returns (RMSD, rotation matrix)
     """
     A_flat, E0 = batch_inner_product(batch_ref, batch_conf, weights, backend)
     return batch_fast_calc_rmsd(batch_rot, A_flat, E0, batch_ref.shape[1], backend)
 
 
 def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=None):
-    r"""Perform an rmsd-fitting to determine rotation matrix and align atoms
+    """Perform an rmsd-fitting to determine rotation matrix and align atoms
 
     Parameters
-    ----------
-    mobile_coordinates : ndarray
-        Coordinates of atoms to be aligned
-    ref_coordinates : ndarray
-        Coordinates of atoms to be fit against
-    mobile_com: ndarray
-        array of xyz coordinate of mobile center of mass
-    ref_com : ndarray
-        array of xyz coordinate of reference center of mass
-    weights : array_like (optional)
-       choose weights. With ``None`` weigh each atom equally. If a float array
-       of the same length as `mobile_coordinates` is provided, use each element
-       of the `array_like` as a weight for the corresponding atom in
-       `mobile_coordinates`.
+        mobile_coordinates, ref_coordinates : ndarray: [n_atoms, 3]
+            Coordinates of atoms to be aligned
+        mobile_com, ref_com: ndarray: [3,]
+            array of xyz coordinate of center of mass
+        weights : array_like (optional)
+            choose weights. With ``None`` weigh each atom equally. If a float array
+            of the same length as `mobile_coordinates` is provided, use each element
+            of the `array_like` as a weight for the corresponding atom in
+            `mobile_coordinates`.
 
     Returns
-    -------
-    mobile_atoms : AtomGroup
-        AtomGroup of translated and rotated atoms
-    min_rmsd : float
-        Minimum rmsd of coordinates
+        mobile_coords : ndarray: [n_atoms, 3]
+            AtomGroup of translated and rotated atoms
+        min_rmsd : float
+            Minimum rmsd of coordinates
     """
     rot = np.zeros(9, dtype=np.float64)
     min_rmsd, R = calc_rms_rotational_matrix(ref_coordinates, mobile_coordinates,
@@ -257,33 +257,27 @@ def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=Non
     return mobile_coordinates, min_rmsd
 
 
-def rmsd(a, b, weights=None, center=False, superposition=False, backend: str = 'numpy'):
-    r"""Returns RMSD between two coordinate sets `a` and `b`.
-
-    `a` and `b` are arrays of the coordinates of N atoms of shape
-    :math:`N times 3` as generated by, e.g.,
-    :meth:`MDAnalysis.core.groups.AtomGroup.positions`.
+def rmsd(a, b, weights=None, center=True, superposition=True, backend: str = 'numpy'):
+    """Returns RMSD between two coordinate sets `a` and `b`.
 
     Parameters
-    ----------
-    a : array_like
-        coordinates to align to `b`
-    b : array_like
-        coordinates to align to (same shape as `a`)
-    weights : array_like (optional)
-        1D array with weights, use to compute weighted average
-    center : bool (optional)
-        subtract center of geometry before calculation. With weights given
-        compute weighted average as center.
-    superposition : bool (optional)
-        perform a rotational and translational superposition with the fast QCP
-        algorithm [Theobald2005]_ before calculating the RMSD; implies
-        ``center=True``.
+        a, b : array_like: [n_atoms, 3]
+            coordinates to align, a is the reference, b is the mobile.
+        weights : array_like (optional)
+            1D array with weights, use to compute weighted average
+        center : bool (optional)
+            subtract center of geometry before calculation. With weights given
+            compute weighted average as center.
+        superposition : bool (optional)
+            perform a rotational and translational superposition with the fast QCP
+            algorithm [Theobald2005]_ before calculating the RMSD; implies
+            ``center=True``.
+        backend : str (optional)
+            backend to use, default is 'numpy', support 'torch' and 'cuda'
 
     Returns
-    -------
-    rmsd : float
-        RMSD between `a` and `b`
+        rmsd : float
+            RMSD between `a` and `b`
     """
     # determine backend
     if backend in {'torch', 'cuda'}:
@@ -360,10 +354,6 @@ def batch_rmsd(a: np.ndarray, b: np.ndarray, backend: str = 'numpy'):
     else:
         rot = _backend.zeros(a.shape[0], 9, dtype=_backend.float64)
     return batch_calc_rmsd(a, b, rot, weights=None, backend=backend)
-    
-    
-    
-    
 
 
 def pairwise_rmsd(traj: np.ndarray, traj2: np.ndarray = None, block_size: int = 100,
