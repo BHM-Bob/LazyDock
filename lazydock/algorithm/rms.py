@@ -228,7 +228,7 @@ def batch_calc_rmsd_rotational_matrix(batch_ref, batch_conf, batch_rot=None, wei
     return batch_fast_calc_rmsd(batch_rot, A_flat, E0, batch_ref.shape[1], backend)
 
 
-def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=None):
+def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=None, backend='numpy'):
     """Perform an rmsd-fitting to determine rotation matrix and align atoms
 
     Parameters
@@ -241,6 +241,8 @@ def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=Non
             of the same length as `mobile_coordinates` is provided, use each element
             of the `array_like` as a weight for the corresponding atom in
             `mobile_coordinates`.
+        backend : str (optional)
+            The backend to use for calculations, default is 'numpy', supports 'numpy' and 'cuda'. Defaults to 'numpy'.
 
     Returns
         mobile_coords : ndarray: [n_atoms, 3]
@@ -248,11 +250,20 @@ def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=Non
         min_rmsd : float
             Minimum rmsd of coordinates
     """
-    rot = np.zeros(9, dtype=np.float64)
+    # determine backend
+    if backend in {'torch', 'cuda'}:
+        import torch
+    _backend = torch if backend  in {'torch', 'cuda'} else np
+    # calculate rmsd and rotation matrix
+    if backend == 'cuda':
+        rot = torch.zeros(9, dtype=torch.float64, device='cuda')
+    else:
+        rot = _backend.zeros(9, dtype=_backend.float64)
     min_rmsd, R = calc_rms_rotational_matrix(ref_coordinates, mobile_coordinates,
-                                             rot,  weights=weights)
+                                             rot,  weights=weights, backend=backend)
+    # apply rotation matrix to mobile_coordinates
     mobile_coordinates = mobile_coordinates.copy() - mobile_com
-    mobile_coordinates = np.matmul(mobile_coordinates, R.reshape(3, 3))
+    mobile_coordinates = _backend.matmul(mobile_coordinates, R.reshape(3, 3))
     mobile_coordinates += ref_com
     return mobile_coordinates, min_rmsd
 
