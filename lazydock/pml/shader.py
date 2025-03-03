@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-31 21:40:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-09-03 16:52:25
+LastEditTime: 2025-03-03 19:06:32
 Description: 
 '''
 from dataclasses import dataclass
@@ -11,11 +11,12 @@ from typing import Dict, List, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import Colormap, TwoSlopeNorm
-from mbapy_lite.plot import rgb2hex
-from pymol import cmd
-
 from lazydock.utils import uuid4
+from matplotlib.colorbar import ColorbarBase
+from matplotlib.colors import Colormap, TwoSlopeNorm
+from mbapy_lite.base import put_log
+from mbapy_lite.plot import rgb2hex, save_show
+from pymol import cmd
 
 
 @dataclass
@@ -230,6 +231,18 @@ class Shader:
                     
     def __repr__(self):
         return f'{self.cmap.name}({self.norm.vmin:.2f},{self.norm.vcenter:.2f},{self.norm.vmax:.2f}){self.COL_NAME_PREFIX}'
+    
+    def plor_cbar(self, save=True):
+        # 创建Figure和Axes
+        fig = plt.figure(figsize=(6, 1))
+        ax = fig.add_axes([0.05, 0.25, 0.9, 0.5])
+        # 生成颜色条
+        ColorbarBase(ax, orientation='horizontal', cmap=self.cmap, norm=self.norm, label='Value')
+        if save:
+            save_show(f'{self.__repr__()}_cbar.png', 600, show=False)
+            plt.close()
+        else:
+            return fig, ax
     
     
 __all__ = [
