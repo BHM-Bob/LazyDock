@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-15 19:25:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-01-07 12:14:35
+LastEditTime: 2025-03-03 19:09:04
 Description: 
 '''
 import os
@@ -26,9 +26,8 @@ cmd.extend('align_pose_to_axis', align_pose_to_axis_warp)
 
 
 def open_vina_config_as_box(config_path: str, spacing: float = 1.0, linewidth: float = 2.0, r: float = 1.0, g: float = 1.0, b: float = 1.0):
-    from mbapy_lite.file import opts_file
-
     from lazydock.pml.thirdparty.draw_bounding_box import draw_box
+    from mbapy_lite.file import opts_file
     if not os.path.exists(config_path):
         return print(f'Config file {config_path} not found, skip.')
     cfg = opts_file(config_path, way='lines')
