@@ -95,6 +95,29 @@ class ShaderValues:
             chain, resi, _ = res.split(':')
             self.chains.setdefault(chain, []).append(ShaderRes(model, chain, int(resi), c_value=v))
         return self
+          
+    def from_cols_df(self, df: Union[str, pd.DataFrame], model: str, chain_col: str, resi_col: str, c_value_col: str):
+        """
+        load values from pandas DataFrame, has columns: chain[str], resi[int], c_value[float]
+        
+        Parameters:
+            df (Union[str, pd.DataFrame]): pandas DataFrame or path to DataFrame.
+            model (str): model name.
+            sum_axis (int): 0 or 1, pass to df.sum, 0 means sum each rows and get a colum, 1 means sum each colums and get a row.
+            
+        Returns:
+            ShaderValues: self.
+        """
+        if isinstance(df, str):
+            df = pd.read_excel(df)
+        # check chain_col
+        if chain_col not in df.columns:
+            df[chain_col] = chain_col
+            put_log(f'Chain column {chain_col} not found in DataFrame, use {chain_col} as chain.')
+        # set value
+        for chain, resi, v in zip(df[chain_col], df[resi_col], df[c_value_col]):
+            self.chains.setdefault(chain, []).append(ShaderRes(model, chain, resi, c_value=v))
+        return self
 
 
 class Shader:
