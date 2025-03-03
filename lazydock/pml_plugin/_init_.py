@@ -54,12 +54,29 @@ def calcu_RRCS(model: str):
 cmd.extend('calcu_RRCS', calcu_RRCS)
 
 
-def apply_shader_from_df(df_path: str, obj_name: str, cmap: str = 'coolwarm', alpha_mode: str = None):
+def apply_shader_from_interaction_df(df_path: str, obj_name: str, cmap: str = 'coolwarm', alpha_mode: str = None,
+                                     show_cbar: bool = False):
     from lazydock.pml.shader import Shader, ShaderValues
     values = ShaderValues().from_interaction_df(df_path, obj_name)
     shader = Shader(cmap)
     shader.create_colors_in_pml(values)
     shader.apply_shader_values(values, alpha_mode=alpha_mode)
+    if show_cbar:
+        shader.show_cbar(show=True)
+    
+cmd.extend('apply_shader_from_interaction_df', apply_shader_from_interaction_df)
+
+
+def apply_shader_from_df(df_path: str, chain_col: str, resi_col: str, c_value_col: str,
+                         obj_name: str, cmap: str = 'coolwarm', alpha_mode: str = None,
+                         save_cbar: bool = False):
+    from lazydock.pml.shader import Shader, ShaderValues
+    values = ShaderValues().from_cols_df(df_path, obj_name, chain_col, resi_col, c_value_col)
+    shader = Shader(cmap)
+    shader.create_colors_in_pml(values)
+    shader.apply_shader_values(values, alpha_mode=alpha_mode)
+    if save_cbar:
+        shader.plor_cbar(save=True)
     
 cmd.extend('apply_shader_from_df', apply_shader_from_df)
 
@@ -71,5 +88,6 @@ Commands (python API):
     align_pose_to_axis(pml_name, move_name='', fixed='center', state=0, move_method='rotate', dss=1, quite=0)
     open_vina_config_as_box(config_path, spacing=1.0)
     calcu_RRCS(model: str)
-    apply_shader_from_df(df_path: str, obj_name: str, cmap: str = 'coolwarm', alpha_mode: str ='cartoon_transparency')
+    apply_shader_from_interaction_df(df_path: str, obj_name: str, cmap: str = 'coolwarm', alpha_mode: str ='cartoon_transparency')
+    apply_shader_from_df(df_path: str, chain_col: str, resi_col: str, c_value_col: str, obj_name: str, cmap: str = 'coolwarm', alpha_mode: str ='cartoon_transparency', save_cbar: bool = False)
 ''')
