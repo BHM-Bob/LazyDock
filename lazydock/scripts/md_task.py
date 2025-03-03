@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-27 22:15:45
+LastEditTime: 2025-03-02 20:00:57
 Description: 
 '''
 import argparse
@@ -202,12 +202,18 @@ class prs(network):
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
         self.result_suffix = 'PRS.png'
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        network.make_args(args)
+        args.add_argument("--perturbations", type=int, default=250,
+                          help="number of perturbations, default: %(default)s.")
 
     def calcu_network(self, topol_path: Path, traj_path: Path):
         from mbapy_lite.game import BaseInfo
         args = BaseInfo(trajectory=str(traj_path), topology=str(topol_path), step=self.args.traj_step,
                         initial=self.args.begin_frame, final=self.args.end_frame, num_frames=None, aln=False,
-                        perturbations=250, prefix=str(topol_path.parent / f'{topol_path.stem}_PRS'))
+                        perturbations=self.args.perturbations, prefix=str(topol_path.parent / f'{topol_path.stem}_PRS'))
         return [prs_main(args)]
     
     def save_results(self, top_path: Path, max_RHD: np.ndarray):
