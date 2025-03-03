@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-02 20:00:57
+LastEditTime: 2025-03-03 11:45:11
 Description: 
 '''
 import argparse
@@ -20,7 +20,7 @@ from lazydock_md_task.scripts.contact_map_v2 import (calculate_contacts,
                                                      load_and_preprocess_traj,
                                                      plot_network,
                                                      save_network_data)
-from lazydock_md_task.scripts.prs import main as prs_main
+from lazydock_md_task.scripts.prs_v2 import main as prs_main
 from matplotlib import pyplot as plt
 from mbapy.web_utils.task import TaskPool
 from mbapy_lite.base import put_err, put_log
@@ -90,7 +90,7 @@ class network(mmpbsa):
         u = mda.Universe(str(topol_path), str(traj_path))
         atoms = u.select_atoms("(name CB and protein) or (name CA and resname GLY and protein)")
         if self.args.chain is not None:
-            atoms = atoms[atoms.chainIDs == self.args.chains]
+            atoms = atoms[atoms.chainIDs == self.args.chain]
         # prepare and run parallel calculation
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         total_bc, total_dj_path = [None] * sum_frames, [None] * sum_frames
@@ -182,7 +182,7 @@ class correlation(network):
         u = mda.Universe(str(topol_path), str(traj_path))
         atoms = u.select_atoms("(name CA and protein)")
         if self.args.chain is not None:
-            atoms = atoms[atoms.chainIDs == self.args.chains]
+            atoms = atoms[atoms.chainIDs == self.args.chain]
         # extract coords
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         coords = np.zeros((len(u.trajectory), len(atoms), 3), dtype=np.float64)
@@ -210,11 +210,9 @@ class prs(network):
                           help="number of perturbations, default: %(default)s.")
 
     def calcu_network(self, topol_path: Path, traj_path: Path):
-        from mbapy_lite.game import BaseInfo
-        args = BaseInfo(trajectory=str(traj_path), topology=str(topol_path), step=self.args.traj_step,
-                        initial=self.args.begin_frame, final=self.args.end_frame, num_frames=None, aln=False,
-                        perturbations=self.args.perturbations, prefix=str(topol_path.parent / f'{topol_path.stem}_PRS'))
-        return [prs_main(args)]
+        return [prs_main(top_path=str(topol_path), traj_path=str(traj_path), chains=[self.args.chain],
+                         start=self.args.begin_frame, stop=self.args.end_frame, step=self.args.traj_step,
+                         perturbations=self.args.perturbations)]
     
     def save_results(self, top_path: Path, max_RHD: np.ndarray):
         # plot Average Shortest Path figure
