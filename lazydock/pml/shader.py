@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-31 21:40:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-03 19:06:32
+LastEditTime: 2025-03-04 17:14:04
 Description: 
 '''
 from dataclasses import dataclass
@@ -170,10 +170,21 @@ class Shader:
             if name not in self.global_name2col:
                 self._get_rgba_col_name(c, name, _cmd)
                 
-    def auto_scale_norm(self, c_values):
-        self.norm.autoscale(list(map(lambda x: x[-1], c_values)))
+    def auto_scale_norm(self, c_values, vcenter = 'mean'):
+        c_vals = list(map(lambda x: x[-1], c_values))
+        # 根据 vcenter 参数选择不同的计算方式
+        if vcenter == 'median':
+            vcenter = 0 if 0 in c_vals else np.median(c_vals)
+        elif vcenter == 'mean':
+            vcenter = 0 if 0 in c_vals else np.mean(c_vals)
+        elif vcenter == 'mode':
+            from scipy.stats import mode
+            vcenter = 0 if 0 in c_vals else mode(c_vals, keepdims=False)[0]
+        else:
+            raise ValueError(f"Invalid vcenter value: {vcenter}. Allowed values are 'median', 'mean', 'mode'.")
+        self.norm.autoscale(c_vals)
+        self.norm.vcenter = vcenter
         
-                
     def apply_shader_values(self, values: ShaderValues, level: str = 'res',
                             auto_detect_vlim: bool = True, alpha_mode: str = None,
                             _cmd = None):
