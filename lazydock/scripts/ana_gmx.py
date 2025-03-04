@@ -433,6 +433,9 @@ class mmpbsa(simple):
         put_log(f"receptor atoms: {rec_idx.sum()}, ligand atoms: {lig_idx.sum()}.")
         return rec_idx, lig_idx
     
+    def get_index_range(self, idx: np.ndarray):
+        return idx.argmax(), idx.shape[0] - idx[::-1].argmax()
+    
     def check_top_traj(self, bdir = None):
         bdir = bdir or self.args.batch_dir
         top_paths = get_paths_with_extension(bdir, [os.path.split(self.args.top_name)[-1]], name_substr=self.args.top_name)
@@ -461,18 +464,20 @@ class mmpbsa(simple):
             # get receptor and ligand atoms index range
             u = Universe(top_path, traj_path)
             rec_idx, lig_idx = self.get_complex_atoms_index(u)
-            rec_range_str, lig_range_str = f"{rec_idx.min()}-{rec_idx.max()}", f"{lig_idx.min()}-{lig_idx.max()}"
+            rec_min, rec_max = self.get_index_range(rec_idx)
+            lig_min, lig_max = self.get_index_range(lig_idx)
+            rec_range_str, lig_range_str = f"{rec_min+1}-{rec_max}", f"{lig_min+1}-{lig_max}"
             # make index file for receptor and ligand
             gmx = Gromacs(working_dir=wdir)
             gmx.run_gmx_with_expect('make_ndx', f=os.path.basename(top_path), o='mmpbsa_tmp.ndx',
-                                        expect_actions=[{'>': 'q\r'}])
+                                    expect_actions=[{'>': 'q\r'}])
             sum_groups = opts_file(os.path.join(gmx.working_dir, 'mmpbsa_tmp.ndx')).count(']')
             gmx.run_gmx_with_expect('make_ndx', f=os.path.basename(top_path), o='mmpbsa.ndx',
-                                        expect_actions=[{'>': f'a {rec_range_str}\r'}, {'>': f'name {sum_groups+1} MMPBSA_Receptor\r'},
-                                                        {'>': f'a {lig_range_str}\r'}, {'>': f'name {sum_groups+2} MMPBSA_Ligand\r'},
-                                                        {'>': 'q\r'}])
+                                    expect_actions=[{'>': f'a {rec_range_str}\r'}, {'>': f'name {sum_groups} MMPBSA_Receptor\r'},
+                                                    {'>': f'a {lig_range_str}\r'}, {'>': f'name {sum_groups+1} MMPBSA_Ligand\r'},
+                                                    {'>': 'q\r'}])
             # call gmx_MMPBSA
-            cmd_str = f'gmx_MMPBSA -O -i {self.args.input} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.in -cg {sum_groups+1} {sum_groups+2} -cp topol.top -o FINAL_RESULTS_MMPBSA.dat -eo FINAL_RESULTS_MMPBSA.csv'
+            cmd_str = f'gmx_MMPBSA -O -i {self.args.input} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.ndx -cg {sum_groups} {sum_groups+1} -cp topol.top -o FINAL_RESULTS_MMPBSA.dat -eo FINAL_RESULTS_MMPBSA.csv'
             os.system(f'cd "{gmx.working_dir}" && mpirun -np {self.args.np} {cmd_str}')
             bar.update(1)
     
