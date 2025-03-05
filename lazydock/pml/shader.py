@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-31 21:40:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-04 17:14:04
+LastEditTime: 2025-03-05 09:34:08
 Description: 
 '''
 from dataclasses import dataclass
@@ -187,7 +187,7 @@ class Shader:
         
     def apply_shader_values(self, values: ShaderValues, level: str = 'res',
                             auto_detect_vlim: bool = True, alpha_mode: str = None,
-                            _cmd = None):
+                            _cmd = None, vcenter ='mean'):
         """
         apply shader values to pymol.
         
@@ -197,13 +197,16 @@ class Shader:
             auto_detect_vlim (bool): if True, will set vmin and vmax for colormap based on min and max c_values.
             alpha_mode (str): pymol transparency mode, such as `cartoon_transparency`.
             _cmd: pymol cmd module, can be pymol.cmd or lazudock.pml.server.PymolAPI
+            vcenter (str): 'median', 'mean', 'mode', vcenter for colormap.
         """
         _cmd = _cmd or cmd
         if level not in {'res', 'atom'}:
             raise ValueError(f'Level must be "res" or "atom", got {level}.')
         c_values = values.get_all_c_values(level)
         if auto_detect_vlim:
-            self.auto_scale_norm(c_values)
+            self.auto_scale_norm(c_values, vcenter=vcenter)
+        # set color
+        self.create_colors_in_pml(values, level, _cmd=_cmd)
         # loop through residues or atoms and apply color
         for c_value in c_values:
             if level =='res':
