@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-01 22:19:45
+LastEditTime: 2025-03-06 10:50:35
 Description: 
 '''
 import argparse
@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
 from Bio import BiopythonDeprecationWarning
+from matplotlib.ticker import FuncFormatter
 
 warnings.simplefilter('ignore', BiopythonDeprecationWarning)
 import matplotlib.pyplot as plt
@@ -18,12 +19,14 @@ import MDAnalysis as mda
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from lazydock.algorithm.rms import pairwise_rmsd, batch_rmsd, batch_fit_to
+from lazydock.algorithm.rms import batch_fit_to, batch_rmsd, pairwise_rmsd
+from lazydock.gmx.mda.align import get_aligned_coords
 from lazydock.gmx.mda.gnm import (calcu_closeContactGNMAnalysis,
                                   calcu_GNMAnalysis, genarate_atom2residue)
 from lazydock.scripts._script_utils_ import (clean_path, excute_command,
                                              process_batch_dir_lst)
 from lazydock.scripts.ana_gmx import mmpbsa
+from matplotlib.cm import ScalarMappable
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import opts_file
 from mbapy_lite.plot import save_show
@@ -377,6 +380,111 @@ class pair_rmsd(elastic):
         self.ref_u = mda.Universe(self.ref_top_path, self.ref_traj_path, in_memory=True)
         self.ref_ag = self.ref_u.atoms[self.ref_u.atoms.chainIDs == self.args.ref_chain_name]
         super().main_process()
+        
+        
+class pca(elastic):
+    HELP = """
+    Principal component analysis of the trajectory
+    """
+    def __init__(self, args, printf=print):
+        super().__init__(args, printf)
+
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        make_args(args)
+        args.add_argument('-sele', '--select', type = str, default='backbone',
+                            help='selection for analysis.')
+        args.add_argument('--backend', type = str, default='numpy', choices=['numpy', 'torch', 'cuda'],
+                            help='calculation backend, default is %(default)s.')
+        args.add_argument('--n-components', type = int, default=None,
+                            help='number of components to calculate, default is %(default)s.')
+        return args
+    
+    def plot_PCA(self, df: pd.DataFrame, w_dir: Path, args: argparse.ArgumentParser):
+        # 配置参数
+        pc_columns = ['PC1', 'PC2', 'PC3']
+        n = len(pc_columns)
+        time = df['Time (ps)'].values
+        # 创建3x3子图
+        fig, axes = plt.subplots(n, n, figsize=(12, 12), 
+                                gridspec_kw={'wspace':0.05, 'hspace':0.05})
+        # 颜色条配置
+        cmap = plt.get_cmap('viridis')
+        sm = ScalarMappable(cmap=cmap, norm=plt.Normalize(time.min(), time.max()))
+        # 遍历所有子图组合
+        for i in range(n):
+            for j in range(n):
+                ax = axes[i, j]
+                if i <=1:
+                    ax.set_xticks([])
+                if j > 0:
+                    ax.set_yticks([])
+                # 绘制散点（核心优化参数）
+                sc = ax.scatter(df[pc_columns[j]], df[pc_columns[i]],
+                                c=time, cmap=cmap, marker='.', alpha=0.8, linewidths=0,
+                                rasterized=True) # 启用栅格化加速
+                # 添加坐标标签
+                if i == n-1:
+                    ax.set_xlabel(pc_columns[j], labelpad=5, fontsize=16, weight='bold')
+                if j == 0:
+                    ax.set_ylabel(pc_columns[i], labelpad=5, fontsize=16, weight='bold')
+                ax.tick_params(labelsize=14)
+        # 添加颜色条
+        cax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+        fig.colorbar(sm, cax=cax, label='Time (ps)')
+        cax.tick_params(labelsize=14)
+        cax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x/1000:.0f}'))
+        cax.set_ylabel('Time (ns)', fontsize=16)
+        save_show(w_dir / 'PCA.png', 600, show=False)
+        plt.close()
+        
+    def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
+        force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
+        if os.path.exists(w_dir / 'PCA.xlsx') and not force:
+            return put_log('PCA already calculated, use -F to re-run.')
+        # determine backend
+        if args.backend != 'numpy':
+            import torch as _backend
+        else:
+            _backend = np
+        # get aligned coords: [n_frames, n_atoms, 3]
+        ag = u.select_atoms(args.select)
+        ori_coords, coords = get_aligned_coords(u, ag, start, step, stop, backend=args.backend, verbose=True)
+        # calculate correlation matrix
+        ## Center the data
+        if args.backend != 'numpy':
+            coords -= _backend.mean(ori_coords, dim=0, keepdim=True)
+        else:
+            coords -= _backend.mean(ori_coords, axis=0, keepdims=True)
+        # eigenvalue decomposition
+        ## Reshape to [n_frames, 3N] and calculate covariance
+        coords = coords.reshape(coords.shape[0], -1)
+        if args.backend != 'numpy':
+            self.cov = _backend.cov(coords.T)
+            e_vals, e_vects = _backend.linalg.eigh(self.cov)
+            sort_idx = _backend.argsort(e_vals, descending=True)
+        else:
+            self.cov = _backend.cov(coords, rowvar=False)
+            e_vals, e_vects = _backend.linalg.eig(self.cov)
+            sort_idx = _backend.argsort(e_vals)[::-1]
+        self.variance = e_vals[sort_idx]
+        self._p_components = e_vects[:, sort_idx]
+        # set n components
+        if args.n_components is None:
+            args.n_components = len(self.variance)
+        self.variance = self.variance[:args.n_components]
+        self.cumulated_variance = (_backend.cumsum(self.variance, 0) / _backend.sum(self.variance))[:args.n_components]
+        self.p_components = self._p_components[:, :args.n_components]
+        # do the transform
+        dot = coords @ self.p_components[:, :3]
+        # save result as dataframe
+        if args.backend != 'numpy':
+            dot = dot.cpu().numpy()
+        df = pd.DataFrame(dot, columns=['PC{}'.format(i+1) for i in range(3)])
+        df['Time (ps)'] = df.index * u.trajectory.dt
+        df.to_csv(w_dir / 'PCA.csv', index=False)
+        # plot result
+        self.plot_PCA(df, w_dir, args)
 
 
 _str2func = {
@@ -385,6 +493,7 @@ _str2func = {
     'rama': rama,
     'sele': sele_ana,
     'pari-rmsd': pair_rmsd,
+    'pca': pca,
 }
 
 
