@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-27 22:08:05
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-28 21:08:42
+LastEditTime: 2025-03-06 16:32:46
 Description: 
 '''
 
@@ -101,11 +101,6 @@ class simple_analysis(RRCS):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
-        
-    def make_args(args: argparse.ArgumentParser):
-        RRCS.make_args(args)
-        args.add_argument('-gro', '--gro-name', type = str, required=True,
-                          help=f"gro file name in each sub-folder.")
         
     def main_process(self):
         # load origin dfs from data file
