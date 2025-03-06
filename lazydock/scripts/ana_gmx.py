@@ -415,6 +415,8 @@ class mmpbsa(simple):
         if mmpbsa_args:
             args.add_argument('-i', '--input', type = str, required=True,
                               help=f"gmx_MMPBSA input file name in each sub-folder, such as mmpbsa.in")
+            args.add_argument('-o', '--output', type = str, default='MMPBSA_FINAL_RESULTS',
+                              help=f"gmx_MMPBSA output file name, such as MMPBSA_FINAL_RESULTS")
             args.add_argument('-np', '--np', type = int, required=True,
                               help=f"npi np argument for gmx_MMPBSA")
         args.add_argument('-top', '--top-name', type = str, required=True,
@@ -477,7 +479,7 @@ class mmpbsa(simple):
                                                     {'>': f'a {lig_range_str}\r'}, {'>': f'name {sum_groups+1} MMPBSA_Ligand\r'},
                                                     {'>': 'q\r'}])
             # call gmx_MMPBSA
-            cmd_str = f'gmx_MMPBSA -O -i {self.args.input} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.ndx -cg {sum_groups} {sum_groups+1} -cp topol.top -o FINAL_RESULTS_MMPBSA.dat -eo FINAL_RESULTS_MMPBSA.csv'
+            cmd_str = f'gmx_MMPBSA -O -i {self.args.input} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.ndx -cg {sum_groups} {sum_groups+1} -cp topol.top -o {self.args.output}.dat -eo {self.args.output}.csv -nogui'
             os.system(f'cd "{gmx.working_dir}" && mpirun -np {self.args.np} {cmd_str}')
             bar.update(1)
     
