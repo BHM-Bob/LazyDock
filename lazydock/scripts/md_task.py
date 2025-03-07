@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-03 11:45:11
+LastEditTime: 2025-03-07 09:40:22
 Description: 
 '''
 import argparse
@@ -214,9 +214,11 @@ class prs(network):
                          start=self.args.begin_frame, stop=self.args.end_frame, step=self.args.traj_step,
                          perturbations=self.args.perturbations)]
     
-    def save_results(self, top_path: Path, max_RHD: np.ndarray):
-        # plot Average Shortest Path figure
-        plt.plot(max_RHD)
+    def save_results(self, top_path: Path, max_RHO: np.ndarray):
+        # save to csv
+        pd.DataFrame({'Residue': np.arange(len(max_RHO)), 'max_RHO': max_RHO}).to_csv(top_path.parent / f'{top_path.stem}_PRS.csv', index=False)
+        # plot figure
+        plt.plot(max_RHO)
         plt.xlabel('Residue (aa)', fontsize=16, weight='bold')
         plt.ylabel('Correlation coefficient', fontsize=16, weight='bold')
         plt.gca().tick_params(labelsize=14, axis='both')
