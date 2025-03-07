@@ -579,6 +579,8 @@ class interaction(simple_analysis, mmpbsa):
         u, u2 = Universe(top_path, traj_path), Universe(gro_path)
         u.atoms.residues.resids = u2.atoms.residues.resids
         rec_idx, lig_idx = self.get_complex_atoms_index(u)
+        if rec_idx.sum() == 0 or lig_idx.sum() == 0:
+            return put_err(f"no atoms found in receptor or ligand, skip.", (None, None))
         complex_ag = u.atoms[rec_idx | lig_idx]
         # calcu interaction for each frame
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
@@ -622,6 +624,8 @@ class interaction(simple_analysis, mmpbsa):
             pkl_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.pkl')
             if (not os.path.exists(csv_path) or not os.path.exists(pkl_path)) or self.args.force:
                 interactions, df = self.calcu_interaction(str(top_path), gro_path, traj_path, pool)
+                if interactions is None:
+                    continue
                 df.to_csv(csv_path, index=False)
                 opts_file(pkl_path, 'wb', way='pkl', data=interactions)
             else:
