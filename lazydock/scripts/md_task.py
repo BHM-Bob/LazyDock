@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-07 09:40:22
+LastEditTime: 2025-03-07 16:20:42
 Description: 
 '''
 import argparse
@@ -212,7 +212,7 @@ class prs(network):
     def calcu_network(self, topol_path: Path, traj_path: Path):
         return [prs_main(top_path=str(topol_path), traj_path=str(traj_path), chains=[self.args.chain],
                          start=self.args.begin_frame, stop=self.args.end_frame, step=self.args.traj_step,
-                         perturbations=self.args.perturbations)]
+                         perturbations=self.args.perturbations, n_worker=self.args.n_workers)]
     
     def save_results(self, top_path: Path, max_RHO: np.ndarray):
         # save to csv
