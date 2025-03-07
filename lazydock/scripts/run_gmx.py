@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-19 17:25:04
+LastEditTime: 2025-03-07 10:21:44
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -41,6 +41,8 @@ class simple_protein(Command):
     14. gmx energy -f npt.edr -o density.xvg # using energy and entering "24 0" at the prompt.
     15. gmx grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
     16. gmx mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
+    
+    if step 16 terminated, you can use gmx mdrun -s md.tpr -cpi md.cpt -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
