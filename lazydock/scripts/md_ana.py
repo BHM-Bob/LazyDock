@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-06 10:50:35
+LastEditTime: 2025-03-07 15:27:38
 Description: 
 '''
 import argparse
@@ -440,7 +440,7 @@ class pca(elastic):
         
     def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
         force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
-        if os.path.exists(w_dir / 'PCA.xlsx') and not force:
+        if os.path.exists(w_dir / 'PCA.csv') and not force:
             return put_log('PCA already calculated, use -F to re-run.')
         # determine backend
         if args.backend != 'numpy':
