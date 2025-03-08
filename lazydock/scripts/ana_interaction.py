@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-22 21:18:11
+LastEditTime: 2025-03-07 19:44:41
 Description: 
 '''
 import argparse
@@ -131,6 +131,8 @@ class simple_analysis(Command):
             interactions = {k:v[-1] for k,v in interactions.items()}
         bar.set_description(f'{method} interactions calculated')
         # save interactions
+        opts_file(os.path.join(root, f'{Path(dlg_path).stem}_{method}_interactions.pkl'),
+                  'wb', way='pkl', data=interactions)
         df = pd.DataFrame()
         for i, (pose, interaction) in enumerate(zip(dlg.pose_lst, interactions.values())):
             df.loc[i, 'energy'] = pose.energy
