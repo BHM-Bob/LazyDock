@@ -649,7 +649,7 @@ class interaction(simple_analysis, mmpbsa):
                             plot_df.loc[i, receptor_res] = 1
                         else:
                             plot_df.loc[i, receptor_res] += 1
-            plot_df /= self.args.plot_time_unit
+                plot_df.loc[time_u, :] /= len(time_u)
             # filter plot df by (max, mean) inter value
             if self.args.max_plot is not None and len(plot_df.columns) > self.args.max_plot:
                 sort_val = {k: (v.max(), v.mean()) for k, v in plot_df.items()}
