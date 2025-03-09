@@ -53,7 +53,7 @@ class simple_analysis(Command):
                           help='distance cutoff for interaction calculation, default is %(default)s.')
         args.add_argument('--hydrogen-atom-only', default=False, action='store_true',
                           help='only consider hydrogen bond acceptor and donor atoms, this only works when method is pymol, default is %(default)s.')
-        args.add_argument('--output-style', type = str, default='receptor', choices=['receptor'],
+        args.add_argument('--output-style', type = str, default='receptor', choices=['receptor', 'ligand'],
                           help='output style\n receptor: resn resi distance')
         args.add_argument('--ref-res', type = str, default='',
                           help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
@@ -91,6 +91,19 @@ class simple_analysis(Command):
         elif method in {'ligplus', 'plip'}:
             inter_value = sorted(inter_value, key=lambda x: int(x[0][0]))
             return '; '.join(f'{v[0][1]}{v[0][0]}-{v[2]:.2f}' for v in inter_value)
+        else:
+            put_err(f"Unsupported method: {method}, exit.")
+            exit(1)
+        
+    @staticmethod
+    def output_fromater_ligand(inter_value: Dict[str, float], method: str):
+        # pymol: [('receptor', '', 'GLY', '300', 'O', 2817), ('LIGAND_0', 'Z', 'UNK', '1', 'N', 74), 2.8066137153155943]
+        if method == 'pymol':
+            inter_value = sorted(inter_value, key=lambda x: int(x[0][3]))
+            return '; '.join(f'{v[1][2]}{v[1][3]}-{v[2]:.2f}' for v in inter_value)
+        elif method in {'ligplus', 'plip'}:
+            inter_value = sorted(inter_value, key=lambda x: int(x[0][0]))
+            return '; '.join(f'{v[1][1]}{v[1][0]}-{v[2]:.2f}' for v in inter_value)
         else:
             put_err(f"Unsupported method: {method}, exit.")
             exit(1)
