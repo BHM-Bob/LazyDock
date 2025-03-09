@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-07 19:44:41
+LastEditTime: 2025-03-08 22:10:10
 Description: 
 '''
 import argparse
@@ -45,6 +45,8 @@ class simple_analysis(Command):
                           help=f"docking result file name, support Vina(pdbqt) and AutoDock(dlg) format.")
         args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
+        args.add_argument('-s', '--suffix', type = str, default='',
+                          help="suffix for output file, default is %(default)s.")
         args.add_argument('--method', type = str, default='pymol', choices=simple_analysis.METHODS.keys(),
                           help='search input directory recursively, default is %(default)s.')
         args.add_argument('--mode', type = str, default='all',
@@ -110,7 +112,8 @@ class simple_analysis(Command):
             
     @staticmethod
     def calc_interaction_from_dlg(receptor_path: str, dlg_path: str, method: str, mode: List[str], cutoff: float,
-                                  output_formater: Callable, hydrogen_atom_only: bool = True, ref_res: Set[str] = None) -> None:
+                                  output_formater: Callable, hydrogen_atom_only: bool = True, ref_res: Set[str] = None,
+                                  suffix: str = '') -> None:
         ref_res = sorted(list(ref_res or set()), key=lambda x: int(x[3:]))
         # set path
         bar = tqdm(desc='Calculating interaction', leave=False)
@@ -144,7 +147,7 @@ class simple_analysis(Command):
             interactions = {k:v[-1] for k,v in interactions.items()}
         bar.set_description(f'{method} interactions calculated')
         # save interactions
-        opts_file(os.path.join(root, f'{Path(dlg_path).stem}_{method}_interactions.pkl'),
+        opts_file(os.path.join(root, f'{Path(dlg_path).stem}_{method}_{suffix}_interactions.pkl'),
                   'wb', way='pkl', data=interactions)
         df = pd.DataFrame()
         for i, (pose, interaction) in enumerate(zip(dlg.pose_lst, interactions.values())):
@@ -156,7 +159,7 @@ class simple_analysis(Command):
                 for r in ref_res:
                     if r in fmt_string and not r in df.loc[i,'ref_res']:
                         df.loc[i,'ref_res'] += f'{r},'
-        df.to_excel(os.path.join(root, f'{Path(dlg_path).stem}_{method}_interactions.xlsx'))
+        df.to_excel(os.path.join(root, f'{Path(dlg_path).stem}_{method}_{suffix}_interactions.xlsx'))
         bar.set_description(f'{method} interactions saved')
         # release all in pymol
         cmd.reinitialize()
@@ -187,12 +190,12 @@ class simple_analysis(Command):
         for r_path, l_path, method, mode in self.tasks:
             wdir = os.path.dirname(l_path)
             bar.set_description(f"{wdir}: {os.path.basename(r_path)} and {os.path.basename(l_path)}")
-            if os.path.exists(os.path.join(wdir, f'{Path(l_path).stem}_{method}_interactions.xlsx')) and not self.args.force:
+            if os.path.exists(os.path.join(wdir, f'{Path(l_path).stem}_{method}_{self.args.suffix}_interactions.xlsx')) and not self.args.force:
                 put_log('Interaction already calculated, use -F to re-run.')
             else:
                 self.calc_interaction_from_dlg(r_path, l_path, method, mode, self.args.cutoff,
                                             getattr(self, f'output_fromater_{self.args.output_style}'),
-                                            self.args.hydrogen_atom_only, self.args.ref_res)
+                                            self.args.hydrogen_atom_only, self.args.ref_res, self.args.suffix)
             bar.update(1)
 
 _str2func = {
