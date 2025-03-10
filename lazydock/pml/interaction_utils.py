@@ -1,10 +1,10 @@
 '''
 Date: 2024-08-18 12:56:06
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-08 20:40:12
+LastEditTime: 2025-03-09 11:04:14
 Description: 
 '''
-from typing import Dict, List, Tuple, Union
+from typing import Callable, Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -219,10 +219,35 @@ def sort_atom_level_interactions(interactions: Dict[str, List[Tuple[Tuple[str, s
     return interactions
 
 
+def bond_length_score(L, L_max, L_min=2., score_at_L_max=0.2):
+    """
+    键长打分函数（指数衰减 + 截断机制）
+    
+    参数:
+    L : float or array-like       输入的键长值
+    L_max : float                 最大允许键长（超过时得分=0）
+    L_min : float                 最优键长（得分=1的最小长度）
+    score_at_L_max : float       L_max处的期望得分（默认0.2）
+
+    返回:
+    score : float or ndarray      标准化后的得分（0-1范围）
+    """
+    # 计算衰减系数k
+    k = -np.log(score_at_L_max) / (L_max - L_min)
+    
+    # 分段计算得分
+    L = np.asarray(L)
+    score = np.where(L <= L_min, 1.0,
+              np.where(L > L_max, 0.0,
+                np.exp(-k * (L - L_min))))
+    return score
+
+
 def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[str, str, str, str, str, float],
                                                             Tuple[str, str, str, str, str, float], float]]],
                          interaction_df: pd.DataFrame,
-                         distance_cutoff: float, nagetive_factor: float, hydrogen_atom_only: bool = True):
+                         distance_cutoff: float, nagetive_factor: float, hydrogen_atom_only: bool = True,
+                         bond_length_score_fn: Callable[[float, float], float] = bond_length_score):
     """
     merge the interactions returned by calcu_atom_level_interactions to interaction_df.
     
@@ -232,10 +257,11 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[str, str, str, 
         - distance_cutoff: float, distance cutoff for interactions.
         - nagetive_factor: float, factor to multiply the distance value for interations between acceptor and acceptor, and donor and donor.
         - hydrogen_atom_only: bool, whether to only consider hydrogen acceptor and donor atoms, default is True.
+        - bond_legnth_score_fn: Callable(bond_distance, cutoff) -> score
     """
     # index format: CHAIN_ID:RESI:RESN
     def set_points(ty: str, points: float, nagetive_factor: float):
-        points = distance_cutoff - points
+        points = bond_length_score_fn(points, distance_cutoff)
         if not hydrogen_atom_only or ty in {'ad', 'da'}:
             return points
         return nagetive_factor * points
@@ -273,7 +299,8 @@ def _get_mode_code(mode: str):
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str = 'all',
                                      cutoff: float = 4., nagetive_factor: float = -1.,
                                      only_return_inter: bool = False, verbose: bool = False,
-                                     hydrogen_atom_only: bool = True, **kwargs):
+                                     hydrogen_atom_only: bool = True,
+                                     bond_length_score_fn: Callable[[float, float], float] = bond_length_score, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses.
     
@@ -285,6 +312,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str 
         - nagetive_factor: float, factor to multiply the distance value for interations between acceptor and acceptor, and donor and donor.
         - only_return_inter: bool, whether to only return interactions in interactions dict, default is False.
         - hydrogen_atom_only: bool, whether to only consider hydrogen acceptor and donor atoms, default is True.
+        - bond_length_score_fn: Callable(bond_distance, cutoff) -> score
         
     Returns:
         interactions (dict): interactions between receptor and ligand, in the format of {'ligand': [xyz2atom, residues, interactions]}, where xyz2atom is a dict, residues is a dict, interactions is a dict.
@@ -314,7 +342,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: str 
         all_interactions[ligand] = [xyz2atom, residues, interactions]
         cmd.delete(sele_ligand)
         # merge interactions by res
-        merge_interaction_df(interactions, interaction_df, cutoff, nagetive_factor, hydrogen_atom_only)
+        merge_interaction_df(interactions, interaction_df, cutoff, nagetive_factor, hydrogen_atom_only, bond_length_score_fn)
     cmd.delete(sele_receptor)
     if not interaction_df.empty:
         # sort res
