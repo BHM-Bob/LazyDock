@@ -3,7 +3,7 @@ import platform
 import re
 import tempfile
 import time
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -15,12 +15,12 @@ from tqdm import tqdm
 
 if __name__ == '__main__':
     from lazydock import config
-    from lazydock.pml.interaction_utils import sort_func
+    from lazydock.pml.interaction_utils import sort_func, bond_length_score
     from lazydock.utils import uuid4
 else:
     from .. import config
     from ..utils import uuid4
-    from .interaction_utils import sort_func
+    from .interaction_utils import sort_func, bond_length_score
     
     
 def parse_ligplus_output(result_path: str) -> Dict[str, List[Tuple[Tuple[int, str, str], Tuple[int, str, str], float]]]:
@@ -170,7 +170,8 @@ def run_ligplus(ligplus_dir: str, receptor: str = None, ligand: str = None,
 
 
 def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str], Tuple[int, str, str], float]]],
-                         interaction_df: pd.DataFrame, distance_cutoff: float):
+                         interaction_df: pd.DataFrame, distance_cutoff: float,
+                         bond_length_score_fn: Callable[[float, float], float] = bond_length_score):
     """merge the interactions returned by calcu_atom_level_interactions to interaction_df."""
     # index format: CHAIN_ID:RESI:RESN
     for interaction_type, values in interaction.items():
@@ -178,7 +179,7 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str],
             # single_inter: ((217, 'VAL', 'A'), (10, 'PHE', 'Z'), 3.71)
             receptor_res = f'{single_inter[0][2]}:{single_inter[0][0]}:{single_inter[0][1]}'
             ligand_res = f'{single_inter[1][2]}:{single_inter[1][0]}:{single_inter[1][1]}'
-            points = distance_cutoff - single_inter[2]
+            points = bond_length_score_fn(single_inter[2], distance_cutoff)
             if ligand_res not in interaction_df.index or receptor_res not in interaction_df.columns:
                 interaction_df.loc[ligand_res, receptor_res] = points
             elif np.isnan(interaction_df.loc[ligand_res, receptor_res]):
@@ -194,7 +195,8 @@ SUPPORTED_MODE = ['Hydrogen Bonds', 'Non-bonded Interactions']
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_dir: Optional[str] = None,
                                      mode: Union[str, List[str]] = 'Hydrogen Bonds', cutoff: float = 4.,
                                      taskpool: TaskPool = None, verbose: bool = False,
-                                     force_cwd: bool = False, w_dir: str = None, **kwargs):
+                                     force_cwd: bool = False, w_dir: str = None,
+                                     bond_length_score_fn: Callable[[float, float], float] = bond_length_score, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses using LigPlus.
     Parameters:
@@ -204,6 +206,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_di
         - mode (str or List[str]): supported modes: Hydrogen Bonds, Non-bonded Interactions, default Hydrogen Bonds, can be set to 'all' to include all modes.
         - taskpool (TaskPool): TaskPool object for parallelization, default None
         - cutoff (float): cutoff distance, default 4
+        - bond_length_score_fn: Callable(bond_distance, cutoff) -> score
         
     Returns:
         interactions (dict):
@@ -238,7 +241,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], ligplus_di
         if taskpool is not None:
             all_interactions[ligand] = taskpool.query_task(all_interactions[ligand], True, 10**8)
         # merge interactions by res
-        merge_interaction_df(all_interactions[ligand], interaction_df, cutoff)
+        merge_interaction_df(all_interactions[ligand], interaction_df, cutoff, bond_length_score_fn)
     if not interaction_df.empty:
         # sort res
         interaction_df.sort_index(axis=0, inplace=True, key=sort_func)

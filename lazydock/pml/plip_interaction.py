@@ -1,16 +1,16 @@
 '''
 Date: 2024-10-11 10:33:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-24 20:05:54
+LastEditTime: 2025-03-09 11:03:04
 Description: 
 '''
 import time
 import traceback
-from typing import Dict, List, Tuple, Union
+from typing import Callable, Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
-from lazydock.pml.interaction_utils import sort_func
+from lazydock.pml.interaction_utils import sort_func, bond_length_score
 from lazydock.utils import uuid4
 from mbapy_lite.base import put_err
 from mbapy_lite.web import TaskPool
@@ -69,7 +69,8 @@ def run_plip_analysis(complex_pdbstr: str, receptor_chain: str, ligand_chain: st
 
 
 def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str], Tuple[int, str, str], float]]],
-                         interaction_df: pd.DataFrame, distance_cutoff: float):
+                         interaction_df: pd.DataFrame, distance_cutoff: float,
+                         bond_length_score_fn: Callable[[float, float], float] = bond_length_score):
     """merge the interactions returned by calcu_atom_level_interactions to interaction_df."""
     # index format: CHAIN_ID:RESI:RESN
     for interaction_type, values in interaction.items():
@@ -77,7 +78,7 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str],
             # single_inter: ((217, 'VAL', 'A'), (10, 'PHE', 'Z'), 3.71)
             receptor_res = f'{single_inter[0][2]}:{single_inter[0][0]}:{single_inter[0][1]}'
             ligand_res = f'{single_inter[1][2]}:{single_inter[1][0]}:{single_inter[1][1]}'
-            points = distance_cutoff - single_inter[2]
+            points = bond_length_score_fn(single_inter[2], distance_cutoff)
             if ligand_res not in interaction_df.index or receptor_res not in interaction_df.columns:
                 interaction_df.loc[ligand_res, receptor_res] = points
             elif np.isnan(interaction_df.loc[ligand_res, receptor_res]):
@@ -98,7 +99,8 @@ def check_support_mode(mode: Union[str, List[str]]):
         put_err(f'Unsupported mode: {mode}, supported: {SUPPORTED_MODE}', _exit=True)
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Union[str, List[str]] = 'all', cutoff: float = 4.,
-                                     taskpool: TaskPool = None, verbose: bool = False, **kwargs):
+                                     taskpool: TaskPool = None, verbose: bool = False,
+                                     bond_length_score_fn: Callable[[float, float], float] = bond_length_score, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses using PLIP-python.
     Parameters:
@@ -107,6 +109,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
         - mode (Union[str, List[str]]): interaction types to be calculated, default 'all' to include all modes., 
             supported: Hydrophobic Interactions, Hydrogen Bonds, Water Bridges, Salt Bridges, pi-Stacking, pi-Cation Interactions, Halogen Bonds, Metal Complexes
         - cutoff (float): cutoff distance, default 4
+        - bond_length_score_fn: Callable(bond_distance, cutoff) -> score
         
     Returns:
         interactions (dict):
@@ -147,7 +150,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
                 continue
             all_interactions[ligand] = result
         # merge interactions by res
-        merge_interaction_df(all_interactions[ligand], interaction_df, cutoff)
+        merge_interaction_df(all_interactions[ligand], interaction_df, cutoff, bond_length_score_fn)
     if not interaction_df.empty:
         # sort res
         interaction_df.sort_index(axis=0, inplace=True, key=sort_func)
