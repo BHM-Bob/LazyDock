@@ -1,7 +1,7 @@
 <!--
  * @Date: 2025-02-06 16:18:51
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2025-03-06 21:33:36
+ * @LastEditTime: 2025-03-13 21:34:26
  * @Description: 
 -->
 ## install lazydock python package itself 
@@ -34,6 +34,7 @@ In pymol plugin installation GUI, install `path-to-site-packages/lazydock_pymol_
 ## install lazydock dependencies
 #### install plip for lazydock
 ```bash
+conda install -c conda-forge openbabel
 pip install plip -U --no-deps
 ```
 
@@ -47,6 +48,7 @@ pip install md-davis -U --no-deps
 ```
 
 #### install gmx_MMPBSA for lazydock
+**Warning**: gmx_MMPBSA is better to be installed in a separate conda environment to avoid lib conflicts.
 ```bash
 conda install -c conda-forge "mpi4py==4.0.1" "ambertools<=23.3" "parmed==4.2.2" pocl
 pip install gmx_MMPBSA -U --no-deps
