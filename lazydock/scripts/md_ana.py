@@ -485,6 +485,17 @@ class pca(elastic):
         df.to_csv(w_dir / 'PCA.csv', index=False)
         # plot result
         self.plot_PCA(df, w_dir, args)
+        
+        
+class show_chain(elastic):
+    HELP = """
+    PPrint chain info of a tpr file
+    """
+    def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
+        print() # new line after tqdm
+        for i, chain_i in enumerate(np.unique(u.atoms.chainIDs)):
+            idx = u.atoms.chainIDs == chain_i
+            print(f'chain {i}: {chain_i}: {len(u.atoms[idx])} atoms')    
 
 
 _str2func = {
@@ -494,6 +505,7 @@ _str2func = {
     'sele': sele_ana,
     'pari-rmsd': pair_rmsd,
     'pca': pca,
+    'show-chain': show_chain,
 }
 
 
