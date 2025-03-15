@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-08 22:10:10
+LastEditTime: 2025-03-09 11:07:26
 Description: 
 '''
 import argparse
@@ -139,7 +139,7 @@ class simple_analysis(Command):
         # calcu interactions
         fn, _ = simple_analysis.METHODS[method]
         bar.set_description(f'performing {method} calculation')
-        interactions, _ = fn(receptor_name, pose_names, mode=mode, cutoff=cutoff, verbose=True, force_cwd=True, w_dir=w_dir, hydrogen_atom_only=hydrogen_atom_only)
+        interactions, mat_df = fn(receptor_name, pose_names, mode=mode, cutoff=cutoff, verbose=True, force_cwd=True, w_dir=w_dir, hydrogen_atom_only=hydrogen_atom_only)
         if interactions is None:
             cmd.reinitialize()
             return put_err(f"No interactions found in {dlg_path}")
@@ -147,6 +147,7 @@ class simple_analysis(Command):
             interactions = {k:v[-1] for k,v in interactions.items()}
         bar.set_description(f'{method} interactions calculated')
         # save interactions
+        mat_df.to_excel(os.path.join(root, f'{Path(dlg_path).stem}_{method}_{suffix}_matDF.xlsx'))
         opts_file(os.path.join(root, f'{Path(dlg_path).stem}_{method}_{suffix}_interactions.pkl'),
                   'wb', way='pkl', data=interactions)
         df = pd.DataFrame()
