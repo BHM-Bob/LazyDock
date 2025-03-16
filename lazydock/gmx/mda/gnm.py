@@ -126,8 +126,6 @@ def generate_close_matrix(positions: np.ndarray, cutoff,
     array
             the resulting Kirchhoff matrix
     """
-    cutoff_sq = cutoff ** 2
-
     # Compute residue sizes
     if weights == 'size':
         inv_sqrt_res_sizes = 1.0 / np.sqrt(residue_size)
@@ -136,28 +134,14 @@ def generate_close_matrix(positions: np.ndarray, cutoff,
 
     # Generate all atom pairs within cutoff
     # Note: Using previous generate_ordered_pairs function (adjusted for pairs)
-    all_pairs = generate_ordered_pairs(positions, cutoff)
-
-    if not all_pairs:
+    valid_pair = generate_valid_paris(positions, cutoff)
+    if valid_pair is None:
         return np.zeros((n_residue, n_residue), dtype=np.float64)
-
-    pairs = np.array(all_pairs)
-    i_atom = pairs[:, 0]
-    j_atom = pairs[:, 1]
-
-    # Mask for i < j to avoid duplicate pairs
-    mask = j_atom > i_atom
-    i_filtered = i_atom[mask]
-    j_filtered = j_atom[mask]
-
-    # Compute squared distances and apply cutoff
-    diff = positions[i_filtered] - positions[j_filtered]
-    distance_sq = np.sum(diff ** 2, axis=1)
-    valid = distance_sq < cutoff_sq
+    i_filtered, j_filtered = valid_pair
 
     # Get valid residue indices
-    iresidues = atom2residue[i_filtered[valid]]
-    jresidues = atom2residue[j_filtered[valid]]
+    iresidues = atom2residue[i_filtered]
+    jresidues = atom2residue[j_filtered]
 
     # Compute contact values
     contact = inv_sqrt_res_sizes[iresidues] * inv_sqrt_res_sizes[jresidues]
