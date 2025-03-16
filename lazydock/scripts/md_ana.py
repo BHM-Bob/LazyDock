@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-07 15:27:38
+LastEditTime: 2025-03-16 19:38:48
 Description: 
 '''
 import argparse
@@ -23,6 +23,7 @@ from lazydock.algorithm.rms import batch_fit_to, batch_rmsd, pairwise_rmsd
 from lazydock.gmx.mda.align import get_aligned_coords
 from lazydock.gmx.mda.gnm import (calcu_closeContactGNMAnalysis,
                                   calcu_GNMAnalysis, genarate_atom2residue)
+from lazydock.gmx.mda.utils import filter_atoms_by_chains
 from lazydock.scripts._script_utils_ import (clean_path, excute_command,
                                              process_batch_dir_lst)
 from lazydock.scripts.ana_gmx import mmpbsa
@@ -31,8 +32,7 @@ from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import opts_file
 from mbapy_lite.plot import save_show
 from mbapy_lite.web_utils.task import TaskPool
-from MDAnalysis.analysis import (align, diffusionmap, dihedrals, gnm,
-                                 helix_analysis)
+from MDAnalysis.analysis import align, dihedrals, gnm, helix_analysis
 from tqdm import tqdm
 
 
@@ -242,38 +242,47 @@ class rama(elastic):
         make_args(args)
         args.add_argument('-rstep', '--rama-step', type=int, default=100,
                           help='Step while reading trajectory for plotting amachandran plot and Janin plot. Default is %(default)s.')
+        args.add_argument('-np', '--n-workers', type=int, default=4,
+                          help='number of workers to parallel. Default is %(default)s.')
         args.add_argument('-alpha', '--alpha', type=float, default=0.2,
                           help='Scatter alpha for plotting amachandran plot and Janin plot. Default is %(default)s.')
         args.add_argument('-size', '--size', type=float, default=80,
                           help='Scatter size for plotting amachandran plot and Janin plot. Default is %(default)s.')
+        args.add_argument('-c', '--chains', type = str, nargs='+', default=None,
+                          help='chain of molecular to be included into calculation. Default is %(default)s.')
+        
+    def plot_matrix(self, result, file_name: str, w_dir: Path, args: argparse.ArgumentParser):
+        fig, ax = plt.subplots(figsize=(10, 8))
+        result.results.angles = result.results.angles[::args.rama_step]
+        result.plot(color='black', marker='.', ref=True, ax=ax, alpha=args.alpha, s=args.size)
+        save_show(w_dir / file_name, 600, show=False)
+        plt.close(fig=fig)
 
-    def ramachandran(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
-        force, start, step, stop = args.force, args.begin_frame, args.rama_step, args.end_frame
+    def ramachandran(self, ag: mda.AtomGroup, w_dir: Path, args: argparse.ArgumentParser):
+        force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
         if os.path.exists(w_dir / 'ramachandran.npz') and not force:
             return put_log('Ramachandran plot already calculated, use -F to re-run.')
-        protein = u.select_atoms('protein')
-        rama = dihedrals.Ramachandran(protein).run(start=start, step=step, stop=stop)
+        rama = dihedrals.Ramachandran(ag).run(start=start, step=step, stop=stop,
+                                              n_workers=args.n_workers, backend='multiprocessing')
         np.savez_compressed(w_dir / 'ramachandran.npz', angles = rama.results.angles)
-        fig, ax = plt.subplots(figsize=(10, 8))
-        rama.plot(color='black', marker='.', ref=True, ax=ax, alpha=args.alpha, s=args.size)
-        save_show(w_dir / 'ramachandran.png', 600, show=False)
-        plt.close(fig=fig)
+        self.plot_matrix(rama, 'ramachandran.png', w_dir, args)
 
-    def janin(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
-        force, start, step, stop = args.force, args.begin_frame, args.rama_step, args.end_frame
+    def janin(self, ag: mda.AtomGroup, w_dir: Path, args: argparse.ArgumentParser):
+        force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
         if os.path.exists(w_dir / 'janin.npz') and not force:
             return put_log('Janin plot already calculated, use -F to re-run.')
-        protein = u.select_atoms('protein')
-        janin = dihedrals.Janin(protein).run(start=start, step=step, stop=stop)
+        janin = dihedrals.Janin(ag).run(start=start, step=step, stop=stop,
+                                        n_workers=args.n_workers, backend='multiprocessing')
         np.savez_compressed(w_dir / 'janin.npz', angles = janin.results.angles)
-        fig, ax = plt.subplots(figsize=(10, 8))
-        janin.plot(color='black', marker='.', ref=True, ax=ax, alpha=args.alpha, s=args.size)
-        save_show(w_dir / 'janin.png', 600, show=False)
-        plt.close(fig=fig)
+        self.plot_matrix(janin, 'janin.png', w_dir, args)
 
     def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
-        self.ramachandran(u, w_dir, args)
-        self.janin(u, w_dir, args)
+        ag = u.select_atoms('protein')
+        if self.args.chains is not None:
+            ag = filter_atoms_by_chains(ag, self.args.chains)
+        put_log(f'get {len(ag)} atoms for analysis.')
+        self.ramachandran(ag, w_dir, args)
+        self.janin(ag, w_dir, args)
 
 
 class sele_ana(elastic):
