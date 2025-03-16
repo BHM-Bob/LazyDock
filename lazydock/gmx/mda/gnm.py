@@ -1,13 +1,12 @@
 '''
 Date: 2025-02-20 22:02:45
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-21 19:39:33
+LastEditTime: 2025-03-16 20:41:43
 Description: 
 '''
 import numpy as np
 from mbapy_lite.base import put_err
 from MDAnalysis.core.groups import AtomGroup
-from MDAnalysis.analysis.gnm import order_list, closeContactGNMAnalysis
 
 
 def generate_ordered_pairs(positions, cutoff):
@@ -43,16 +42,15 @@ def generate_ordered_pairs(positions, cutoff):
     
     return list(zip(i, j))
 
-def generate_matrix(positions, cutoff):
+def generate_valid_paris(positions, cutoff):
     positions = np.asarray(positions)
-    natoms = positions.shape[0]
     cutoff_sq = cutoff ** 2
 
     # Generate all pairs from neighbour_generator
     all_pairs = generate_ordered_pairs(positions, cutoff)
     
     if not all_pairs:
-        return np.zeros((natoms, natoms), dtype=np.float64)
+        return None
     
     pairs = np.array(all_pairs)
     i = pairs[:, 0]
@@ -70,11 +68,19 @@ def generate_matrix(positions, cutoff):
 
     # Apply cutoff and get valid indices
     valid = distance_squared < cutoff_sq
+    return i_filtered[valid], j_filtered[valid]
+    
 
+def generate_matrix(positions, cutoff):
+    natoms = positions.shape[0]
+    valid_pair = generate_valid_paris(positions, cutoff)
+    if valid_pair is None:
+        return np.zeros((natoms, natoms), dtype=np.float64)
+    i_filtered, j_filtered = valid_pair
     # Create matrix and set symmetric entries
     matrix = np.zeros((natoms, natoms), dtype=np.float64)
-    matrix[i_filtered[valid], j_filtered[valid]] = -1.0
-    matrix[j_filtered[valid], i_filtered[valid]] = -1.0
+    matrix[i_filtered, j_filtered] = -1.0
+    matrix[j_filtered, i_filtered] = -1.0
 
     # Calculate diagonal entries as the count of neighbors
     row_counts = np.sum(matrix < 0, axis=1)
