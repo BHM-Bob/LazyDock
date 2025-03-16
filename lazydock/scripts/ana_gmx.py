@@ -625,6 +625,7 @@ class interaction(simple_analysis, mmpbsa):
             if (not os.path.exists(csv_path) or not os.path.exists(pkl_path)) or self.args.force:
                 interactions, df = self.calcu_interaction(str(top_path), gro_path, traj_path, pool)
                 if interactions is None:
+                    put_log(f'no interaction found, skip.')
                     continue
                 df.to_csv(csv_path, index=False)
                 opts_file(pkl_path, 'wb', way='pkl', data=interactions)
@@ -649,7 +650,7 @@ class interaction(simple_analysis, mmpbsa):
                             plot_df.loc[i, receptor_res] = 1
                         else:
                             plot_df.loc[i, receptor_res] += 1
-                plot_df.loc[time_u, :] /= len(time_u)
+                plot_df.loc[i, :] /= len(time_u)
             # filter plot df by (max, mean) inter value
             if self.args.max_plot is not None and len(plot_df.columns) > self.args.max_plot:
                 sort_val = {k: (v.max(), v.mean()) for k, v in plot_df.items()}
