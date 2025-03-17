@@ -22,7 +22,8 @@ from lazydock.scripts._script_utils_ import (Command, check_file_num_paried,
                                              process_batch_dir_lst)
 from lazydock.scripts.ana_interaction import (plip_mode, pml_mode,
                                               simple_analysis)
-from mbapy.plot import save_show
+from matplotlib.ticker import FuncFormatter
+from mbapy_lite.plot import save_show
 from mbapy_lite.base import put_err, put_log, split_list
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from mbapy_lite.web import TaskPool

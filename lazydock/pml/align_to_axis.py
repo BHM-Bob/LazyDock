@@ -3,7 +3,7 @@ from typing import List, Union
 
 import numpy as np
 from compas.geometry import oriented_bounding_box_numpy
-from mbapy.base import put_err, split_list
+from mbapy_lite.base import put_err, split_list
 from pymol import cmd, editing
 
 

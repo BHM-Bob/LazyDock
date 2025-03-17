@@ -19,8 +19,8 @@ import seaborn as sns
 from lazydock.scripts._script_utils_ import excute_command
 from lazydock.scripts.ana_gmx import RRCS
 from matplotlib import pyplot as plt
-from mbapy.stats import pca
-from mbapy.web_utils.task import TaskPool
+from mbapy_lite.stats import pca
+from mbapy_lite.web_utils.task import TaskPool
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.plot import save_show
 from tqdm import tqdm

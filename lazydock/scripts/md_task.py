@@ -22,7 +22,7 @@ from lazydock_md_task.scripts.contact_map_v2 import (calculate_contacts,
                                                      save_network_data)
 from lazydock_md_task.scripts.prs_v2 import main as prs_main
 from matplotlib import pyplot as plt
-from mbapy.web_utils.task import TaskPool
+from mbapy_lite.web_utils.task import TaskPool
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.plot import save_show
 from tqdm import tqdm
