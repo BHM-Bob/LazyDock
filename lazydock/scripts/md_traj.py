@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-27 22:08:05
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-06 16:32:46
+LastEditTime: 2025-03-07 19:02:11
 Description: 
 '''
 
@@ -54,7 +54,7 @@ def run_md_traj_simple_analysis(top_path: str, traj_path: str, args: argparse.Na
     # isothermal_compressability_kappa_T
     compressability = []
     for i in range(0, len(u.trajectory), 100):
-        compressability.append(md.isothermal_compressability_kappa_T(t[i], 300))
+        compressability.append(md.isothermal_compressability_kappa_T(t[i*100: (i+1)*100], 300))
     save_df(compressability, 'isothermal_compressability_kappa_T')
     # interia
     inters = md.compute_inertia_tensor(mol)
