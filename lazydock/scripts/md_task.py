@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-07 16:20:42
+LastEditTime: 2025-03-14 16:31:17
 Description: 
 '''
 import argparse
@@ -13,6 +13,7 @@ import MDAnalysis as mda
 import networkx as nx
 import numpy as np
 import pandas as pd
+from lazydock.gmx.mda.utils import filter_atoms_by_chains
 from lazydock.scripts._script_utils_ import excute_command
 from lazydock.scripts.ana_gmx import mmpbsa
 from lazydock_md_task.scripts.calc_correlation import plot_map
@@ -69,7 +70,7 @@ class network(mmpbsa):
                             help='topology file name in each sub-directory, such as md.tpr. Default is %(default)s.')
         args.add_argument('-traj', '--traj-name', type = str, default='md_center.xtc',
                             help='trajectory file name in each sub-directory, such as md_center.xtc. Default is %(default)s.')
-        args.add_argument('-c', '--chain', type = str, default=None,
+        args.add_argument('-c', '--chains', type = str, nargs='+', default=None,
                           help='chain of molecular to be included into calculation. Default is %(default)s.')
         args.add_argument("--threshold", type=float, default=6.7,
                           help="Maximum distance threshold in Angstroms when constructing graph (default: %(default)s)")
@@ -89,8 +90,8 @@ class network(mmpbsa):
         # prepare trajectory and topology
         u = mda.Universe(str(topol_path), str(traj_path))
         atoms = u.select_atoms("(name CB and protein) or (name CA and resname GLY and protein)")
-        if self.args.chain is not None:
-            atoms = atoms[atoms.chainIDs == self.args.chain]
+        if self.args.chains is not None:
+            atoms = filter_atoms_by_chains(atoms, self.args.chains)
         # prepare and run parallel calculation
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         total_bc, total_dj_path = [None] * sum_frames, [None] * sum_frames
@@ -139,9 +140,9 @@ class network(mmpbsa):
             top_path, traj_path = Path(top_path), Path(traj_path)
             if os.path.exists(os.path.join(wdir, f'{top_path.stem}_{self.result_suffix}')) and not self.args.force:
                 put_log(f'{top_path.stem}_{self.result_suffix} already exists, skip.')
-                continue
-            results = self.calcu_network(Path(top_path), Path(traj_path))
-            self.save_results(top_path, *results)
+            else:
+                results = self.calcu_network(Path(top_path), Path(traj_path))
+                self.save_results(top_path, *results)
             bar.update(1)
         self.pool.close()
         
@@ -181,8 +182,8 @@ class correlation(network):
         # prepare trajectory and topology
         u = mda.Universe(str(topol_path), str(traj_path))
         atoms = u.select_atoms("(name CA and protein)")
-        if self.args.chain is not None:
-            atoms = atoms[atoms.chainIDs == self.args.chain]
+        if self.args.chains is not None:
+            atoms = filter_atoms_by_chains(atoms, self.args.chains)
         # extract coords
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         coords = np.zeros((len(u.trajectory), len(atoms), 3), dtype=np.float64)
@@ -210,7 +211,7 @@ class prs(network):
                           help="number of perturbations, default: %(default)s.")
 
     def calcu_network(self, topol_path: Path, traj_path: Path):
-        return [prs_main(top_path=str(topol_path), traj_path=str(traj_path), chains=[self.args.chain],
+        return [prs_main(top_path=str(topol_path), traj_path=str(traj_path), chains=self.args.chains,
                          start=self.args.begin_frame, stop=self.args.end_frame, step=self.args.traj_step,
                          perturbations=self.args.perturbations, n_worker=self.args.n_workers)]
     
@@ -248,7 +249,6 @@ class contact_map(network):
     def process_args(self):
         super().process_args()
         self.args.residue = self.args.residue.upper()
-        self.args.chain = self.args.chain.upper()
         self.prefix = self.args.residue.split(".")[0] if "." in self.args.residue else self.args.residue
         
     def calcu_network(self, traj_path: Path, topol_path: Path):
@@ -256,19 +256,19 @@ class contact_map(network):
         traj = load_and_preprocess_traj(str(traj_path), str(topol_path), self.args.step)
         # 2. calculate contacts
         contacts, n_frames = calculate_contacts(
-            traj, self.args.residue, self.args.chain, self.args.threshold/10
+            traj, self.args.residue, self.args.chains[0], self.args.threshold/10
         )
         # 3. generate edges list
-        center_node = f"{self.args.residue}.{self.args.chain}"
+        center_node = f"{self.args.residue}.{self.args.chains[0]}"
         edges_list = [[center_node, edge[1], count/n_frames] for edge, count in contacts.items()]
         # 4. create graph object
         contact_graph = nx.Graph()
         contact_graph.add_weighted_edges_from(edges_list)
         # 5. save output results
-        output_csv = f"{self.prefix}_chain{self.args.chain}_network.csv"
+        output_csv = f"{self.prefix}_chain{self.args.chains[0]}_network.csv"
         save_network_data(edges_list, output_csv)
         # 6. generate visualization graph
-        output_png = f"{self.prefix}_chain{self.args.chain}_contact_map.png"
+        output_png = f"{self.prefix}_chain{self.args.chains[0]}_contact_map.png"
         plot_network(contact_graph, edges_list, output_png,
                      node_size=self.args.nodesize, node_fontsize=self.args.nodefontsize,
                      edgewidth_factor=self.args.edgewidthfactor, edgelabel_fontsize=self.args.edgelabelfontsize)
