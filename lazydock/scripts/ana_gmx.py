@@ -678,7 +678,7 @@ class interaction(simple_analysis, mmpbsa):
                 save_show(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.png'), 600, show=False)
                 plt.close(fig)
             # other things
-            pool.task = {}
+            pool.clear()
             bar.update(1)
         pool.close()
 
