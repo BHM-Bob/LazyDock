@@ -1,7 +1,7 @@
 '''
 Date: 2025-03-05 21:56:36
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-06 10:00:39
+LastEditTime: 2025-03-21 15:44:45
 Description: 
 '''
 import numpy as np
@@ -16,7 +16,7 @@ else:
 
 def get_aligned_coords(u: Universe, ag: AtomGroup, start: int, step: int, stop: int,
                        ref_coords: np.ndarray = None, backend: str = "numpy",
-                       verbose: bool = True) -> np.ndarray:
+                       verbose: bool = True, return_rmsd: bool = False) -> np.ndarray:
     """
     Align the coordinates of an AtomGroup to a reference coordinates array.
     
@@ -39,6 +39,8 @@ def get_aligned_coords(u: Universe, ag: AtomGroup, start: int, step: int, stop: 
     -------
     Tuple[np.ndarray, np.ndarray]: ([n_frames, n_atoms, 3], [n_frames, n_atoms, 3])
         The original and aligned coordinates array.
+    OR 
+    Tuple[np.ndarray, Tuple[np.ndarray, np.ndarray]]: ([n_frames, n_atoms, 3], ([n_frames, n_atoms, 3], [n_frames,]))
     """
     sum_frames = (len(u.trajectory) if stop is None else stop) - start
     coords = []
@@ -62,4 +64,6 @@ def get_aligned_coords(u: Universe, ag: AtomGroup, start: int, step: int, stop: 
     else:
         refs = ref_coords.repeat(coords.shape[0], 1, 1)
     # do fit as MDAnalysis.align.AlignTraj._single_frame, it use _fit_to
+    if return_rmsd:
+        return ori_coords, batch_fit_to(coords, refs, backend=backend)
     return ori_coords, batch_fit_to(coords, refs, backend=backend)[0]
