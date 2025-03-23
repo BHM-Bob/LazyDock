@@ -7,10 +7,12 @@ from typing import Dict, List, Tuple, Union
 if 'MBAPY_PLT_AGG' in os.environ:
     import matplotlib
     matplotlib.use('Agg')
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from lazydock.algorithm.utils import vectorized_sliding_average
 from lazydock.gmx.mda.convert import PDBConverter
 from lazydock.gmx.run import Gromacs
 from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
@@ -27,7 +29,7 @@ from mbapy_lite.plot import save_show
 from mbapy_lite.base import put_err, put_log, split_list
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from mbapy_lite.web import TaskPool
-from MDAnalysis import Universe
+from MDAnalysis import AtomGroup, Universe
 from scipy.stats import gaussian_kde
 from tqdm import tqdm
 
@@ -712,6 +714,8 @@ class RRCS(mmpbsa):
                           help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
         args.add_argument('-top', '--top-name', type = str, required=True,
                           help=f"topology file name in each sub-folder.")
+        args.add_argument('-gro', '--gro-name', type = str, required=True,
+                          help=f"gro file name in each sub-folder.")
         args.add_argument('-traj', '--traj-name', type = str, required=True,
                           help=f"trajectory file name in each sub-folder.")
         args.add_argument('-c', '--chains', type = str, default=None, nargs='+',
@@ -728,7 +732,133 @@ class RRCS(mmpbsa):
                           help='backend for RRCS calculation. Default is %(default)s.')
         args.add_argument('-F', '--force', default=False, action='store_true',
                           help='force to re-run the analysis, default is %(default)s.')
-    
+        
+    @staticmethod
+    def plot_average_heatmap(scores: np.ndarray, top_path: Path):
+        plt.imshow(scores.mean(axis=0), cmap='viridis')
+        plt.xlabel('Residue Index', fontsize=16, weight='bold')
+        plt.ylabel('Residue Index', fontsize=16, weight='bold')
+        plt.gca().tick_params(labelsize=14)
+        cbar = plt.colorbar()
+        cbar.ax.tick_params(labelsize=14)
+        cbar.ax.set_ylabel('Average RRCS', fontsize=16, weight='bold')
+        save_show(str(top_path.parent / f'{top_path.stem}_RRCS.png'), 600, show=False)
+        plt.close()
+        
+        
+    @staticmethod
+    def plot_diag_vs_frame(scores: np.ndarray, top_path: Path):
+        # determine the n
+        diags = np.stack([np.diag(score, k=-1) for score in scores], axis=0).T
+        fig, ax = plt.subplots(figsize=(12, 6))
+        sns.heatmap(diags, cmap='viridis', cbar_kws={'label': r'RRCS'}, xticklabels=1000, ax=ax)
+        ax.set_aspect('auto')
+        plt.xlabel('Frames', fontsize=16, weight='bold')
+        plt.ylabel('Residue Index', fontsize=16, weight='bold')
+        cbar = ax.collections[0].colorbar
+        cbar.ax.tick_params(labelsize=14)
+        cbar.ax.set_ylabel('RRCS', fontsize=16, weight='bold')
+        save_show(str(top_path.parent / f'{top_path.stem}_RRCS_vs_Frame.png'), 600, show=False)
+        plt.close()
+        
+    @staticmethod
+    def plot_lines(scores: np.ndarray, top_path: Path, ag_gro: AtomGroup):
+        def _set_vertical_title(ax, text, pos):
+            """设置垂直Y轴标题的辅助函数"""
+            t = ax.yaxis.set_label_coords(*pos)
+            ax.set_ylabel(text, 
+                        rotation=90,
+                        labelpad=25,
+                        fontsize=16,
+                        verticalalignment='center',
+                        fontweight='bold')
+        n_frames, N, _ = scores.shape
+        
+        # 创建3行1列的竖向布局，设置高度比例和画布尺寸
+        fig = plt.figure(figsize=(9, 8))
+        gs = gridspec.GridSpec(3, 1, figure=fig, height_ratios=[1, 1, 1], hspace=0)
+        
+        # 预定义颜色循环
+        colors = plt.cm.tab20(np.linspace(0, 1, 10))
+        
+        # 公共参数设置
+        plot_params = {
+            'linewidth': 2.5,
+            'alpha': 0.7,
+        }
+        style_params = {
+            'xlabel': 'Time (ns)',
+            'ylabel_pos': (-0.12, 0.5),  # Y轴标题位置参数
+            'smooth_window': 100
+        }
+
+        # 第一个子图：全时段均值最大的top10
+        ax1 = plt.subplot(gs[0])
+        flat_full_mean = np.mean(scores, axis=0).ravel()
+        top_indices = np.argpartition(flat_full_mean, -10)[-10:]
+        i1, j1 = np.unravel_index(top_indices, (N, N))
+        labels1 = [f'{ag_gro.residues.resnames[i]}{i}-{ag_gro.residues.resnames[j]}{j}' 
+                for i, j in zip(i1, j1)]
+        data1 = vectorized_sliding_average(scores[:, i1, j1], style_params['smooth_window'])
+        for idx in range(10):
+            ax1.plot(data1[:, idx], color=colors[idx], **plot_params)
+        _set_vertical_title(ax1, "Top Average Contacts", style_params['ylabel_pos'])
+        
+        # 第二个子图：差异最大的top10（后增前减）
+        ax2 = plt.subplot(gs[1], sharex=ax1)
+        front_mean = np.mean(scores[:max(1, int(n_frames*0.25))], axis=0)
+        back_mean = np.mean(scores[-max(1, int(n_frames*0.25)):], axis=0)
+        diff = back_mean - front_mean
+        top_diff_indices = np.argpartition(diff.ravel(), -10)[-10:]
+        i2, j2 = np.unravel_index(top_diff_indices, (N, N))
+        labels2 = [f'{ag_gro.residues.resnames[i]}{i}-{ag_gro.residues.resnames[j]}{j}' 
+                for i, j in zip(i2, j2)]
+        data2 = vectorized_sliding_average(scores[:, i2, j2], style_params['smooth_window'])
+        for idx in range(10):
+            ax2.plot(data2[:, idx], color=colors[idx], **plot_params)
+        _set_vertical_title(ax2, "Increasing Contacts", style_params['ylabel_pos'])
+        
+        # 第三个子图：差异最大的top10（前增后减）
+        ax3 = plt.subplot(gs[2], sharex=ax1)
+        diff = front_mean - back_mean
+        top_dec_indices = np.argpartition(diff.ravel(), -10)[-10:]
+        i3, j3 = np.unravel_index(top_dec_indices, (N, N))
+        labels3 = [f'{ag_gro.residues.resnames[i]}{i}-{ag_gro.residues.resnames[j]}{j}' 
+                for i, j in zip(i3, j3)]
+        data3 = vectorized_sliding_average(scores[:, i3, j3], style_params['smooth_window'])
+        for idx in range(10):
+            ax3.plot(data3[:, idx], color=colors[idx], **plot_params)
+        _set_vertical_title(ax3, "Decreasing Contacts", style_params['ylabel_pos'])
+
+        # 设置图例和XY轴范围
+        max_val = max(np.max(data1), np.max(data2), np.max(data3))
+        for ax, labels, top_info in zip([ax1, ax2, ax3], [labels1, labels2, labels3],
+                                        ['Top 10 Average', 'Top 10 Increasing', 'Top 10 Decreasing']):
+            ax.set_xlim((0, n_frames))
+            ax.set_ylim((-5, max_val+5))
+            leg = ax.legend(labels, title=f'{top_info} Residue Pairs', title_fontsize=16,
+                            loc='center left', bbox_to_anchor=(1.02, 0.5), fontsize=14,
+                            frameon=False, labelspacing=0.1, ncol=1)
+            leg._legend_box.align = "left"
+            for text, color in zip(leg.get_texts(), colors):
+                text.set_color(color)
+        
+        # 调整坐标轴显示
+        plt.setp(ax1.get_xticklabels(), visible=False)
+        plt.setp(ax2.get_xticklabels(), visible=False)
+        ax3.set_xlabel(style_params['xlabel'], fontsize=16, weight='bold')
+        ax3.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x/100:.0f}'))
+        
+        # 统一设置坐标轴样式
+        for ax in [ax1, ax2, ax3]:
+            ax.tick_params(axis='both', which='major', labelsize=14)
+            ax.grid(True, linestyle='--', alpha=0.6)
+        
+        # 优化布局并保存
+        plt.tight_layout(rect=[0, 0, 0.85, 1])  # 为图例留出右侧空间
+        save_show(str(top_path.parent / f'{top_path.stem}_RRCS_vertical.png'), 600, show=False)
+        plt.close()
+
     def main_process(self):
         self.top_paths, self.traj_paths = self.check_top_traj()
         self.tasks = self.find_tasks()
@@ -745,13 +875,16 @@ class RRCS(mmpbsa):
                 continue
             # load pdbstr from traj
             u = Universe(str(top_path), traj_path)
+            u_gro = Universe(str(top_path.parent / self.args.gro_name))
             if self.args.chains is not None and len(self.args.chains):
                 idx = u.atoms.chainIDs == self.args.chains[0]
                 for chain_i in self.args.chains[1:]:
                     idx = idx | (u.atoms.chainIDs == chain_i)
                 ag = u.atoms[idx]
+                ag_gro = u_gro.atoms[idx]
             else:
                 ag = u.atoms
+                ag_gro = u_gro.atoms
             print(f'find {np.unique(u.atoms.chainIDs)} chains, {len(ag)} atoms in {self.args.chains}')
             # calcu interaction for each frame
             sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
@@ -774,22 +907,10 @@ class RRCS(mmpbsa):
             np.savez_compressed(str(top_path.parent / f'{top_path.stem}_RRCS.npz'),
                                 scores=scores, frames=np.array(frames), resis=ag.resids,
                                 resns=ag.resnames, chains=ag.chainIDs)
-            # plot matrix figure
-            plt.imshow(scores.mean(axis=0), cmap='viridis')
-            plt.xlabel('Residue Index')
-            plt.ylabel('Residue Index')
-            plt.colorbar(label=r'Average RRCS')
-            save_show(str(top_path.parent / f'{top_path.stem}_RRCS.png'), 600, show=False)
-            plt.close()
-            # plot diag vs frames
-            diags = np.stack([np.diag(score, k=-1) for score in scores], axis=0).T
-            fig, ax = plt.subplots(figsize=(12, 6))
-            sns.heatmap(diags, cmap='viridis', cbar_kws={'label': r'RRCS'}, xticklabels=1000, ax=ax)
-            ax.set_aspect('auto')
-            plt.xlabel('Frames')
-            plt.ylabel('Residue Index')
-            save_show(str(top_path.parent / f'{top_path.stem}_RRCS_vs_Frame.png'), 600, show=False)
-            plt.close()
+            # plot
+            self.plot_average_heatmap(scores, top_path)
+            self.plot_diag_vs_frame(scores, top_path)
+            self.plot_lines(scores, top_path, ag_gro)
             # other things
             pool.task = {}
             bar.update(1)
