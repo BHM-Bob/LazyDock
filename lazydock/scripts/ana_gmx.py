@@ -645,8 +645,6 @@ class interaction(simple_analysis, mmpbsa):
             for i, time_u in tqdm(enumerate(times), desc='Gathering interactions', total=len(times)):
                 for time_i in time_u:
                     lst = [single_v for v in interactions[time_i].values() if v for single_v in v if single_v]
-                    if not lst:
-                        plot_df.loc[i, :] = np.nan
                     for single_inter in lst:
                         receptor_res = f'{single_inter[0][1]}{single_inter[0][0]}'
                         if i not in plot_df.index or receptor_res not in plot_df.columns:
@@ -655,6 +653,8 @@ class interaction(simple_analysis, mmpbsa):
                             plot_df.loc[i, receptor_res] = 1
                         else:
                             plot_df.loc[i, receptor_res] += 1
+                if i not in plot_df.index:
+                    plot_df.loc[i, :] = np.nan
                 plot_df.loc[i, :] /= len(time_u)
             # filter plot df by (max, mean) inter value
             if self.args.max_plot is not None and len(plot_df.columns) > self.args.max_plot:
