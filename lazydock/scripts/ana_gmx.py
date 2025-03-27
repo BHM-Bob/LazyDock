@@ -167,7 +167,7 @@ class simple(trjconv):
                           help='DIT.mplstyle style file path, default is %(default)s.')
         args.add_argument('-rg', '--rms-group', type = str, default='4',
                           help='group to calculate rmsd, rmsf, and gyrate, default is %(default)s.')
-        args.add_argument('-hg', '--hbond-group', type = str, default='1',
+        args.add_argument('-hg', '--hbond-group', type = int, nargs='+', default=[1, 1],
                           help='group to calculate hbond, default is %(default)s.')
         args.add_argument('-sg', '--sasa-group', type = str, default='4',
                           help='group to calculate sasa, default is %(default)s.')
@@ -231,7 +231,7 @@ class simple(trjconv):
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f gyrate.xvg -o gyrate.png -smv -ws 10 -t "Gyrate of {main_name}" -csv {main_name}_gyrate.csv -ns')
         
     @staticmethod
-    def hbond(gmx: Gromacs, main_name: str, index: str = None, group: str = '1', dt=10, force: bool = False, delete: bool = False, **kwargs):
+    def hbond(gmx: Gromacs, main_name: str, index: str = None, group: Tuple[int, int] = (1, 1), dt=10, force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_hbond_num.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_hbond_dist.xvg').unlink(missing_ok=True)
@@ -243,8 +243,8 @@ class simple(trjconv):
                 return put_log(f'{main_name}_hbond_num.csv already exists, skip.')
         gmx.run_gmx_with_expect('hbond', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
                                     num=f'{main_name}_hbond_num.xvg', dist=f'{main_name}_hbond_dist.xvg', n=index,
-                                    expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
-                                                    {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
+                                    expect_actions=[{'Select a group:': f'{group[0]}\r', '\\timeout': f'{group[0]}\r'},
+                                                    {'Select a group:': f'{group[1]}\r', '\\timeout': f'{group[1]}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_hbond_num.xvg -o hbond_num.png -smv -ws 10 -t "H-bond num of {main_name}" -csv {main_name}_hbond_num.csv -ns')
         gmx.run_cmd_with_expect(f'dit xvg_show -f {main_name}_hbond_dist.xvg -o hbond_dist.png -ns')
