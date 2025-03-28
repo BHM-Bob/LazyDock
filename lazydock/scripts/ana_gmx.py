@@ -157,8 +157,8 @@ class simple(trjconv):
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
-        args.add_argument('-n', '--main-name', type = str,
-                          help='main name in each sub-directory, such as md.tpr.')
+        args.add_argument('-n', '--main-name', type = str, default='md.tpr',
+                          help='main name in each sub-directory, default is %(default)s.')
         args.add_argument('-ndx', '--index', type=str, default=None,
                           help='index file name in each sub-directory, such as ana_index.ndx, default is %(default)s.')
         args.add_argument('--methods', type = str, nargs='+', default=simple.SUPPORT_METHODS, choices=simple.SUPPORT_METHODS,
@@ -173,7 +173,7 @@ class simple(trjconv):
                           help='group to calculate sasa, default is %(default)s.')
         args.add_argument('-eg', '--eigenval-group', type = str, default='4',
                           help='group to calculate eigenval, default is %(default)s.')
-        args.add_argument('-dg', '--dssp-group', type = str, default=None,
+        args.add_argument('-dg', '--dssp-group', type = str, default='1',
                           help='group to calculate DSSP, default is %(default)s.')
         args.add_argument('--dssp-num', action='store_true', default=False,
                           help='wheter to calculate DSSP number, default is %(default)s.')
@@ -422,10 +422,10 @@ class mmpbsa(simple):
                               help=f"gmx_MMPBSA output file name, such as MMPBSA_FINAL_RESULTS")
             args.add_argument('-np', '--np', type = int, required=True,
                               help=f"npi np argument for gmx_MMPBSA")
-        args.add_argument('-top', '--top-name', type = str, required=True,
-                          help=f"topology file name in each sub-folder.")
-        args.add_argument('-traj', '--traj-name', type = str, required=True,
-                          help=f"trajectory file name in each sub-folder.")
+        args.add_argument('-top', '--top-name', type = str, default='md.tpr',
+                          help="topology file name in each sub-folder, default is %(default)s.")
+        args.add_argument('-traj', '--traj-name', type = str, default='md_center.xtc',
+                          help="trajectory file name in each sub-folder, default is %(default)s.")
         args.add_argument('--receptor-chain-name', type = str, required=True,
                           help='receptor chain name, such as "A".')
         args.add_argument('--ligand-chain-name', type = str, required=True,
@@ -512,7 +512,7 @@ class interaction(simple_analysis, mmpbsa):
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         mmpbsa.make_args(args, mmpbsa_args=False)
-        args.add_argument('-gro', '--gro-name', type = str, required=True,
+        args.add_argument('-gro', '--gro-name', type = str, default='md.gro',
                           help=f"gro file name in each sub-folder.")
         args.add_argument('--alter-receptor-chain', type = str, default=None,
                           help='alter receptor chain name from topology to user-define, such as "A".')
@@ -713,13 +713,13 @@ class RRCS(mmpbsa):
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
-                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
-        args.add_argument('-top', '--top-name', type = str, required=True,
-                          help=f"topology file name in each sub-folder.")
-        args.add_argument('-gro', '--gro-name', type = str, required=True,
-                          help=f"gro file name in each sub-folder.")
-        args.add_argument('-traj', '--traj-name', type = str, required=True,
-                          help=f"trajectory file name in each sub-folder.")
+                          help="dir which contains many sub-folders, each sub-folder contains docking result files.")
+        args.add_argument('-top', '--top-name', type = str, default='md.tpr',
+                          help="topology file name in each sub-folder, default is %(default)s.")
+        args.add_argument('-gro', '--gro-name', type = str, default='md.gro',
+                          help="gro file name in each sub-folder, default is %(default)s.")
+        args.add_argument('-traj', '--traj-name', type = str, default='md_center.xtc',
+                          help="trajectory file name in each sub-folder, default is %(default)s.")
         args.add_argument('-c', '--chains', type = str, default=None, nargs='+',
                           help='chain of molecular to be included into calculation. Default is %(default)s.')
         args.add_argument('-np', '--n-workers', type=int, default=4,
@@ -956,10 +956,10 @@ class porcupine(mmpbsa):
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
-        args.add_argument('-top', '--top-name', type = str, required=True,
-                          help=f"topology file name in each sub-folder.")
-        args.add_argument('-traj', '--traj-name', type = str, required=True,
-                          help=f"trajectory file name in each sub-folder.")
+        args.add_argument('-top', '--top-name', type = str, default='md.tpr',
+                          help="topology file name in each sub-folder, default is %(default)s.")
+        args.add_argument('-traj', '--traj-name', type = str, default='md_center.xtc',
+                          help="trajectory file name in each sub-folder, default is %(default)s.")
         args.add_argument('-b', '--begin-frame', type=int, default=0,
                           help='First frame to start the analysis. Default is %(default)s.')
         args.add_argument('-e', '--end-frame', type=int, default=None,
