@@ -684,7 +684,7 @@ class interaction(simple_analysis, mmpbsa):
             # other things
             pool.clear()
             bar.update(1)
-        pool.close()
+        pool.close(timeout=1)
 
 
 def _calcu_RRCS(resis: np.ndarray, names: np.ndarray, positions: np.ndarray,
