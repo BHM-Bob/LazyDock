@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-05-06 17:19:11
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2025-02-09 14:51:49
+ * @LastEditTime: 2025-03-30 20:33:48
  * @Description: 
 -->
 
@@ -49,7 +49,7 @@
 pip install lazydock -U
 ```
 #### Details
-- [install docs](docs/install.md)
+- [How to install](docs/install.md)
 
 ## Docs
 - [read the docs: lazydock.rtfd.io](https://lazydock.rtfd.io)
