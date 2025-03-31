@@ -1,17 +1,21 @@
 '''
 Date: 2025-02-05 14:26:31
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-19 17:03:06
+LastEditTime: 2025-03-31 19:27:24
 Description: 
 '''
-from typing import Dict
 import warnings
+from typing import Dict
+
 import MDAnalysis
-from MDAnalysis.coordinates.PDB import PDBWriter
-from MDAnalysis.lib import util
-from MDAnalysis.exceptions import NoDataError
-from mbapy_lite.base import put_err
 import numpy as np
+from mbapy_lite.base import put_err
+from mbapy_lite.web_utils.task import TaskPool
+from MDAnalysis import AtomGroup, Universe
+from MDAnalysis.coordinates.base import IOBase
+from MDAnalysis.coordinates.PDB import PDBWriter
+from MDAnalysis.exceptions import NoDataError
+from MDAnalysis.lib import util
 
 
 class FakeIOWriter:
@@ -22,170 +26,132 @@ class FakeIOWriter:
         self.str_lst.append(content)
 
 
-class PDBConverter(PDBWriter):
-    """
-    Convert an MDAnalysis AtomGroup to a PDB string.
-    """
+class FakeAtomGroup(PDBWriter):
     def __init__(self, ag: MDAnalysis.AtomGroup, reindex: bool = False):
-        """
-        Parameters
-        ----------
-        ag : MDAnalysis.core.groups.AtomGroup
-            The AtomGroup to convert.
-        reindex : bool, optional
-            Whether to reindex the AtomGroup, by default False
-        """
-        self.obj = ag
-        self.convert_units = True
-        self._multiframe = self.multiframe
-        self.bonds = "conect"
+        # 保留原有属性提取
+        self.positions = self.convert_pos_to_native(ag.positions.copy(), inplace=False)
+        
+        # 预提取所有必要属性（固定长度字符串类型）
+        self.resnames = self._get_attr(ag, 'resnames', 'UNK', 'U4')
+        self.chainIDs = self._process_chainIDs(ag)
+        self.resids = self._get_attr(ag, 'resids', 1, int)
+        self.names = self._get_attr(ag, 'names', 'X', 'U4')
+        self.elements = self._get_attr(ag, 'elements', '', 'U2')
+        self.altLocs = self._get_attr(ag, 'altLocs', ' ', 'U1')
+        self.occupancies = self._get_attr(ag, 'occupancies', 1.0, float)
+        self.tempfactors = self._get_attr(ag, 'tempfactors', 0.0, float)
+        self.segids = self._get_attr(ag, 'segids', ' ', 'U4')
+        self.charges = self._get_attr(ag, 'formalcharges', 0, int)
+        self.icodes = self._get_attr(ag, 'icodes', ' ', 'U1')
+        
+        # 处理序列号（向量化操作）
+        self.ids = self._process_ids(ag, reindex)
+
+    def _get_attr(self, ag, attr, default, dtype):
+        """统一属性获取方法"""
+        if hasattr(ag, attr):
+            arr = getattr(ag, attr)
+            return arr.astype(dtype) if dtype else arr.copy()
+        return np.full(len(ag), default, dtype=dtype)
+
+    def _process_chainIDs(self, ag):
+        """完整保留原始chainID以便替换操作"""
+        if hasattr(ag, 'chainIDs'):
+            # 存储原始chainID（最多4字符）
+            return ag.chainIDs.astype('U4')
+        return np.full(len(ag), 'X', dtype='U4')
+
+    def _process_ids(self, ag, reindex):
+        """处理原子序列号"""
+        if reindex or not hasattr(ag, 'ids'):
+            return np.arange(1, len(ag)+1, dtype=np.int32)
+        return ag.ids.astype(np.int32)
+
+
+class PDBConverter(PDBWriter):
+    def __init__(self, ag: MDAnalysis.AtomGroup, reindex: bool = False):
+        # 增加类型检查和多进程支持
+        if not isinstance(ag, FakeAtomGroup):
+            ag = FakeAtomGroup(ag, reindex)
+        self.fake_ag = ag
+        
+        # 保持父类初始化参数
+        self.convert_units = False
         self._reindex = reindex
-        
-        self.start = self.frames_written = 0
-        self.step = 1
-        self.remarks = '"Created by MDAnalysis.coordinates.PDB.PDBWriter"'
-        
         self.pdbfile = FakeIOWriter()
-        self.has_END = False
-        self.first_frame_done = False
+
+        # 初始化计数器
+        self.frames_written = 0
+
+    def check_charges(self, fag: FakeAtomGroup):
+        """检查电荷值是否合法并格式化为字符串"""
+        charges = np.full(len(fag.charges), '', dtype='U3')
+        pos_mask = fag.charges > 0
+        neg_mask = fag.charges < 0
+        # 异常检查（向量化）
+        if np.any(fag.charges > 9) or np.any(fag.charges < -9):
+            invalid_charges = np.unique(fag.charges[(fag.charges > 9) | (fag.charges < -9)])
+            raise ValueError(f"Invalid formal charges: {invalid_charges}")
+        # 向量化字符串生成
+        charges[pos_mask] = np.char.add(
+            fag.charges[pos_mask].astype('U1'), 
+            np.full(pos_mask.sum(), '+', dtype='U1')
+        )
+        charges[neg_mask] = np.char.add(
+            (-fag.charges[neg_mask]).astype('U1'), 
+            np.full(neg_mask.sum(), '-', dtype='U1')
+        )
+        return charges
+
+    def _write_single_timestep_fast(self, alter_chain=None, alter_res=None, alter_atm=None):
+        # 批量替换函数
+        def batch_replace(arr, mapping):
+            if mapping:
+                for k, v in mapping.items():
+                    arr[arr == k] = v
+            return arr
+
+        # 获取预处理数据
+        fag = self.fake_ag
+        resnames = batch_replace(fag.resnames.copy(), alter_res or {})
+        chainIDs = batch_replace(fag.chainIDs.copy(), alter_chain or {})
+        # 在写入前截断为1个字符（符合PDB规范）
+        chainIDs = np.array([c[:1] for c in chainIDs], dtype='U1')
         
-    def convert(self):
-        """
-        Convert the AtomGroup to a PDB string.
-        Returns
-        -------
-        str
-            The PDB string.
-        """
-        self._update_frame(self.obj)
-        self._write_pdb_header()
-        try:
-            ts = self.ts
-        except AttributeError:
-            return put_err("no coordinate data to write to trajectory file, return None")
-        self._check_pdb_coordinates()
-        self._write_timestep(ts)
-        return ''.join(self.pdbfile.str_lst)
-    
-    def _write_single_timestep_fast(self, alter_chain: Dict[str,str] = None,
-                                    alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None):
-        alter_chain = alter_chain or {}
-        alter_res = alter_res or {}
-        alter_atm = alter_atm or {}
-        atoms = self.obj.atoms
-        pos = atoms.positions
-        if self.convert_units:
-            pos = self.convert_pos_to_native(pos, inplace=False)
+        # 生成记录类型
+        record_types = np.full_like(chainIDs, 'ATOM', dtype='U6')
+        if alter_atm:
+            for chain, rec_type in alter_atm.items():
+                record_types[chainIDs == chain] = rec_type
 
-        # Make zero assumptions on what information the AtomGroup has!
-        # theoretically we could get passed only indices!
-        def get_attr(attrname, default, dtype=None):
-            """Try and pull info off atoms, else fake it
-
-            attrname - the field to pull of AtomGroup (plural!)
-            default - default value in case attrname not found
-            """
-            try:
-                return getattr(atoms, attrname)
-            except AttributeError:
-                if self.frames_written == 0:
-                    warnings.warn("Found no information for attr: '{}'"
-                                  " Using default value of '{}'"
-                                  "".format(attrname, default))
-                return np.array([default] * len(atoms), dtype=dtype)
-        altlocs = get_attr('altLocs', ' ')
-        resnames = get_attr('resnames', 'UNK')
-        icodes = get_attr('icodes', ' ')
-        segids = get_attr('segids', ' ')
-        chainids = get_attr('chainIDs', '')
-        resids = get_attr('resids', 1)
-        occupancies = get_attr('occupancies', 1.0)
-        tempfactors = get_attr('tempfactors', 0.0)
-        atomnames = get_attr('names', 'X')
-        elements = get_attr('elements', ' ')
-        record_types = get_attr('record_types', 'ATOM', dtype=object)
-        # alter resnames and chainids if needed
-        for alter_attr, alter_dict in zip([resnames, chainids], [alter_res, alter_chain]):
-            for k, v in alter_dict.items():
-                alter_attr[alter_attr == k] = v
-        # alter recordtypes according to chain
-        for k, v in alter_atm.items():
-            record_types[chainids==k] = v
-        formal_charges = self._format_PDB_charges(get_attr('formalcharges', 0))
-
-        def validate_chainids(chainids, default):
-            """Validate each atom's chainID
-
-            chainids - np array of chainIDs
-            default - default value in case chainID is considered invalid
-            """
-            invalid_length_ids = False
-            invalid_char_ids = False
-            missing_ids = False
-
-            for (i, chainid) in enumerate(chainids):
-                if chainid == "":
-                    missing_ids = True
-                    chainids[i] = default
-                elif len(chainid) > 1:
-                    invalid_length_ids = True
-                    chainids[i] = default
-                elif not chainid.isalnum():
-                    invalid_char_ids = True
-                    chainids[i] = default
-
-            if invalid_length_ids:
-                warnings.warn("Found chainIDs with invalid length."
-                              " Corresponding atoms will use value of '{}'"
-                              "".format(default))
-            if invalid_char_ids:
-                warnings.warn("Found chainIDs using unnaccepted character."
-                              " Corresponding atoms will use value of '{}'"
-                              "".format(default))
-            if missing_ids:
-                warnings.warn("Found missing chainIDs."
-                              " Corresponding atoms will use value of '{}'"
-                              "".format(default))
-            return chainids
-
-        chainids = validate_chainids(chainids, "X")
-
-        # If reindex == False, we use the atom ids for the serial. We do not
-        # want to use a fallback here.
-        if not self._reindex:
-            try:
-                atom_ids = atoms.ids
-            except AttributeError:
-                raise NoDataError(
-                    'The "id" topology attribute is not set. '
-                    'Either set the attribute or use reindex=True.'
-                )
-        else:
-            atom_ids = np.arange(len(atoms)) + 1
-
-        for i in range(len(atoms)):
-            vals = {}
-            vals['serial'] = util.ltruncate_int(atom_ids[i], 5)  # check for overflow here?
-            vals['name'] = self._deduce_PDB_atom_name(atomnames[i], resnames[i])
-            vals['altLoc'] = altlocs[i][:1]
-            vals['resName'] = resnames[i][:4]
-            vals['resSeq'] = util.ltruncate_int(resids[i], 4)
-            vals['iCode'] = icodes[i][:1]
-            vals['pos'] = pos[i]  # don't take off atom so conversion works
-            vals['occupancy'] = occupancies[i]
-            vals['tempFactor'] = tempfactors[i]
-            vals['segID'] = segids[i][:4]
-            vals['chainID'] = chainids[i]
-            vals['element'] = elements[i][:2].upper()
-            vals['charge'] = formal_charges[i]
-
-            # record_type attribute, if exists, can be ATOM or HETATM
+        # 预生成格式化数据
+        serials = np.vectorize(util.ltruncate_int)(fag.ids, 5)
+        resSeqs = np.vectorize(util.ltruncate_int)(fag.resids, 4)
+        elements = np.char.upper(fag.elements)
+        charges = self.check_charges(fag)
+        
+        # 生成所有原子行
+        for i in range(len(fag.ids)):
+            vals = {
+                'serial': serials[i],
+                'name': self._deduce_PDB_atom_name(fag.names[i], resnames[i]),
+                'altLoc': fag.altLocs[i],
+                'resName': resnames[i][:4],
+                'chainID': chainIDs[i],
+                'resSeq': resSeqs[i],
+                'iCode': fag.icodes[i],
+                'pos': fag.positions[i],
+                'occupancy': fag.occupancies[i],
+                'tempFactor': fag.tempfactors[i],
+                'segID': fag.segids[i][:4],
+                'element': elements[i],
+                'charge': charges[i]
+            }
+            
             try:
                 self.pdbfile.write(self.fmt[record_types[i]].format(**vals))
             except KeyError:
-                errmsg = (f"Found {record_types[i]} for the record type, but "
-                          f"only allowed types are ATOM or HETATM")
-                raise ValueError(errmsg) from None
+                raise ValueError(f"Invalid record type: {record_types[i]}")
 
         self.frames_written += 1
     
@@ -203,7 +169,10 @@ class PDBConverter(PDBWriter):
         str
             The PDB string.
         """
-        self.ts = self.obj.universe.trajectory.ts
-        self.frames_written = 1
+        # self.ts = self.obj.universe.trajectory.ts
+        # self.frames_written = 1
         self._write_single_timestep_fast(alter_chain, alter_res, alter_atm)
         return ''.join(self.pdbfile.str_lst)
+    
+    def close(self):
+        pass
