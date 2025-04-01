@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-05 14:26:31
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-31 19:27:24
+LastEditTime: 2025-04-01 20:08:24
 Description: 
 '''
 import warnings
@@ -57,9 +57,9 @@ class FakeAtomGroup(PDBWriter):
     def _process_chainIDs(self, ag):
         """完整保留原始chainID以便替换操作"""
         if hasattr(ag, 'chainIDs'):
-            # 存储原始chainID（最多4字符）
-            return ag.chainIDs.astype('U4')
-        return np.full(len(ag), 'X', dtype='U4')
+            # 存储原始chainID（最多16字符）
+            return ag.chainIDs.astype('U16')
+        return np.full(len(ag), 'X', dtype='U16')
 
     def _process_ids(self, ag, reindex):
         """处理原子序列号"""
