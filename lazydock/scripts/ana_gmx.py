@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from lazydock.algorithm.utils import vectorized_sliding_average
-from lazydock.gmx.mda.convert import PDBConverter
+from lazydock.gmx.mda.convert import PDBConverter, FakeAtomGroup
 from lazydock.gmx.run import Gromacs
 from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
 from lazydock.pml.plip_interaction import check_support_mode, run_plip_analysis
@@ -487,10 +487,10 @@ class mmpbsa(simple):
             bar.update(1)
     
     
-def run_pdbstr_interaction_analysis(pdbstr: str, receptor_chain: str, ligand_chain: str,
+def run_pdbstr_interaction_analysis(fake_ag: FakeAtomGroup, receptor_chain: str, ligand_chain: str,
                                     method: str, mode: str, cutoff: float, hydrogen_atom_only: bool,
                                     alter_chain: Dict[str,str] = None, alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None):
-    pdbstr = pdbstr.fast_convert(alter_chain=alter_chain, alter_res=alter_res, alter_atm=alter_atm)
+    pdbstr = PDBConverter(fake_ag).fast_convert(alter_chain=alter_chain, alter_res=alter_res, alter_atm=alter_atm)
     if method == 'pymol':
         inter = calcu_pdbstr_interaction(f'chain {receptor_chain}', f'chain {ligand_chain}', pdbstr, mode, cutoff, hydrogen_atom_only)
     elif method == 'plip':
@@ -591,8 +591,8 @@ class interaction(simple_analysis, mmpbsa):
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
         for frame in tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
                         total=sum_frames//self.args.traj_step, desc='Calculating frames', leave=False):
-            pdbstr = PDBConverter(complex_ag)
-            pool.add_task(frame.time, run_pdbstr_interaction_analysis, pdbstr,
+            fake_ag = FakeAtomGroup(complex_ag)
+            pool.add_task(frame.time, run_pdbstr_interaction_analysis, fake_ag,
                         self.args.alter_receptor_chain, self.args.alter_ligand_chain,
                         self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only,
                         alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm)
