@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-14 16:31:17
+LastEditTime: 2025-04-03 09:47:33
 Description: 
 '''
 import argparse
@@ -144,7 +144,7 @@ class network(mmpbsa):
                 results = self.calcu_network(Path(top_path), Path(traj_path))
                 self.save_results(top_path, *results)
             bar.update(1)
-        self.pool.close()
+        self.pool.close(1)
         
         
 class correlation(network):
