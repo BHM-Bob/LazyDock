@@ -1,7 +1,7 @@
 '''
 Date: 2025-03-05 21:56:36
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-21 15:44:45
+LastEditTime: 2025-04-02 19:59:50
 Description: 
 '''
 import numpy as np
@@ -28,7 +28,7 @@ def get_aligned_coords(u: Universe, ag: AtomGroup, start: int, step: int, stop: 
         The AtomGroup to align.
     start, step, stop : int
         The start, step, and stop indices for the trajectory.
-    ref_coords : np.ndarray: [N, 3], optional, default=None
+    ref_coords : np.ndarray: [N, 3] or [1, N, 3], optional, default=None
         The reference coordinates array, if None, the first frame of the trajectory will be used.
     backend : str, optional, default="numpy"
         The backend to use for the alignment. Options are "numpy", "torch", "cuda"
@@ -59,6 +59,12 @@ def get_aligned_coords(u: Universe, ag: AtomGroup, start: int, step: int, stop: 
     # do center as MDAnalysis.align.AlignTraj._prepare, but coords[0] already centered
     if ref_coords is None:
         ref_coords = coords[0][None, :, :].copy() if backend == 'numpy' else coords[0][None, :, :].clone()
+    # check ref_coords's shape
+    if len(ref_coords.shape) == 2:
+        if ref_coords.shape[0] == coords.shape[1] and ref_coords.shape[1] == 3:
+            ref_coords = ref_coords[None, ]
+        else:
+            raise ValueError(f'Invalid ref_coords shape: {ref_coords.shape}')
     if backend == 'numpy':
         refs = np.repeat(ref_coords, coords.shape[0], axis=0)
     else:
