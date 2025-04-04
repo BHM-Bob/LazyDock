@@ -150,6 +150,8 @@ class elastic(mmpbsa):
             wdir = Path(wdir).resolve()
             self.analysis(u, wdir, self.args)
             bar.update(1)
+        if self.pool:
+            self.pool.close(1)
         bar.close()
 
 
