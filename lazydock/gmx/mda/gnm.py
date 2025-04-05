@@ -9,7 +9,29 @@ from mbapy_lite.base import put_err
 from MDAnalysis.core.groups import AtomGroup
 
 
-def generate_ordered_pairs(positions, cutoff):
+def svd_hermitian(matrix):
+    """calculate svd of a hermitian matrix with torch"""
+    import torch
+
+    # 特征分解
+    eigenvalues, Q = torch.linalg.eigh(matrix)
+    # 按绝对值降序排列
+    sorted_abs, indices = torch.sort(eigenvalues.abs(), descending=True)
+    indices = indices.to(eigenvalues.device)
+    eigenvalues_sorted = eigenvalues[indices]
+    Q_sorted = Q[:, indices]
+    # 构造左奇异矩阵
+    signs = torch.sign(eigenvalues_sorted)
+    U = Q_sorted * signs.reshape(1, -1)
+    # 奇异值
+    S = eigenvalues_sorted.abs()
+    # 右奇异矩阵的共轭转置
+    Vh = Q_sorted.conj().T
+    
+    return U, S, Vh
+
+
+def generate_ordered_pairs(positions: np.ndarray, cutoff: float, backend: str = 'numpy'):
     """
     Generate all ordered pairs of atoms within a cutoff distance using NumPy operations.
 
