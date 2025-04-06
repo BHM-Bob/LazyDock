@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-20 10:49:33
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-01 20:46:27
+LastEditTime: 2025-04-05 18:55:06
 Description: 
 '''
 import numpy as np
@@ -226,7 +226,8 @@ def batch_calc_rmsd_rotational_matrix(batch_ref, batch_conf, batch_rot=None, wei
     return batch_fast_calc_rmsd(batch_rot, A_flat, E0, batch_ref.shape[1], backend)
 
 
-def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=None, backend='numpy'):
+def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=None,
+           backend='numpy', return_rot: bool = False):
     """Perform an rmsd-fitting to determine rotation matrix and align atoms
 
     Parameters
@@ -241,6 +242,8 @@ def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=Non
             `mobile_coordinates`.
         backend : str (optional)
             The backend to use for calculations, default is 'numpy', supports 'numpy' and 'cuda'. Defaults to 'numpy'.
+        return_rot : bool (optional)
+            If True, return the rotation matrix [3, 3] as well. Defaults to False.
 
     Returns
         mobile_coords : ndarray: [n_atoms, 3]
@@ -266,10 +269,13 @@ def fit_to(mobile_coordinates, ref_coordinates, mobile_com, ref_com, weights=Non
         mobile_coordinates = mobile_coordinates.clone().detach() - mobile_com
     mobile_coordinates = _backend.matmul(mobile_coordinates, R.reshape(3, 3))
     mobile_coordinates += ref_com
+    if return_rot:
+        return mobile_coordinates, min_rmsd, R.reshape(3, 3)
     return mobile_coordinates, min_rmsd
 
 
-def batch_fit_to(batch_mobile_coordinates, batch_ref_coordinates, weights=None, backend: str = 'numpy'):
+def batch_fit_to(batch_mobile_coordinates, batch_ref_coordinates, weights=None,
+                 backend: str = 'numpy', return_rot: bool = False):
     """Perform an rmsd-fitting to determine rotation matrix and align atoms
 
     Parameters
@@ -282,6 +288,8 @@ def batch_fit_to(batch_mobile_coordinates, batch_ref_coordinates, weights=None, 
             `mobile_coordinates`.
         backend : str (optional)
             The backend to use for calculations, default is 'numpy', supports 'numpy' and 'cuda'. Defaults to 'numpy'.
+        return_rot : bool (optional)
+            If True, return the rotation matrix [n_frames, 3, 3] as well. Defaults to False.
 
     Returns
         mobile_coords : ndarray: [n_frames, n_atoms, 3]
@@ -310,6 +318,8 @@ def batch_fit_to(batch_mobile_coordinates, batch_ref_coordinates, weights=None, 
         batch_mobile_coordinates = batch_mobile_coordinates.clone().detach() - batch_mobile_com[:, None, :]
     batch_mobile_coordinates = _backend.matmul(batch_mobile_coordinates, R.reshape(batch_mobile_coordinates.shape[0], 3, 3))
     batch_mobile_coordinates += batch_ref_com[:, None, :]
+    if return_rot:
+        return batch_mobile_coordinates, min_rmsd, R.reshape(batch_mobile_coordinates.shape[0], 3, 3)
     return batch_mobile_coordinates, min_rmsd    
 
 
