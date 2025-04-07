@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-09 11:07:26
+LastEditTime: 2025-04-07 09:35:00
 Description: 
 '''
 import argparse
@@ -175,6 +175,8 @@ class simple_analysis(Command):
         return True
 
     def main_process(self):
+        # clear tasks for multi dir run
+        self.tasks = []
         # load origin dfs from data file
         if self.args.batch_dir:
             r_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb', '.pdbqt'], name_substr=self.args.receptor)
