@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-15 19:25:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-03 19:09:04
+LastEditTime: 2025-04-07 18:57:32
 Description: 
 '''
 import os
@@ -35,9 +35,9 @@ def open_vina_config_as_box(config_path: str, spacing: float = 1.0, linewidth: f
     center = {line.split('=')[0].strip(): float(line.split('=')[1].strip()) for line in map(get_line, ['center_x', 'center_y', 'center_z'])}
     size = {line.split('=')[0].strip(): float(line.split('=')[1].strip()) for line in map(get_line, ['size_x', 'size_y', 'size_z'])}
     print(f'center: {center}, size: {size}')
-    minz, miny, minz = [(center[f'center_{k}'] - size[f'size_{k}'] / 2) * spacing for k in ['x', 'y', 'z']]
+    minx, miny, minz = [(center[f'center_{k}'] - size[f'size_{k}'] / 2) * spacing for k in ['x', 'y', 'z']]
     maxz, maxy, maxz = [(center[f'center_{k}'] + size[f'size_{k}'] / 2) * spacing for k in ['x', 'y', 'z']]
-    draw_box(minz, miny, minz, maxz, maxy, maxz, linewidth=linewidth, r=r, g=g, b=b)
+    draw_box(minx, miny, minz, maxz, maxy, maxz, linewidth=linewidth, r=r, g=g, b=b)
     
 cmd.extend('open_vina_config_as_box', open_vina_config_as_box)
 
