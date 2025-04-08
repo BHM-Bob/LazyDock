@@ -141,6 +141,8 @@ class elastic(mmpbsa):
         self.top_paths, self.traj_paths = self.check_top_traj()
         self.tasks = self.find_tasks()
         print(f'find {len(self.tasks)} tasks.')
+        if self.__class__.__name__ == 'elastic':
+            self.pool = TaskPool('process', self.args.n_workers).start()
         # process each task
         bar = tqdm(total=len(self.tasks), desc='Calculating')
         for top_path, traj_path in self.tasks:
