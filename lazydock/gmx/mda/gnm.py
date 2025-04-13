@@ -47,22 +47,20 @@ def generate_ordered_pairs(positions: np.ndarray, cutoff: float, backend: str = 
     list of tuples
         Pairs of atom indices (i, j) where distance is less than cutoff
     """
-    positions = np.asarray(positions)
-    n_atoms = positions.shape[0]
-    
+    # determine backend
+    if backend == 'numpy':
+        _backend = np
+    else:
+        import torch as _backend
     # Compute pairwise squared distances using broadcasting
-    coords = positions
-    diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
-    distance_sq = np.sum(diff ** 2, axis=-1)
-    
-    # Create a mask for distances below cutoff squared, excluding self-pairs
+    diff = positions[:, None, :] - positions[None, :, :]
+    distance_sq = (diff ** 2).sum(-1)
+    # Create a mask for distances below cutoff squared
     mask = distance_sq < cutoff ** 2
-    np.fill_diagonal(mask, False)
-    
     # Extract the indices where the mask is True
-    i, j = np.where(mask)
-    
-    return list(zip(i, j))
+    i, j = _backend.where(mask)
+    return  _backend.concatenate([i[None, :], j[None, :]], 0).T
+
 
 def generate_valid_paris(positions, cutoff):
     positions = np.asarray(positions)
