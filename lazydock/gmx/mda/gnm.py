@@ -62,30 +62,22 @@ def generate_ordered_pairs(positions: np.ndarray, cutoff: float, backend: str = 
     return  _backend.concatenate([i[None, :], j[None, :]], 0).T
 
 
-def generate_valid_paris(positions, cutoff):
-    positions = np.asarray(positions)
+def generate_valid_paris(positions: np.ndarray, cutoff: float, backend: str = 'numpy'):
     cutoff_sq = cutoff ** 2
-
     # Generate all pairs from neighbour_generator
-    all_pairs = generate_ordered_pairs(positions, cutoff)
-    
-    if not all_pairs:
+    pairs = generate_ordered_pairs(positions, cutoff, backend)
+    if pairs.shape[0] == 0:
         return None
-    
-    pairs = np.array(all_pairs)
     i = pairs[:, 0]
     j = pairs[:, 1]
-
-    # Filter pairs where i < j to avoid duplicates
+    # Filter pairs where i < j to avoid duplicates and excluding self-pairs
     mask = j > i
     i_filtered = i[mask]
     j_filtered = j[mask]
-
     # Calculate squared distances using NumPy's vectorized operations
     a = positions[i_filtered]
     b = positions[j_filtered]
-    distance_squared = np.sum((a - b) ** 2, axis=1)
-
+    distance_squared = ((a - b) ** 2).sum(1)
     # Apply cutoff and get valid indices
     valid = distance_squared < cutoff_sq
     return i_filtered[valid], j_filtered[valid]
