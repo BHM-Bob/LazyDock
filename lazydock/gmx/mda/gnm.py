@@ -83,21 +83,31 @@ def generate_valid_paris(positions: np.ndarray, cutoff: float, backend: str = 'n
     return i_filtered[valid], j_filtered[valid]
     
 
-def generate_matrix(positions, cutoff):
+def generate_matrix(positions: np.ndarray, cutoff: float, backend: str = 'numpy'):
+    # determine backend
+    if backend == 'numpy':
+        _backend = np
+    else:
+        import torch as _backend
+    # compute pair index
     natoms = positions.shape[0]
-    valid_pair = generate_valid_paris(positions, cutoff)
+    valid_pair = generate_valid_paris(positions, cutoff, backend)
+    if backend == 'numpy':
+        matrix = np.zeros((natoms, natoms), dtype=np.float64)
+    else:
+        matrix = _backend.zeros((natoms, natoms), dtype=_backend.float64, device=positions.device)
     if valid_pair is None:
-        return np.zeros((natoms, natoms), dtype=np.float64)
+        return matrix
     i_filtered, j_filtered = valid_pair
     # Create matrix and set symmetric entries
-    matrix = np.zeros((natoms, natoms), dtype=np.float64)
     matrix[i_filtered, j_filtered] = -1.0
     matrix[j_filtered, i_filtered] = -1.0
-
     # Calculate diagonal entries as the count of neighbors
-    row_counts = np.sum(matrix < 0, axis=1)
-    np.fill_diagonal(matrix, row_counts)
-
+    row_counts = (matrix < 0).sum(1)
+    if backend == 'numpy':
+        np.fill_diagonal(matrix, row_counts)
+    else:
+        matrix = _backend.diagonal_scatter(matrix, row_counts.to(dtype=_backend.float64))
     return matrix
 
         
