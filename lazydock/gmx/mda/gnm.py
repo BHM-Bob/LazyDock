@@ -112,7 +112,7 @@ def generate_matrix(positions: np.ndarray, cutoff: float, backend: str = 'numpy'
 
         
 def calcu_GNMAnalysis(positions: np.ndarray, cutoff: float = 7,
-                      gen_matrix_fn = None, **kwargs):
+                      gen_matrix_fn = None, backend: str = 'numpy', **kwargs):
     """Generate the Kirchhoff matrix of contacts.
 
     This generates the neighbour matrix by generating a grid of
@@ -124,14 +124,30 @@ def calcu_GNMAnalysis(positions: np.ndarray, cutoff: float = 7,
         eigenvectors
         eigenvalues
     """
+    # determine backend
+    if backend == 'numpy':
+        _backend = np
+    else:
+        import torch as _backend
+    # calculate matrix
     gen_matrix_fn = gen_matrix_fn or generate_matrix
-    matrix = gen_matrix_fn(positions, cutoff, **kwargs)
+    matrix = gen_matrix_fn(positions, cutoff, backend=backend, **kwargs)
+    # calculate eigenvectors and eigenvalues
     try:
-        _, w, v = np.linalg.svd(matrix)
-    except np.linalg.LinAlgError:
-        return put_err(f"SVD with cutoff {cutoff} failed to converge, return None")
-    list_map = np.argsort(w)
-    return w[list_map[1]], v[list_map[1]]
+        if backend == 'numpy':
+            _, w, v = np.linalg.svd(matrix, hermitian=True)
+        else:
+            _, w, v = svd_hermitian(matrix)
+    except Exception as e:
+        return put_err(f"SVD with cutoff {cutoff} failed to converge: {e}, return None")
+    list_map = _backend.argsort(w)
+    if backend == 'numpy':
+        w = w[list_map[1]]
+        v = v[list_map[1]]
+    else:
+        w = w[list_map[1]].cpu().numpy()
+        v = v[list_map[1]].cpu().numpy()
+    return w, v
 
 
 def generate_close_matrix(positions: np.ndarray, cutoff,
