@@ -152,7 +152,7 @@ def calcu_GNMAnalysis(positions: np.ndarray, cutoff: float = 7,
 
 def generate_close_matrix(positions: np.ndarray, cutoff,
                           atom2residue: np.ndarray, residue_size: np.ndarray,
-                          n_residue: int, weights="size"):
+                          n_residue: int, weights="size", backend: str = 'numpy'):
     """Generate the Kirchhoff matrix of closeContactGNMAnalysis contacts.
 
     This generates the neighbour matrix by generating a grid of
@@ -164,51 +164,47 @@ def generate_close_matrix(positions: np.ndarray, cutoff,
     array
             the resulting Kirchhoff matrix
     """
+    # determine backend
+    if backend == 'numpy':
+        _backend = np
+    else:
+        import torch as _backend
     # Compute residue sizes
     if weights == 'size':
-        inv_sqrt_res_sizes = 1.0 / np.sqrt(residue_size)
+        inv_sqrt_res_sizes = 1.0 / _backend.sqrt(residue_size)
     else:
-        inv_sqrt_res_sizes = np.ones(n_residue, dtype=np.float64)
-
+        if backend == 'numpy':
+            inv_sqrt_res_sizes = np.ones(n_residue, dtype=np.float64)
+        else:
+            inv_sqrt_res_sizes = _backend.ones(n_residue, dtype=_backend.float64, device=positions.device)
+    if backend == 'numpy':
+        matrix = np.zeros((n_residue, n_residue), dtype=np.float64)
+    else:
+        matrix = _backend.zeros((n_residue, n_residue), dtype=_backend.float64, device=positions.device)
     # Generate all atom pairs within cutoff
     # Note: Using previous generate_ordered_pairs function (adjusted for pairs)
-    valid_pair = generate_valid_paris(positions, cutoff)
+    valid_pair = generate_valid_paris(positions, cutoff, backend)
     if valid_pair is None:
-        return np.zeros((n_residue, n_residue), dtype=np.float64)
+        return matrix
     i_filtered, j_filtered = valid_pair
-
     # Get valid residue indices
     iresidues = atom2residue[i_filtered]
     jresidues = atom2residue[j_filtered]
-
     # Compute contact values
     contact = inv_sqrt_res_sizes[iresidues] * inv_sqrt_res_sizes[jresidues]
-
-    # Initialize Kirkhoff matrix
-    matrix = np.zeros((n_residue, n_residue), dtype=np.float64)
-
-    # Update symmetric pairs
-    matrix[iresidues, jresidues] -= contact
-    matrix[jresidues, iresidues] -= contact
-    matrix[iresidues, iresidues] += contact
-    matrix[jresidues, jresidues] += contact
-
-    # # Update diagonal elements
-    # for res in range(n_residue):
-    #     diagonal_contacts = contact[(iresidues == res) | (jresidues == res)]
-    #     matrix[res, res] += np.sum(diagonal_contacts)
-    
-    # # Update diagonal elements using bincount
-    # # Combine iresidues and jresidues and concatenate the contact twice
-    # ire_jre_concat = np.concatenate((iresidues, jresidues))
-    # contact_concat = np.concatenate((contact, contact))
-
-    # # Compute the bincount for the combined residues
-    # bincounts = np.bincount(ire_jre_concat, weights=contact_concat, minlength=n_residue)
-
-    # # Add the bincounts to the diagonal of the matrix
-    # np.fill_diagonal(matrix, bincounts)
-
+    # calculate the Kirkhoff matrix
+    # because current index is res_idx from atom_idx, so it can be repeat for i or j
+    # thus need to use index add to accumulate the number of contacts for each residue pair
+    if backend == 'numpy':
+        np.add.at(matrix, (iresidues, jresidues), -contact)
+        np.add.at(matrix, (jresidues, iresidues), -contact)
+        np.add.at(matrix, (iresidues, iresidues), contact)
+        np.add.at(matrix, (jresidues, jresidues), contact)
+    else:
+        matrix.index_put_((iresidues, jresidues), -contact, accumulate=True)
+        matrix.index_put_((jresidues, iresidues), -contact, accumulate=True)
+        matrix.index_put_((iresidues, iresidues), contact, accumulate=True)
+        matrix.index_put_((jresidues, jresidues), contact, accumulate=True)
     return matrix
 
 
