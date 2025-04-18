@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-20 22:02:45
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-16 20:41:43
+LastEditTime: 2025-03-17 18:48:16
 Description: 
 '''
 import numpy as np
@@ -218,7 +218,8 @@ def genarate_atom2residue(atoms: AtomGroup):
 
 
 def calcu_closeContactGNMAnalysis(positions: np.ndarray, cutoff: float, atom2residue: np.ndarray,
-                                  residue_size: np.ndarray, n_residue: int, weights="size"):
+                                  residue_size: np.ndarray, n_residue: int, weights="size",
+                                  backend: str = 'numpy'):
     """Generate the Kirchhoff matrix of contacts.
 
     This generates the neighbour matrix by generating a grid of
@@ -230,6 +231,16 @@ def calcu_closeContactGNMAnalysis(positions: np.ndarray, cutoff: float, atom2res
         eigenvectors
         eigenvalues
     """
-    return calcu_GNMAnalysis(positions, cutoff, gen_matrix_fn=generate_close_matrix,
+    return calcu_GNMAnalysis(positions, cutoff, gen_matrix_fn=generate_close_matrix, backend=backend,
                              atom2residue=atom2residue, residue_size=residue_size,
                              n_residue=n_residue, weights=weights)
+
+
+if __name__ == '__main__':
+    # dev code
+    import torch
+    
+    coords = torch.randn(1000, 3).cuda()
+    # coords = np.random.randn(1000, 3)
+    for _ in range(5):
+        calcu_GNMAnalysis(coords, backend='cuda')
