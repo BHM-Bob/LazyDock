@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-16 19:38:48
+LastEditTime: 2025-04-03 09:48:43
 Description: 
 '''
 import argparse
@@ -68,12 +68,15 @@ class elastic(mmpbsa):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
+        self.pool: TaskPool = None
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         make_args(args)
         args.add_argument('-sele', '--select', type = str, default='protein and name CA',
                             help='selection for analysis.')
+        args.add_argument('-c', '--chains', type = str, nargs='+', default=None,
+                          help='chain of molecular to be included into calculation. Default is %(default)s.')
         args.add_argument('-close', '--close', action='store_true', default=False,
                             help='Using a Gaussian network model with only close contacts.')
         args.add_argument('-fast', '--fast', action='store_true', default=False,
@@ -82,36 +85,41 @@ class elastic(mmpbsa):
                             help='elastic network neighber cutoff, default is %(default)s.')
         args.add_argument('--backend', type = str, default='numpy', choices=['numpy', 'torch', 'cuda'],
                             help='calculation backend, default is %(default)s.')
-        args.add_argument('--block-size', type = int, default=100,
-                            help='calculation block size, default is %(default)s.')
-        args.add_argument('-np', '--n-workers', type=int, default=4,
+        args.add_argument('-nw', '--n-workers', type=int, default=4,
                           help='number of workers to parallel. Default is %(default)s.')
         return args
     
     def fast_calcu(self, u: mda.Universe, args: argparse.ArgumentParser):
         start, step, stop = args.begin_frame, args.traj_step, args.end_frame
-        pool = TaskPool('process', args.n_workers).start()
-        put_log(f'Calculating elastic network using lazydock.gmx.mda.gnm.calcu_{"closeContact" if args.close else ""}GNMAnalysis')
         ag, v, t = u.select_atoms(args.select), [], []
+        if args.chains is not None:
+            ag = filter_atoms_by_chains(ag, args.chains)
         sum_frames = (len(u.trajectory) if stop is None else stop) - start
         for frame in tqdm(u.trajectory[start:stop:step], total=sum_frames//step, desc='Calculating frames', leave=False):
             t.append(frame.time)
+            if args.backend in {'torch', 'cuda'}:
+                import torch
+                device = 'cuda' if args.backend == 'cuda' else 'cpu'
+                positions = torch.tensor(ag.positions, dtype=torch.float64, device=device)
+            else:
+                positions = ag.positions.copy()
             if args.close:
                 atom2res, res_size = genarate_atom2residue(ag)
-                pool.add_task(frame.time, calcu_closeContactGNMAnalysis,
-                              ag.positions.copy(), args.cutoff,
-                              atom2res, res_size, ag.n_residues, 'size')
+                if args.backend in {'torch', 'cuda'}:
+                    atom2res = torch.tensor(atom2res, dtype=torch.int64, device=device)
+                    res_size = torch.tensor(res_size, dtype=torch.float64, device=device)
+                self.pool.add_task(frame.time, calcu_closeContactGNMAnalysis,
+                                    positions, args.cutoff,
+                                    atom2res, res_size, ag.n_residues, 'size', backend=args.backend)
             else:
-                pool.add_task(frame.time, calcu_GNMAnalysis, ag.positions.copy(), args.cutoff)
-            pool.wait_till(lambda : pool.count_waiting_tasks() == 0, wait_each_loop=0.001, update_result_queue=False)
+                self.pool.add_task(frame.time, calcu_GNMAnalysis, positions, args.cutoff, backend=args.backend)
+            self.pool.wait_till(lambda : self.pool.count_waiting_tasks() == 0, wait_each_loop=0.001, update_result_queue=False)
         # gether results
         for t_i in t:
-            v.append(pool.query_task(t_i, True, 999)[0])
-        pool.close()
+            v.append(self.pool.query_task(t_i, True, 999)[0])
         return np.array(t), np.array(v)
     
     def calcu(self, u: mda.Universe, args: argparse.ArgumentParser):
-        put_log(f'Calculating elastic network using MDAnalysis.analysis.gnm.{"closeContact" if args.close else ""}GNMAnalysis')
         if args.close:
             nma = gnm.closeContactGNMAnalysis(u, select=args.select, cutoff=args.cutoff, weights='size')
         else:
