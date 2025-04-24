@@ -355,11 +355,13 @@ class simple(trjconv):
         plt.xlim(x.min() - 1, x.max() + 1)
         plt.ylim(y.min() - 1, y.max() + 1)
         # Set x and y labels
-        plt.xlabel('RMSD (in nm)')
-        plt.ylabel('Rg (in nm)')
+        plt.xlabel('RMSD (in nm)', fontsize=16, weight='bold')
+        plt.ylabel('Rg (in nm)', fontsize=16, weight='bold')
+        ax.tick_params(labelsize=14)
         # Adding the color bar
-        colbar = plt.colorbar(pdf)
-        colbar.set_label("Probability Density Function")
+        cbar = plt.colorbar(pdf)
+        cbar.set_label("Probability Density Function", fontsize=16, weight='bold')
+        cbar.ax.tick_params(labelsize=14)
         save_show(os.path.join(gmx.working_dir, f'{main_name}_PDF.png'), 600, show=False)
         plt.close(fig)
         
