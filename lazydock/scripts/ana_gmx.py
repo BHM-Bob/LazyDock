@@ -159,6 +159,8 @@ class simple(trjconv):
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-n', '--main-name', type = str, default='md.tpr',
                           help='main name in each sub-directory, default is %(default)s.')
+        args.add_argument('-t', '--main-type', type = str, nargs='+', default=[],
+                          help='main name in each sub-directory, default is %(default)s.')
         args.add_argument('-ndx', '--index', type=str, default=None,
                           help='index file name in each sub-directory, such as ana_index.ndx, default is %(default)s.')
         args.add_argument('--methods', type = str, nargs='+', default=simple.SUPPORT_METHODS, choices=simple.SUPPORT_METHODS,
@@ -367,7 +369,7 @@ class simple(trjconv):
         
     def main_process(self):
         # get complex paths
-        complexs_path = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.main_name)
+        complexs_path = get_paths_with_extension(self.args.batch_dir, self.args.main_type, name_substr=self.args.main_name)
         put_log(f'get {len(complexs_path)} task(s)')
         # process each complex
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
