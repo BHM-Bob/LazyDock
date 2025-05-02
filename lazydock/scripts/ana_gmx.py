@@ -325,10 +325,9 @@ class simple(trjconv):
             if not force:
                 return put_log(f'rmsd_gyrate.png already exists, skip.')
         gmx.run_cmd_with_expect(f'dit xvg_combine -f rmsd.xvg gyrate.xvg -c 0,1 1 -l RMSD Gyrate -o rmsd_gyrate.xvg -x "Time (ps)"')
-        gmx.run_gmx_with_expect(f'sham -f rmsd_gyrate.xvg -ls sham.xpm')
-        gmx.run_cmd_with_expect(f'dit xpm_show -f sham.xpm -m 3d --x_precision 1 --y_precision 1 --z_precision 1 -cmap jet --colorbar_location right -o rmsd_gyrate.png -ns')
+        gmx.run_gmx_with_expect(f'sham -f rmsd_gyrate.xvg -ls sham.xpm --ngrid 100')
+        gmx.run_cmd_with_expect(f'dit xpm_show -f sham.xpm --x_precision 2 --y_precision 2 -x "RMSD (nm)" -y "Rg (nm)" -cmap jet --colorbar_location right -ip gaussian -o rmsd_gyrate.png -ns')
         
-    
     @staticmethod
     def plot_PDF(gmx: Gromacs, main_name: str, force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_PDF.png')):
