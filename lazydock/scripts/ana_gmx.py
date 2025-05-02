@@ -376,6 +376,12 @@ class simple(trjconv):
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
             complex_path = Path(complex_path).resolve()
             gmx = Gromacs(working_dir=str(complex_path.parent))
+            main_name = complex_path.stem
+            if (complex_path.parent / f'{main_name}.tpr').exists() and (complex_path.parent / f'{main_name}_center.xtc').exists():
+                put_log(f'Perform analysis for {main_name}.tpr and {main_name}_center.xtc.')
+            else:
+                put_err(f'{main_name}.tpr or {main_name}_center.xtc not exists in {complex_path.parent}, skip.')
+                continue
             # copy DIT.mplstyle file to working directory
             if self.args.dit_style and os.path.exists(self.args.dit_style):
                 shutil.copy(self.args.dit_style, str(complex_path.parent))
