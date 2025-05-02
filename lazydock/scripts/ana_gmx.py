@@ -337,6 +337,8 @@ class simple(trjconv):
                 return put_log(f'{main_name}_PDF.png already exists, skip rms.')
         """idea from https://pymolwiki.org/index.php/Geo_Measures_Plugin"""
         # read data and calculate density
+        if not os.path.exists(f'{gmx.working_dir}/{main_name}_rmsd.csv') or not os.path.exists(f'{gmx.working_dir}/{main_name}_gyrate.csv'):
+            return put_log(f'{main_name}_rmsd.csv or {main_name}_gyrate.csv not exists, skip rms.')
         x = pd.read_csv(f'{gmx.working_dir}/{main_name}_rmsd.csv').values[:, -1]
         y = pd.read_csv(f'{gmx.working_dir}/{main_name}_gyrate.csv').values[:, -1]
         xy = np.vstack([x, y])
