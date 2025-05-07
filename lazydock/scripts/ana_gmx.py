@@ -643,6 +643,7 @@ class interaction(simple_analysis, mmpbsa):
                 interactions, df = self.calcu_interaction(str(top_path), gro_path, traj_path, pool)
                 if interactions is None:
                     put_log(f'no interaction found, skip.')
+                    bar.update(1)
                     continue
                 df.to_csv(csv_path, index=False)
                 opts_file(pkl_path, 'wb', way='pkl', data=interactions)
