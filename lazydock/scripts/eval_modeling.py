@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-16 15:32:10
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-16 17:51:35
+LastEditTime: 2025-05-16 10:52:39
 Description: 
 '''
 import argparse
@@ -76,7 +76,6 @@ def main(sys_args: List[str] = None):
         result_path = os.path.join(args.dir, f'{chain_alter_path}.pkl')
         if not args.disable_cache and os.path.exists(result_path):
             print(f'Skip {path}, result file exists: {result_path}.')
-            tasks.append(result_path)
             continue
         while taskpool.count_waiting_tasks() > 0:
             time.sleep(5)
@@ -89,8 +88,13 @@ def main(sys_args: List[str] = None):
     # gather results
     df = pd.DataFrame(columns=['path'])
     df.set_index(['path'], inplace=True)
-    for result_path, path in zip(tasks, paths):
+    for path in paths:
+        path = Path(path)
+        result_path = str(path.parent / f'{path.stem}_chain_alter{path.suffix}.pkl')
         data = opts_file(result_path, 'rb', way='pkl')
+        if data is None:
+            put_err(f'Failed to get result from {result_path}.')
+            continue
         for server, result in data.items():
             for name, value in result.items():
                 if is_jsonable(value):
