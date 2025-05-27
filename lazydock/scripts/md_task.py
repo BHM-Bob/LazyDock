@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-04-03 09:47:33
+LastEditTime: 2025-05-26 15:27:44
 Description: 
 '''
 import argparse
@@ -142,6 +142,9 @@ class network(mmpbsa):
                 put_log(f'{top_path.stem}_{self.result_suffix} already exists, skip.')
             else:
                 results = self.calcu_network(Path(top_path), Path(traj_path))
+                if results is None or results[0] is None:
+                    put_err(f'Error calculating network for {top_path.stem}')
+                    continue
                 self.save_results(top_path, *results)
             bar.update(1)
         self.pool.close(1)
