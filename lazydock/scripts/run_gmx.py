@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-07 10:21:44
+LastEditTime: 2025-05-26 10:33:37
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -45,13 +45,13 @@ class simple_protein(Command):
     if step 16 terminated, you can use gmx mdrun -s md.tpr -cpi md.cpt -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
     """
     def __init__(self, args, printf=print):
-        super().__init__(args, printf)
+        super().__init__(args, printf, ['batch_dir'])
         self.indexs = {}
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type=str,
-                          help='directory to store the prepared files')
+        args.add_argument('-d', '-bd', '--batch-dir', type=str, nargs='+', default=['.'],
+                          help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-n', '--protein-name', type = str,
                           help='protein name in each sub-directory, such as protein.gro.')
         args.add_argument('-st', '--start-time', type = str, default=None,
@@ -248,7 +248,7 @@ class simple_protein(Command):
 class simple_complex(simple_protein):
     HELP = simple_protein.HELP.replace('protein', 'complex')
     def __init__(self, args, printf=print):
-        super().__init__(args, printf)
+        super().__init__(args, printf, ['batch_dir'])
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
@@ -288,7 +288,7 @@ class simple_complex(simple_protein):
 class simple_ligand(simple_complex):
     HELP = simple_protein.HELP.replace('protein', 'ligand')
     def __init__(self, args, printf=print):
-        super().__init__(args, printf)
+        super().__init__(args, printf, ['batch_dir'])
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
