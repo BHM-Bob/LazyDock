@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-02 11:53:41
+LastEditTime: 2025-06-02 12:21:20
 Description: 
 '''
 import argparse
@@ -176,7 +176,7 @@ class rmsd(elastic):
         args.add_argument('-sele', '--select', type = str, default='protein and name CA',
                             help='selection for analysis.')
         args.add_argument('-f', '-fit', '--fit', action='store_true', default=False,
-                            help='Using pair-wise centering and comformation fitting before the RMSD, else use MDAnalysis.align to align mobile to the ref\'s first frame.')
+                            help='Using pair-wise centering and comformation fitting before the RMSD, else use batch_fit_to to align mobile to the ref\'s first frame.')
         args.add_argument('--backend', type = str, default='numpy', choices=['numpy', 'torch', 'cuda'],
                             help='calculation backend, default is %(default)s.')
         args.add_argument('--block-size', type = int, default=100,
