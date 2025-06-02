@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-04-03 09:48:43
+LastEditTime: 2025-06-02 11:53:41
 Description: 
 '''
 import argparse
@@ -413,6 +413,8 @@ class pca(elastic):
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         make_args(args)
+        args.add_argument('-c', '--chains', type = str, nargs='+', default=None,
+                          help='chain of molecular to be included into calculation. Default is %(default)s.')
         args.add_argument('-sele', '--select', type = str, default='backbone',
                             help='selection for analysis.')
         args.add_argument('--backend', type = str, default='numpy', choices=['numpy', 'torch', 'cuda'],
@@ -470,6 +472,8 @@ class pca(elastic):
             _backend = np
         # get aligned coords: [n_frames, n_atoms, 3]
         ag = u.select_atoms(args.select)
+        if args.chains is not None:
+            ag = filter_atoms_by_chains(ag, args.chains)
         ori_coords, coords = get_aligned_coords(u, ag, start, step, stop, backend=args.backend, verbose=True)
         # calculate correlation matrix
         ## Center the data
