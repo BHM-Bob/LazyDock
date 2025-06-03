@@ -53,6 +53,8 @@ class trjconv(Command):
                           help='pbc option for gmx trjconv, default is %(default)s.')
         args.add_argument('-ur', type=str, default='compact', choices=['rect', 'tric', 'compact'],
                           help='ur option for gmx trjconv, default is %(default)s.')
+        args.add_argument('-nw', '--n-workers', type=int, default=1,
+                          help='number of workers to parallel. Default is %(default)s.')
         args.add_argument('-F', '--force', default=False, action='store_true',
                           help='force to re-run the analysis, default is %(default)s.')
         args.add_argument('-D', '--delete', default=False, action='store_true',
@@ -61,29 +63,37 @@ class trjconv(Command):
     def process_args(self):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         
+    def run_gmx_cmd(self, working_dir, *args, **kwargs):
+        gmx = Gromacs(working_dir=working_dir)
+        gmx.run_gmx_with_expect(*args, **kwargs)
+        
     def main_process(self):
         # get complex paths
         complexs_path = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.main_name)
         put_log(f'get {len(complexs_path)} task(s)')
+        pool = TaskPool('threads', self.args.n_workers).start()
+        exp_acts = []
+        for g in self.args.groups:
+            exp_acts.append({'Select a group:': f'{g}\r', '\\timeout': f'{g}\r'})
         # process each complex
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
             complex_path = Path(complex_path).resolve()
-            gmx = Gromacs(working_dir=str(complex_path.parent))
             main_name = complex_path.stem
             # check trjconv result exists
-            if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_center.xtc')):
+            if (complex_path.parent / f'{main_name}_center.xtc').exists():
                 if self.args.delete:
-                    os.remove(os.path.join(gmx.working_dir, f'{main_name}_center.xtc'))
+                    os.remove(str(complex_path.parent / f'{main_name}_center.xtc'))
                     put_log(f'{main_name}_center.xtc deleted.')
                 elif not self.args.force:
                     put_log(f'{main_name}_center.xtc already exists, skip trjconv.')
                     continue
-            # perform trjconv
-            exp_acts = []
-            for g in self.args.groups:
-                exp_acts.append({'Select a group:': f'{g}\r', '\\timeout': f'{g}\r'})
-            gmx.run_gmx_with_expect('trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc', n=self.args.index,
-                                    pbc=self.args.pbc, ur=self.args.ur, center=True, expect_actions=exp_acts, expect_settings={'timeout': 10})
+            # perform trjconv, to avoid threads data conflict, just pass a nameless instance to pool
+            pool.add_task(str(complex_path), self.run_gmx_cmd, complex_path.parent,
+                          'trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc',
+                          n=self.args.index, pbc=self.args.pbc, ur=self.args.ur, center=True,
+                          expect_actions=exp_acts, expect_settings={'timeout': 10})
+            pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 1)
+        pool.close(1)
 
 
 class make_ndx(trjconv):
