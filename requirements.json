@@ -13,7 +13,7 @@
     [
         "compas",
         "md-davis",
-        "plip",
+        "plip>=2.4.0",
         "lazydock_md_task>=0.2.1"
     ]
 }
