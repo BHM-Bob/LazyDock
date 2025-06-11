@@ -17,7 +17,8 @@ from lazydock.gmx.thirdparty.cgenff_charmm2gmx import run_transform
 from lazydock.gmx.thirdparty.sort_mol2_bonds import sort_bonds
 from lazydock.pml.align_to_axis import align_pose_to_axis
 from lazydock.scripts._script_utils_ import Command, clean_path
-from lazydock.web.cgenff import get_login_browser, get_result_from_CGenFF
+from lazydock.web.cgenff import get_login_browser as _get_login_browser
+from lazydock.web.cgenff import get_result_from_CGenFF
 from mbapy_lite.base import Configs, put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from mbapy_lite.web import Browser, TaskPool, random_sleep
@@ -194,7 +195,7 @@ the program will use the ff-dir in sub-directory.')
         email, password = GlobalConfig.named_accounts['CGenFF']['email'], GlobalConfig.named_accounts['CGenFF']['password']
         if email is None or password is None:
             return put_err('CGenFF email or password not found in config file, skip.')
-        return get_login_browser(email, password, download_dir=download_dir)
+        return _get_login_browser(email, password, download_dir=download_dir)
 
     @staticmethod
     def get_str_from_CGenFF(mol2_path: str, zip_path: str, browser: Browser) -> Union[str, None]:
