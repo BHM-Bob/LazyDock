@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-16 20:28:30
+LastEditTime: 2025-06-11 16:12:18
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -141,6 +141,7 @@ class ligand(protein):
     """
     def __init__(self, args, printf = print):
         super().__init__(args, printf)
+        self.browser = None
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
@@ -200,7 +201,8 @@ the program will use the ff-dir in sub-directory.')
     @staticmethod
     def get_str_from_CGenFF(mol2_path: str, zip_path: str, browser: Browser) -> Union[str, None]:
         put_log(f'getting str file from CGenFF for {mol2_path}')
-        get_result_from_CGenFF(mol2_path, b=browser)
+        if browser is not None:
+            get_result_from_CGenFF(mol2_path, b=browser)
         download_path = Path(browser.download_path) / Path(mol2_path).with_suffix('.zip').name
         if download_path.exists():
             shutil.move(str(download_path), zip_path)
