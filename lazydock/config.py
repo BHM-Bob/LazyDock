@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-05 16:27:41
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2024-12-19 18:59:41
+LastEditTime: 2025-06-12 10:06:10
 Description: 
 '''
 import os
@@ -16,6 +16,7 @@ class Config(BaseInfo):
         super().__init__()
         self.named_paths = {
             'ligplus_dir': None,
+            'sobtop': None,
         }
         self.named_accounts = {
             'CGenFF': {
