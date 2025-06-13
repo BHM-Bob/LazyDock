@@ -60,24 +60,25 @@ class protein(Command):
         self.args.n_term = self.args.n_term.split(',')
         self.args.c_term = self.args.c_term.split(',')
         
-    def prepare_ff_dir(self, w_dir: Path):
-        if self.args.ff_dir is None:
+    @staticmethod
+    def prepare_ff_dir(w_dir: Path, ff_dir: str):
+        if ff_dir is None:
             return put_err('ff-dir is None, skip transform.')
-        if os.path.exists(self.args.ff_dir):
-            ff_dir = w_dir / Path(self.args.ff_dir).name
-            if not ff_dir.exists():
-                shutil.copytree(os.path.abspath(self.args.ff_dir), ff_dir, dirs_exist_ok=True)
-                put_log(f'copy {self.args.ff_dir} to {ff_dir}')
+        if os.path.exists(ff_dir):
+            _ff_dir = w_dir / Path(ff_dir).name
+            if not _ff_dir.exists():
+                shutil.copytree(os.path.abspath(ff_dir), _ff_dir, dirs_exist_ok=True)
+                put_log(f'copy {ff_dir} to {_ff_dir}')
             else:
-                put_log(f'ff-dir(repeat in sub-directory) already exists in {ff_dir}, skip.')
+                put_log(f'ff-dir(repeat in sub-directory) already exists in {_ff_dir}, skip.')
         ## if ff-dir already in each sub-directory, do not overwrite it.
-        elif os.path.exists(w_dir / self.args.ff_dir):
-            ff_dir = w_dir / self.args.ff_dir
-            put_log(f'ff-dir already exists in (sub directory) {ff_dir}, skip.')
+        elif os.path.exists(w_dir / ff_dir):
+            _ff_dir = w_dir / ff_dir
+            put_log(f'ff-dir already exists in (sub directory) {_ff_dir}, skip.')
         else:
-            ff_dir = None
-            put_err(f'cannot find ff_dir: {self.args.ff_dir} in {w_dir}, set ff_dir to None, skip.')
-        return ff_dir
+            _ff_dir = None
+            put_err(f'cannot find ff_dir: {ff_dir} in {w_dir}, set ff_dir to None, skip.')
+        return _ff_dir
         
     def main_process(self):
         # get protein paths
