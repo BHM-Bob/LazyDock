@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-05-26 10:33:37
+LastEditTime: 2025-06-13 17:31:45
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
 from lazydock.gmx.run import Gromacs
-from lazydock.scripts._script_utils_ import Command, clean_path
+from lazydock.scripts._script_utils_ import Command, clean_path, process_batch_dir_lst
 from lazydock.utils import uuid4
 from mbapy_lite.base import format_secs, put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
@@ -95,7 +95,7 @@ class simple_protein(Command):
         return args
 
     def process_args(self):
-        self.args.dir = clean_path(self.args.dir)
+        self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         if self.args.start_time is not None:
             self.args.start_time = datetime.strptime(self.args.start_time, '%Y-%m-%d %H:%M:%S')
 
@@ -211,10 +211,10 @@ class simple_protein(Command):
 
     def main_process(self):
         # get protein paths
-        if os.path.isdir(self.args.dir):
-            proteins_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.protein_name)
+        if os.path.isdir(self.args.batch_dir):
+            proteins_path = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.protein_name)
         else:
-            put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
+            put_err(f'dir argument should be a directory: {self.args.batch_dir}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')
         # check mdp files
         mdp_names = ['ion', 'em', 'nvt', 'npt','md']
@@ -248,7 +248,7 @@ class simple_protein(Command):
 class simple_complex(simple_protein):
     HELP = simple_protein.HELP.replace('protein', 'complex')
     def __init__(self, args, printf=print):
-        super().__init__(args, printf, ['batch_dir'])
+        super().__init__(args, printf)
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
@@ -288,7 +288,7 @@ class simple_complex(simple_protein):
 class simple_ligand(simple_complex):
     HELP = simple_protein.HELP.replace('protein', 'ligand')
     def __init__(self, args, printf=print):
-        super().__init__(args, printf, ['batch_dir'])
+        super().__init__(args, printf)
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
