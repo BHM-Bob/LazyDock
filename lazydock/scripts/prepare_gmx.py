@@ -364,10 +364,16 @@ class complex(ligand):
         opts_file(opath_cgro, 'w', way='lines', data=complex_gro_lines)
         # inset ligand paramters in topol.top
         topol = opts_file(ipath_top)
-        topol = complex.insert_content(topol, '#include "posre.itp"\n#endif\n',
-                                    '\n; Include ligand topology\n#include "lig.itp"\n')
-        topol = complex.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',
-                                    '\n; Include ligand parameters\n#include "lig.prm"\n')
+        if (Path(ipath_top).parent / 'lig.itp').exists():
+            _topol = complex.insert_content(topol, '#include "posre.itp"\n#endif\n',
+                                        '\n; Include ligand topology\n#include "lig.itp"\n')
+            if _topol is not None:
+                topol = _topol
+        if (Path(ipath_top).parent / 'lig.prm').exists():
+            _topol = complex.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',
+                                        '\n; Include ligand parameters\n#include "lig.prm"\n')
+            if _topol is not None:
+                topol = _topol
         topol += 'LIG                 1\n'
         opts_file(opath_top, 'w', data=topol)
         
