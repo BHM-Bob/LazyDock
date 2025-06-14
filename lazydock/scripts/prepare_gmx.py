@@ -203,7 +203,7 @@ the program will use the ff-dir in sub-directory.')
     def get_str_from_CGenFF(mol2_path: str, zip_path: str, browser: Browser) -> Union[str, None]:
         put_log(f'getting str file from CGenFF for {mol2_path}')
         if browser is None:
-            return put_log(f'browser is None, skip.')
+            return put_log(f'browser is None, skip.', ret=False)
         get_result_from_CGenFF(mol2_path, b=browser)
         download_path = Path(browser.download_path) / Path(mol2_path).with_suffix('.zip').name
         if download_path.exists():
