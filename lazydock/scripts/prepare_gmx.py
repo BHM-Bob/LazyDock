@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-11 20:25:30
+LastEditTime: 2025-06-13 09:21:41
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -103,7 +103,7 @@ class protein(Command):
                 cmd.save(opath, 'protein')
                 cmd.reinitialize()
             # STEP 1: Prepare the Protein Topology
-            ff_dir = self.prepare_ff_dir(protein_path.parent)
+            ff_dir = self.prepare_ff_dir(protein_path.parent, self.args.ff_dir)
             if ff_dir is None:
                 continue
             ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}.gro')
@@ -238,7 +238,7 @@ the program will use the ff-dir in sub-directory.')
         ipath_str, ipath_mol2, opath_itp = opath_str, opath_mol2, str(main_path.parent / f'lig.itp')
         # check and copy ff-dir
         ## if ff-dir is a asbpath to charmmFF dir, copy it to sub-directory.
-        ff_dir = self.prepare_ff_dir(main_path.parent)
+        ff_dir = self.prepare_ff_dir(main_path.parent, self.args.ff_dir)
         if ff_dir is None:
             return
         if self.args.max_step >= 6 and (not os.path.exists(opath_itp)):
