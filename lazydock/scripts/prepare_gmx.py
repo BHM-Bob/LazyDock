@@ -231,7 +231,7 @@ the program will use the ff-dir in sub-directory.')
         if self.args.max_step >= 5 and (not os.path.exists(cgenff_path)):
             if self.get_str_from_CGenFF(ipath, cgenff_path, browser=self.browser) is None:
                 return 
-        if self.args.max_step >= 5 and (not os.path.exists(opath_str) or not os.path.exists(opath_mol2)):
+        if self.args.max_step >= 5 and (not os.path.exists(opath_str) or not os.path.exists(opath_mol2)) and os.path.exists(cgenff_path):
             for file_name, content in opts_file(cgenff_path, 'r', way='zip').items():
                 opts_file(cgenff_path.parent / file_name.replace('4_', '5_'), 'wb', data=content)
         # STEP 6: transfer str file to top and gro file by cgenff_charmm2gmx.py
@@ -415,7 +415,7 @@ class complex(ligand):
                 gmx.run_gmx_with_expect('editconf -f lig_ini.pdb -o lig.gro')
             # STEP 9: Prepare the Complex Topology
             opath_cgro, opath_top = str(complex_path.parent / 'complex.gro'), str(complex_path.parent / 'topol.top')
-            if self.args.max_step >= 9 and (not os.path.exists(opath_cgro)):
+            if self.args.max_step >= 9 and (not os.path.exists(opath_cgro)) and os.path.exists(opath_rgro) and os.path.exists(opath_lgro):
                 self.prepare_complex_topol(opath_rgro, opath_lgro, opath_top, opath_cgro, opath_top)
 
 
