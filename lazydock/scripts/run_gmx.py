@@ -80,7 +80,7 @@ class simple_protein(Command):
                           help='args pass to mdrun command for energy minimization, default is %(default)s.')  
         args.add_argument('--mdrun-args', type = str, default="-v -ntomp 4 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
                           help='args pass to mdrun command for production md, default is %(default)s.')
-        args.add_argument('--genion-groups', type=str, default="13",
+        args.add_argument('--genion-groups', type=str, default="SOL",
                           help='Select a continuous group of solvent molecules, default is %(default)s.')
         args.add_argument('--potential-groups', type=str, default="11 0",
                           help='groups to plot potential, default is %(default)s.')
@@ -152,8 +152,15 @@ class simple_protein(Command):
         # STEP 3: grompp -f ions.mdp -c protein_solv.gro -p topol.top -o ions.tpr
         gmx.run_gmx_with_expect('grompp', f=mdps['ion'], c=f'{main_name}_solv.gro', p='topol.top', o='ions.tpr')
         # STEP 4: genion -s ions.tpr -o protein_solv_ions.gro -p topol.top -pname NA -nname CL -neutral
+        genion_groups = self.args.genion_groups
+        if self.args.genion_groups == 'SOL':
+            groups = gmx.get_groups('ions.tpr')
+            if 'SOL' not in groups:
+                put_err(f'can not find SOL group in ions.tpr, skip.')
+            else:
+                genion_groups = groups['SOL']
         gmx.run_gmx_with_expect(f'genion {self.args.genion_args}', s='ions.tpr', o=f'{main_name}_solv_ions.gro', p='topol.top',
-                                    expect_actions=[{'Select a group:': f'{self.args.genion_groups}\r', 'No ions to add': '', '\\timeout': ''}],
+                                    expect_actions=[{'Select a group:': f'{genion_groups}\r', 'No ions to add': '', '\\timeout': ''}],
                                     expect_settings={'start_timeout': 600})
         
     def energy_minimization(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
