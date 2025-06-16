@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-13 17:31:45
+LastEditTime: 2025-06-16 16:14:28
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -285,8 +285,15 @@ class simple_complex(simple_protein):
         ligand.insert_content(protein_path.parent / 'topol.top', f'#include "{lig_name}.itp"\n', res_info)
         # STEP 3: make tc-grps index file
         # gmx make_ndx -f em.gro -o index.ndx
+        tc_groups = self.args.tc_groups
+        if self.args.tc_groups == 'auto':
+            groups = gmx.get_groups('em.tpr')
+            if 'Protein' not in groups and 'LIG' not in groups:
+                put_err(f'can not find Protein or LIG group in em.tpr, skip.')
+            else:
+                tc_groups = f'{groups["Protein"]} | {groups["LIG"]}'
         gmx.run_gmx_with_expect('make_ndx', f='em.gro', o='tc_index.ndx',
-                                    expect_actions=[{'>': f'{self.args.tc_groups}\r'}, {'>': 'q\r'}])
+                                    expect_actions=[{'>': f'{tc_groups}\r'}, {'>': 'q\r'}])
         for k in ['nvt', 'npt','md']:
             self.indexs[k] = 'tc_index.ndx'
         super().equilibration(protein_path, main_name, gmx, mdps)
