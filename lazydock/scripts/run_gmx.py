@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-16 16:14:28
+LastEditTime: 2025-06-16 16:20:51
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -266,7 +266,7 @@ class simple_complex(simple_protein):
                           help='ligand name in each sub-directory, such as lig.gro, default is %(default)s.')
         args.add_argument('--lig-posres', type=str, default='POSRES',
                           help='ligand position restraint symbol, default is %(default)s.')
-        args.add_argument('--tc-groups', type=str, default='1 | 13',
+        args.add_argument('--tc-groups', type=str, default='auto',
                           help='tc-grps to select, so could set tc-grps = Protein_JZ4 Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.')
         return args
         
