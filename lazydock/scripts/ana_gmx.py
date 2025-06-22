@@ -502,8 +502,18 @@ class mmpbsa(simple):
                                     expect_actions=[{'>': f'a {rec_range_str}\r'}, {'>': f'name {sum_groups} MMPBSA_Receptor\r'},
                                                     {'>': f'a {lig_range_str}\r'}, {'>': f'name {sum_groups+1} MMPBSA_Ligand\r'},
                                                     {'>': 'q\r'}])
+            # check MMPBSA parameters input file
+            if not os.path.exists(os.path.join(wdir, self.args.input)):
+                if os.path.exists(self.args.input):
+                    input_name = os.path.basename(self.args.input)
+                    shutil.copy(self.args.input, os.path.join(wdir, input_name))
+                else:
+                    put_err(f"input file {self.args.input} not exists, skip.")
+                    continue
+            else:
+                input_name = self.args.input
             # call gmx_MMPBSA
-            cmd_str = f'gmx_MMPBSA -O -i {self.args.input} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.ndx -cg {sum_groups} {sum_groups+1} -cp topol.top -o {self.args.output}.dat -eo {self.args.output}.csv -nogui'
+            cmd_str = f'gmx_MMPBSA -O -i {input_name} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.ndx -cg {sum_groups} {sum_groups+1} -cp topol.top -o {self.args.output}.dat -eo {self.args.output}.csv -nogui'
             os.system(f'cd "{gmx.working_dir}" && mpirun -np {self.args.np} {cmd_str}')
             bar.update(1)
     
@@ -1047,7 +1057,7 @@ def main(sys_args: List[str] = None):
 
 if __name__ == '__main__':
     # dev code
-    # main('interaction -bd data_tmp/gmx/run1 -top md.tpr -traj md_center.xtc -np 8 --receptor-chain-name A --ligand-chain-name LIG --alter-ligand-chain Z --alter-ligand-res UNK --method plip --mode all'.split(' '))
+    main('interaction -d /home/pcmd36/Desktop/BHM/LFH/250513-NZY-MDS/runs/complex/DOR_t3 -nw 4 --receptor-chain-name A --ligand-chain-name LIG --alter-ligand-chain Z --alter-ligand-res UNK --method plip --mode all -st 0 -e 100 -step 1 --plot-time-unit 10'.split(' '))
     # main('rrcs -d data_tmp/gmx/run1 -top md.tpr -traj md_center.xtc -c A Z -np 2 --backend cuda'.split(' '))
     
     main()
