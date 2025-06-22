@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-16 16:20:51
+LastEditTime: 2025-06-18 10:55:27
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -260,8 +260,6 @@ class simple_complex(simple_protein):
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         args = simple_protein.make_args(args)
-        method_arg_idx = args._actions.index(list(filter(lambda x: x.dest =='genion_groups', args._actions))[0])
-        args._actions[method_arg_idx].default = '15'
         args.add_argument('-ln', '--ligand-name', type = str, default='lig.gro',
                           help='ligand name in each sub-directory, such as lig.gro, default is %(default)s.')
         args.add_argument('--lig-posres', type=str, default='POSRES',
