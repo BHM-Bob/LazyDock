@@ -7,7 +7,8 @@
         "openbabel-wheel",
         "networkx>=3",
         "DuIvyTools>=0.6.0",
-        "toml"
+        "toml",
+        "MDAnalysis>=2.9.0"
     ],
     "all":
     [
