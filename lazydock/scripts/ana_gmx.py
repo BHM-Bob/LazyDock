@@ -669,11 +669,11 @@ class interaction(simple_analysis, mmpbsa):
                 opts_file(pkl_path, 'wb', way='pkl', data=interactions)
             else:
                 interactions = opts_file(pkl_path, 'rb', way='pkl')
-            # ckeck whether to plot
-            if self.args.skip_plot:
-                pool.task = {}
-                bar.update(1)
-                continue
+                # ckeck whether to plot
+                if self.args.skip_plot:
+                    pool.task = {}
+                    bar.update(1)
+                    continue
             # transform interaction df to plot matrix df
             times = split_list(list(interactions.keys()), self.args.plot_time_unit)
             plot_df = pd.DataFrame()
@@ -1057,7 +1057,6 @@ def main(sys_args: List[str] = None):
 
 if __name__ == '__main__':
     # dev code
-    main('interaction -d /home/pcmd36/Desktop/BHM/LFH/250513-NZY-MDS/runs/complex/DOR_t3 -nw 4 --receptor-chain-name A --ligand-chain-name LIG --alter-ligand-chain Z --alter-ligand-res UNK --method plip --mode all -st 0 -e 100 -step 1 --plot-time-unit 10'.split(' '))
     # main('rrcs -d data_tmp/gmx/run1 -top md.tpr -traj md_center.xtc -c A Z -np 2 --backend cuda'.split(' '))
     
     main()
