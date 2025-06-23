@@ -451,6 +451,8 @@ class mmpbsa(simple):
                           help='receptor chain name, such as "A".')
         args.add_argument('--ligand-chain-name', type = str, required=True,
                           help='ligand chain name, such as "LIG".')
+        args.add_argument('-F', '--force', default=False, action='store_true',
+                          help='force to re-run the analysis, default is %(default)s.')
         return args
         
     def get_complex_atoms_index(self, u: Universe):
@@ -487,6 +489,11 @@ class mmpbsa(simple):
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
             bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            # check results
+            if os.path.exists(os.path.join(wdir, self.args.output+'.csv')) and not self.args.force:
+                put_log(f"{self.args.output}.csv already exists, skip.")
+                bar.update(1)
+                continue
             # get receptor and ligand atoms index range
             u = Universe(top_path, traj_path)
             rec_idx, lig_idx = self.get_complex_atoms_index(u)
@@ -579,8 +586,6 @@ class interaction(simple_analysis, mmpbsa):
                           help='First frame to start the analysis. Default is %(default)s.')
         args.add_argument('-step', '--traj-step', type=int, default=1,
                           help='Step while reading trajectory. Default is %(default)s.')
-        args.add_argument('-F', '--force', default=False, action='store_true',
-                          help='force to re-run the analysis, default is %(default)s.')
         args.add_argument('--plot-time-unit', type=int, default=100,
                           help='time unit for plot in X-Axis, default is %(default)s.')
         args.add_argument('--yticks-interval', type=int, default=10,
@@ -767,8 +772,6 @@ class RRCS(mmpbsa):
                           help='Step while reading trajectory. Default is %(default)s.')
         args.add_argument('--backend', type=str, default='numpy', choices=['numpy', 'torch', 'cuda'],
                           help='backend for RRCS calculation. Default is %(default)s.')
-        args.add_argument('-F', '--force', default=False, action='store_true',
-                          help='force to re-run the analysis, default is %(default)s.')
         
     @staticmethod
     def plot_average_heatmap(scores: np.ndarray, top_path: Path):
@@ -1003,8 +1006,6 @@ class porcupine(mmpbsa):
                           help='Step while reading trajectory. Default is %(default)s.')
         args.add_argument('-nw', '--n-workers', type=int, default=4,
                           help='number of workers to parallel. Default is %(default)s.')
-        args.add_argument('-F', '--force', default=False, action='store_true',
-                          help='force to re-run the analysis, default is %(default)s.')
         args.add_argument('-D', '--delete', default=False, action='store_true',
                           help='delete the exist analysis result, default is %(default)s.')
         
