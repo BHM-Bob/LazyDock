@@ -2,6 +2,7 @@ import argparse
 import os
 import shutil
 from pathlib import Path
+import time
 from typing import Dict, List, Tuple, Union
 
 if 'MBAPY_PLT_AGG' in os.environ:
@@ -92,6 +93,7 @@ class trjconv(Command):
                           'trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc',
                           n=self.args.index, pbc=self.args.pbc, ur=self.args.ur, center=True,
                           expect_actions=exp_acts, expect_settings={'timeout': 10})
+            time.sleep(5) # delay for 5 seconds, avoid `expect` conflicts
             pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 1)
         pool.close(1)
 
