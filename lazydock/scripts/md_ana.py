@@ -155,7 +155,7 @@ class elastic(mmpbsa):
         bar = tqdm(total=len(self.tasks), desc='Calculating')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
-            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            bar.set_description(f"{wdir.replace(str(self.args.batch_dir), '')}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             u = mda.Universe(top_path, traj_path)
             wdir = Path(wdir).resolve()
             self.analysis(u, wdir, self.args)
