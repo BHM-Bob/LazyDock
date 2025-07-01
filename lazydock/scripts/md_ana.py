@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-02 12:21:20
+LastEditTime: 2025-07-01 10:40:05
 Description: 
 '''
 import argparse
@@ -89,6 +89,11 @@ class elastic(mmpbsa):
                           help='number of workers to parallel. Default is %(default)s.')
         return args
     
+    def process_args(self):
+        super().process_args()
+        if self.__class__.__name__ == 'elastic':
+            self.pool = TaskPool('process', self.args.n_workers).start()
+    
     def fast_calcu(self, u: mda.Universe, args: argparse.ArgumentParser):
         start, step, stop = args.begin_frame, args.traj_step, args.end_frame
         ag, v, t = u.select_atoms(args.select), [], []
@@ -149,8 +154,6 @@ class elastic(mmpbsa):
         self.top_paths, self.traj_paths = self.check_top_traj()
         self.tasks = self.find_tasks()
         print(f'find {len(self.tasks)} tasks.')
-        if self.__class__.__name__ == 'elastic':
-            self.pool = TaskPool('process', self.args.n_workers).start()
         # process each task
         bar = tqdm(total=len(self.tasks), desc='Calculating')
         for top_path, traj_path in self.tasks:
