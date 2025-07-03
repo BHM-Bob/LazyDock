@@ -1,7 +1,7 @@
 '''
 Date: 2025-02-01 11:07:08
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-05-26 15:27:44
+LastEditTime: 2025-07-01 10:44:13
 Description: 
 '''
 import argparse
@@ -136,7 +136,7 @@ class network(mmpbsa):
         bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
-            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            bar.set_description(f"{wdir.replace(str(self.args.batch_dir), '')}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             top_path, traj_path = Path(top_path), Path(traj_path)
             if os.path.exists(os.path.join(wdir, f'{top_path.stem}_{self.result_suffix}')) and not self.args.force:
                 put_log(f'{top_path.stem}_{self.result_suffix} already exists, skip.')
