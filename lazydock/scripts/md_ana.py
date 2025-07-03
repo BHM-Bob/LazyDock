@@ -188,7 +188,7 @@ class rmsd(elastic):
         
     def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
         force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
-        if os.path.exists(w_dir / 'inter_frame_rmsd.pkl') and not force:
+        if os.path.exists(w_dir / 'inter_frame_rmsd.npz') and not force:
             return put_log('Inter-frame RMSD already calculated, use -F to re-run.')
         # calcu interaction for each frame
         ag, coords = u.select_atoms(args.select), []
