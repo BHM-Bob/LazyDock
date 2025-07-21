@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-07-01 10:40:05
+LastEditTime: 2025-07-03 19:33:53
 Description: 
 '''
 import argparse
@@ -520,7 +520,7 @@ class show_chain(elastic):
     PPrint chain info of a tpr file
     """
     def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
-        print() # new line after tqdm
+        print(f'\nframes: {len(u.trajectory)}') # new line after tqdm
         for i, chain_i in enumerate(np.unique(u.atoms.chainIDs)):
             idx = u.atoms.chainIDs == chain_i
             print(f'chain {i}: {chain_i}: {len(u.atoms[idx])} atoms')    
