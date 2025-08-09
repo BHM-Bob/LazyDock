@@ -114,7 +114,7 @@ class simple_analysis(RRCS):
             tasks.append(pool.add_task(None, run_md_traj_simple_analysis, top_path, traj_path, self.args))
             pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.01, update_result_queue=False)
         pool.wait_till_tasks_done(tasks)
-        pool.close()
+        pool.close(1)
         
 
 _str2func = {
