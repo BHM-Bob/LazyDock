@@ -199,6 +199,8 @@ class simple(trjconv):
                           help='force to re-run the analysis, default is %(default)s.')
         args.add_argument('-D', '--delete', default=False, action='store_true',
                           help='delete the exist analysis result, default is %(default)s.')
+        args.add_argument('--task-suffix', type = str, default='',
+                          help='suffix of task, default is %(default)s.')
         return args
         
     @staticmethod
@@ -210,11 +212,11 @@ class simple(trjconv):
                 (gmx.wdir / f'rmsd.png').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_rmsd.csv already exists, skip.')
-        gmx.run_gmx_with_expect('rms', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsd.xvg', tu='ns', n=index,
+        gmx.run_gmx_with_expect('rms', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsd{gmx.task_uid}.xvg', tu='ns', n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsd.xvg -o rmsd.png -smv -ws 10 -t "RMSD of {main_name}" -csv {main_name}_rmsd.csv -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsd{gmx.task_uid}.xvg -o rmsd{gmx.task_uid}.png -smv -ws 10 -t "RMSD of {main_name}" -csv {main_name}_rmsd{gmx.task_uid}.csv -ns')
         
     @staticmethod
     def rmsf(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', res: bool = True, force: bool = False, delete: bool = False, **kwargs):
@@ -225,10 +227,10 @@ class simple(trjconv):
                 (gmx.wdir / f'rmsf.png').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_rmsf.csv already exists, skip.')
-        gmx.run_gmx_with_expect('rmsf', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsf.xvg', res=res, n=index,
+        gmx.run_gmx_with_expect('rmsf', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsf{gmx.task_uid}.xvg', res=res, n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsf.xvg -o rmsf.png -t "RMSF of {main_name}" -csv {main_name}_rmsf.csv -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsf{gmx.task_uid}.xvg -o rmsf{gmx.task_uid}.png -t "RMSF of {main_name}" -csv {main_name}_rmsf{gmx.task_uid}.csv -ns')
         
     @staticmethod
     def gyrate(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
@@ -239,10 +241,10 @@ class simple(trjconv):
                 (gmx.wdir / f'gyrate.png').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_gyrate.csv already exists, skip.')
-        gmx.run_gmx_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate.xvg', n=index,
+        gmx.run_gmx_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate{gmx.task_uid}.xvg', n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f gyrate.xvg -o gyrate.png -smv -ws 10 -t "Gyrate of {main_name}" -csv {main_name}_gyrate.csv -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f gyrate{gmx.task_uid}.xvg -o gyrate{gmx.task_uid}.png -smv -ws 10 -t "Gyrate of {main_name}" -csv {main_name}_gyrate{gmx.task_uid}.csv -ns')
         
     @staticmethod
     def hbond(gmx: Gromacs, main_name: str, index: str = None, group: Tuple[int, int] = (1, 1), dt=10, force: bool = False, delete: bool = False, **kwargs):
@@ -256,12 +258,12 @@ class simple(trjconv):
             if not force:
                 return put_log(f'{main_name}_hbond_num.csv already exists, skip.')
         gmx.run_gmx_with_expect('hbond', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
-                                    num=f'{main_name}_hbond_num.xvg', dist=f'{main_name}_hbond_dist.xvg', n=index,
+                                    num=f'{main_name}_hbond_num{gmx.task_uid}.xvg', dist=f'{main_name}_hbond_dist{gmx.task_uid}.xvg', n=index,
                                     expect_actions=[{'Select a group:': f'{group[0]}\r', '\\timeout': f'{group[0]}\r'},
                                                     {'Select a group:': f'{group[1]}\r', '\\timeout': f'{group[1]}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_hbond_num.xvg -o hbond_num.png -smv -ws 10 -t "H-bond num of {main_name}" -csv {main_name}_hbond_num.csv -ns')
-        gmx.run_cmd_with_expect(f'dit xvg_show -f {main_name}_hbond_dist.xvg -o hbond_dist.png -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_hbond_num{gmx.task_uid}.xvg -o hbond_num{gmx.task_uid}.png -smv -ws 10 -t "H-bond num of {main_name}" -csv {main_name}_hbond_num{gmx.task_uid}.csv -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_show -f {main_name}_hbond_dist{gmx.task_uid}.xvg -o hbond_dist{gmx.task_uid}.png -ns')
 
     @staticmethod
     def sasa(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
@@ -273,12 +275,12 @@ class simple(trjconv):
                     (gmx.wdir / f'{main_name}_sasa_{ty}.csv').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_sasa_tv.csv already exists, skip.')
-        gmx.run_gmx_with_expect(f'sasa -or {main_name}_sasa_res.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
-                                    o=f'{main_name}_sasa_total.xvg', odg=f'{main_name}_sasa_dg.xvg', tv=f'{main_name}_sasa_tv.xvg', tu='ns', n=index,
+        gmx.run_gmx_with_expect(f'sasa -or {main_name}_sasa_res{gmx.task_uid}.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
+                                    o=f'{main_name}_sasa_total{gmx.task_uid}.xvg', odg=f'{main_name}_sasa_dg{gmx.task_uid}.xvg', tv=f'{main_name}_sasa_tv{gmx.task_uid}.xvg', tu='ns', n=index,
                                     expect_actions=[{'>': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
         for ty in ['total', 'res', 'dg', 'tv']:
-            gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_sasa_{ty}.xvg -o {main_name}_sasa_{ty}.png -smv -ws 10 -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}.csv -ns')
+            gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_sasa_{ty}{gmx.task_uid}.xvg -o {main_name}_sasa_{ty}{gmx.task_uid}.png -smv -ws 10 -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}{gmx.task_uid}.csv -ns')
 
     @staticmethod
     def covar(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', xmax: int = 15, force: bool = False, delete: bool = False, **kwargs):
@@ -289,11 +291,11 @@ class simple(trjconv):
                 (gmx.wdir / f'{main_name}_eigenval.csv').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_eigenval.csv already exists, skip.')
-        gmx.run_gmx_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_eigenval.xvg', tu='ns', n=index,
+        gmx.run_gmx_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_eigenval{gmx.task_uid}.xvg', tu='ns', n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_eigenval.xvg -o {main_name}_eigenval.png -xmin 0 -xmax {xmax} -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_eigenval{gmx.task_uid}.xvg -o {main_name}_eigenval{gmx.task_uid}.png -xmin 0 -xmax {xmax} -t "Eigenval of {main_name}" -csv {main_name}_eigenval{gmx.task_uid}.csv -ns')
     
     @staticmethod
     def dssp(gmx: Gromacs, main_name: str, index: str = None, group: str = None, num: bool = False, clear: bool = False,
@@ -309,15 +311,15 @@ class simple(trjconv):
                 return put_log(f'{main_name}_dssp_mat.dat already exists, skip.')
         kwgs = {}
         if num:
-            kwgs = {'num': f'{main_name}_dssp_num.xvg'}
+            kwgs = {'num': f'{main_name}_dssp_num{gmx.task_uid}.xvg'}
         if clear:
             kwgs.update({'_clear': True})
-        gmx.run_gmx_with_expect('dssp', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_dssp_mat.dat',
+        gmx.run_gmx_with_expect('dssp', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_dssp_mat{gmx.task_uid}.dat',
                                 sel=group, n=index, _hmode='dssp', tu='ns', **kwgs)
-        gmx.run_cmd_with_expect(f'dit dssp -f {main_name}_dssp_mat.dat -o {main_name}_dssp_mat.xpm')
-        gmx.run_cmd_with_expect(f'dit xpm_show -f {main_name}_dssp_mat.xpm -o {main_name}_dssp_mat.png -xs 0.01 --x_precision 0 -x "Time (ns)" -y "Residues (aa)"')
+        gmx.run_cmd_with_expect(f'dit dssp -f {main_name}_dssp_mat{gmx.task_uid}.dat -o {main_name}_dssp_mat{gmx.task_uid}.xpm')
+        gmx.run_cmd_with_expect(f'dit xpm_show -f {main_name}_dssp_mat{gmx.task_uid}.xpm -o {main_name}_dssp_mat{gmx.task_uid}.png -xs 0.01 --x_precision 0 -x "Time (ns)" -y "Residues (aa)"')
         if num:
-            gmx.run_cmd_with_expect(f'dit xvg_compare -c 1-10 -f {main_name}_dssp_num.xvg -o {main_name}_dssp_num.png -t "DSSP number of {main_name}" -csv {main_name}_dssp_num.csv -ns')
+            gmx.run_cmd_with_expect(f'dit xvg_compare -c 1-10 -f {main_name}_dssp_num{gmx.task_uid}.xvg -o {main_name}_dssp_num{gmx.task_uid}.png -t "DSSP number of {main_name}" -csv {main_name}_dssp_num{gmx.task_uid}.csv -ns')
     
     @staticmethod
     def free_energy_landscape(gmx: Gromacs, main_name: str, force: bool = False, delete: bool = False, **kwargs):
@@ -388,6 +390,7 @@ class simple(trjconv):
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
             complex_path = Path(complex_path).resolve()
             gmx = Gromacs(working_dir=str(complex_path.parent))
+            gmx.task_uid = self.args.task_suffix
             main_name = complex_path.stem
             if (complex_path.parent / f'{main_name}.tpr').exists() and (complex_path.parent / f'{main_name}_center.xtc').exists():
                 put_log(f'Perform analysis for {main_name}.tpr and {main_name}_center.xtc.')
