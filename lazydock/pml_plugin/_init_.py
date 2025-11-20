@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-15 19:25:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-04-07 19:06:46
+LastEditTime: 2025-07-05 19:06:27
 Description: 
 '''
 import os
@@ -53,10 +53,10 @@ def calcu_RRCS(model: str):
 cmd.extend('calcu_RRCS', calcu_RRCS)
 
 
-def apply_shader_from_interaction_df(df_path: str, obj_name: str, cmap: str = 'coolwarm', alpha_mode: str = None,
+def apply_shader_from_interaction_df(df_path: str, obj_name: str, sum_axis: str = 0, cmap: str = 'coolwarm', alpha_mode: str = None,
                                      show_cbar: bool = False):
     from lazydock.pml.shader import Shader, ShaderValues
-    values = ShaderValues().from_interaction_df(df_path, obj_name)
+    values = ShaderValues().from_interaction_df(df_path, obj_name, int(sum_axis))
     shader = Shader(cmap)
     shader.create_colors_in_pml(values)
     shader.apply_shader_values(values, alpha_mode=alpha_mode)
