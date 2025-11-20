@@ -102,5 +102,13 @@
         "exec_names": ["md_traj", "md-traj"],
         "brief": "MDTraj CLI tools.",
         "detailed": "MDTraj CLI tools."
+    },
+    "prepare_lig":
+    {
+        "name": "prepare_lig",
+        "script name": "prepare_lig",
+        "exec_names": ["prepare_lig", "prepare-lig"],
+        "brief": "Prepare ligand for docking.",
+        "detailed": "This tool is used to prepare ligand for docking."
     }
 }
