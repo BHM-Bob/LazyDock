@@ -95,6 +95,8 @@ def check_support_mode(mode: Union[str, List[str]]):
         return SUPPORTED_MODE
     elif isinstance(mode, str) and mode in SUPPORTED_MODE:
         return [mode]
+    elif isinstance(mode, List) and all(m in SUPPORTED_MODE for m in mode):
+        return mode
     elif any(m not in SUPPORTED_MODE for m in mode):
         put_err(f'Unsupported mode: {mode}, supported: {SUPPORTED_MODE}', _exit=True)
 
