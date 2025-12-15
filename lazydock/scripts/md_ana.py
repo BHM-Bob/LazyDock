@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-07-03 19:33:53
+LastEditTime: 2025-08-19 20:33:02
 Description: 
 '''
 import argparse
@@ -158,7 +158,8 @@ class elastic(mmpbsa):
         bar = tqdm(total=len(self.tasks), desc='Calculating')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
-            bar.set_description(f"{wdir.replace(str(self.args.batch_dir), '')}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
+            bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             u = mda.Universe(top_path, traj_path)
             wdir = Path(wdir).resolve()
             self.analysis(u, wdir, self.args)

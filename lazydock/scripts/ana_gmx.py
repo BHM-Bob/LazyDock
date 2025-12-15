@@ -493,7 +493,8 @@ class mmpbsa(simple):
         bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
-            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
+            bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             # check results
             if os.path.exists(os.path.join(wdir, self.args.output+'.csv')) and not self.args.force:
                 put_log(f"{self.args.output}.csv already exists, skip.")
@@ -663,7 +664,8 @@ class interaction(simple_analysis, mmpbsa):
         bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
-            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
+            bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             # calcu interaction and save to file OR load results if have been calculated before and not force recalculate
             top_path = Path(top_path).resolve()
             gro_path = str(top_path.parent / self.args.gro_name)
@@ -914,7 +916,8 @@ class RRCS(mmpbsa):
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
             top_path = Path(top_path).resolve()
-            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
+            bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             if os.path.exists(os.path.join(wdir, f'{top_path.stem}_RRCS.npz')) and not self.args.force:
                 put_log(f'{top_path.stem}_RRCS.npz already exists, skip.')
                 continue
