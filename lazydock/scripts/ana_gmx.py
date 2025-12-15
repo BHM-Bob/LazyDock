@@ -560,6 +560,8 @@ class interaction(simple_analysis, mmpbsa):
         mmpbsa.make_args(args, mmpbsa_args=False)
         args.add_argument('-gro', '--gro-name', type = str, default='md.gro',
                           help=f"gro file name in each sub-folder.")
+        args.add_argument('--suffix', type = str, default='',
+                          help='suffix for output file name, default is %(default)s.')
         args.add_argument('--alter-receptor-chain', type = str, default=None,
                           help='alter receptor chain name from topology to user-define, such as "A".')
         args.add_argument('--alter-ligand-chain', type = str, default=None,
@@ -658,6 +660,7 @@ class interaction(simple_analysis, mmpbsa):
         # load origin dfs from data file
         self.top_paths, self.traj_paths = self.check_top_traj()
         self.tasks = self.find_tasks()
+        suffix = self.args.suffix
         print(f'find {len(self.tasks)} tasks.')
         # run tasks
         pool = TaskPool('process', self.args.n_workers).start()
@@ -669,8 +672,8 @@ class interaction(simple_analysis, mmpbsa):
             # calcu interaction and save to file OR load results if have been calculated before and not force recalculate
             top_path = Path(top_path).resolve()
             gro_path = str(top_path.parent / self.args.gro_name)
-            csv_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.csv')
-            pkl_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.pkl')
+            csv_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions{suffix}.csv')
+            pkl_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions{suffix}.pkl')
             if (not os.path.exists(csv_path) or not os.path.exists(pkl_path)) or self.args.force:
                 interactions, df = self.calcu_interaction(str(top_path), gro_path, traj_path, pool)
                 if interactions is None:
@@ -726,7 +729,7 @@ class interaction(simple_analysis, mmpbsa):
                 cbar = ax.collections[0].colorbar
                 cbar.ax.tick_params(labelsize=14)
                 cbar.ax.set_ylabel('Interaction frequency', fontsize=16)
-                save_show(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.png'), 600, show=False)
+                save_show(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions{suffix}.png'), 600, show=False)
                 plt.close(fig)
             # other things
             pool.clear()
