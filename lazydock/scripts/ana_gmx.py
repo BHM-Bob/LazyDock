@@ -205,7 +205,7 @@ class simple(trjconv):
         
     @staticmethod
     def rms(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsd.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsd{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_rmsd.csv').unlink(missing_ok=True)
                 (gmx.wdir / f'rmsd.xvg').unlink(missing_ok=True)
@@ -220,7 +220,7 @@ class simple(trjconv):
         
     @staticmethod
     def rmsf(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', res: bool = True, force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsf.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsf{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_rmsf.csv').unlink(missing_ok=True)
                 (gmx.wdir / f'rmsf.xvg').unlink(missing_ok=True)
@@ -234,7 +234,7 @@ class simple(trjconv):
         
     @staticmethod
     def gyrate(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_gyrate.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_gyrate{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_gyrate.csv').unlink(missing_ok=True)
                 (gmx.wdir / f'gyrate.xvg').unlink(missing_ok=True)
@@ -248,7 +248,7 @@ class simple(trjconv):
         
     @staticmethod
     def hbond(gmx: Gromacs, main_name: str, index: str = None, group: Tuple[int, int] = (1, 1), dt=10, force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_hbond_num.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_hbond_num{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_hbond_dist.xvg').unlink(missing_ok=True)
                 (gmx.wdir / f'{main_name}_hbond_num.xvg').unlink(missing_ok=True)
@@ -267,12 +267,12 @@ class simple(trjconv):
 
     @staticmethod
     def sasa(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_sasa_tv.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_sasa_tv{gmx.task_uid}.csv')):
             if delete:
                 for ty in ['total', 'res', 'dg', 'tv']:
-                    (gmx.wdir / f'{main_name}_sasa_{ty}.xvg').unlink(missing_ok=True)
-                    (gmx.wdir / f'{main_name}_sasa_{ty}.png').unlink(missing_ok=True)
-                    (gmx.wdir / f'{main_name}_sasa_{ty}.csv').unlink(missing_ok=True)
+                    (gmx.wdir / f'{main_name}_sasa_{ty}{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                    (gmx.wdir / f'{main_name}_sasa_{ty}{gmx.task_uid}.png').unlink(missing_ok=True)
+                    (gmx.wdir / f'{main_name}_sasa_{ty}{gmx.task_uid}.csv').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_sasa_tv.csv already exists, skip.')
         gmx.run_gmx_with_expect(f'sasa -or {main_name}_sasa_res{gmx.task_uid}.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
@@ -284,11 +284,11 @@ class simple(trjconv):
 
     @staticmethod
     def covar(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', xmax: int = 15, force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_eigenval.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_eigenval{gmx.task_uid}.csv')):
             if delete:
-                (gmx.wdir / f'{main_name}_eigenval.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_eigenval.png').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_eigenval.csv').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_eigenval{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_eigenval{gmx.task_uid}.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_eigenval{gmx.task_uid}.csv').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_eigenval.csv already exists, skip.')
         gmx.run_gmx_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_eigenval{gmx.task_uid}.xvg', tu='ns', n=index,
@@ -300,15 +300,15 @@ class simple(trjconv):
     @staticmethod
     def dssp(gmx: Gromacs, main_name: str, index: str = None, group: str = None, num: bool = False, clear: bool = False,
              force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_dssp_mat.dat')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_dssp_mat{gmx.task_uid}.dat')):
             if delete:
-                (gmx.wdir / f'{main_name}_dssp_num.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_dssp_mat.dat').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_dssp_mat.xpm').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_dssp_mat.png').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_dssp_num.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_num{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_mat{gmx.task_uid}.dat').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_mat{gmx.task_uid}.xpm').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_mat{gmx.task_uid}.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_num{gmx.task_uid}.png').unlink(missing_ok=True)
             if not force:
-                return put_log(f'{main_name}_dssp_mat.dat already exists, skip.')
+                return put_log(f'{main_name}_dssp_mat{gmx.task_uid}.dat already exists, skip.')
         kwgs = {}
         if num:
             kwgs = {'num': f'{main_name}_dssp_num{gmx.task_uid}.xvg'}
@@ -324,23 +324,23 @@ class simple(trjconv):
     @staticmethod
     def free_energy_landscape(gmx: Gromacs, main_name: str, force: bool = False, delete: bool = False, **kwargs):
         # MD-DaVis
-        if os.path.exists(os.path.join(gmx.working_dir, f'FEL.html')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'FEL{gmx.task_uid}.html')):
             if delete:
-                (gmx.wdir / f'FEL.html').unlink(missing_ok=True)
+                (gmx.wdir / f'FEL{gmx.task_uid}.html').unlink(missing_ok=True)
             if not force:
-                return put_log(f'FEL.html already exists, skip.')
-        gmx.run_cmd_with_expect(f'md-davis landscape_xvg -c -T 300 -x rmsd.xvg -y gyrate.xvg -o FEL.html -n FEL -l "RMSD-Rg" --axis_labels "dict(x=\'RMSD (in nm)\', y=\'Rg (in nm)\', z=\'Free Energy (kJ mol<sup>-1</sup>)<br>\')"')
+                return put_log(f'FEL{gmx.task_uid}.html already exists, skip.')
+        gmx.run_cmd_with_expect(f'md-davis landscape_xvg -c -T 300 -x rmsd.xvg -y gyrate.xvg -o FEL{gmx.task_uid}.html -n FEL -l "RMSD-Rg" --axis_labels "dict(x=\'RMSD (in nm)\', y=\'Rg (in nm)\', z=\'Free Energy (kJ mol<sup>-1</sup>)<br>\')"')
         # gmx and dit
-        if os.path.exists(os.path.join(gmx.working_dir, f'rmsd_gyrate.png')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'rmsd_gyrate{gmx.task_uid}.png')):
             if delete:
-                (gmx.wdir / f'rmsd_gyrate.png').unlink(missing_ok=True)
-                (gmx.wdir / f'rmsd_gyrate.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'sham.xpm').unlink(missing_ok=True)
+                (gmx.wdir / f'rmsd_gyrate{gmx.task_uid}.png').unlink(missing_ok=True)
+                (gmx.wdir / f'rmsd_gyrate{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'sham{gmx.task_uid}.xpm').unlink(missing_ok=True)
             if not force:
-                return put_log(f'rmsd_gyrate.png already exists, skip.')
-        gmx.run_cmd_with_expect(f'dit xvg_combine -f rmsd.xvg gyrate.xvg -c 0,1 1 -l RMSD Gyrate -o rmsd_gyrate.xvg -x "Time (ps)"')
-        gmx.run_gmx_with_expect(f'sham -f rmsd_gyrate.xvg -ls sham.xpm --ngrid 100')
-        gmx.run_cmd_with_expect(f'dit xpm_show -f sham.xpm --x_precision 2 --y_precision 2 -x "RMSD (nm)" -y "Rg (nm)" -cmap jet --colorbar_location right -ip gaussian -o rmsd_gyrate.png -ns')
+                return put_log(f'rmsd_gyrate{gmx.task_uid}.png already exists, skip.')
+        gmx.run_cmd_with_expect(f'dit xvg_combine -f rmsd{gmx.task_uid}.xvg gyrate{gmx.task_uid}.xvg -c 0,1 1 -l RMSD Gyrate -o rmsd_gyrate{gmx.task_uid}.xvg -x "Time (ps)"')
+        gmx.run_gmx_with_expect(f'sham -f rmsd_gyrate{gmx.task_uid}.xvg -ls sham{gmx.task_uid}.xpm --ngrid 100')
+        gmx.run_cmd_with_expect(f'dit xpm_show -f sham{gmx.task_uid}.xpm --x_precision 2 --y_precision 2 -x "RMSD (nm)" -y "Rg (nm)" -cmap jet --colorbar_location right -ip gaussian -o rmsd_gyrate{gmx.task_uid}.png -ns')
         
     @staticmethod
     def plot_PDF(gmx: Gromacs, main_name: str, force: bool = False, delete: bool = False, **kwargs):
