@@ -30,6 +30,7 @@ def open_vina_config_as_box(config_path: str, spacing: float = 1.0, linewidth: f
     from mbapy_lite.file import opts_file
     if not os.path.exists(config_path):
         return print(f'Config file {config_path} not found, skip.')
+    spacing = float(spacing)
     cfg = opts_file(config_path, way='lines')
     get_line = lambda n: [line for line in cfg if line.startswith(n)][0]
     center = {line.split('=')[0].strip(): float(line.split('=')[1].strip()) for line in map(get_line, ['center_x', 'center_y', 'center_z'])}
