@@ -110,5 +110,13 @@
         "exec_names": ["prepare_lig", "prepare-lig"],
         "brief": "Prepare ligand for docking.",
         "detailed": "This tool is used to prepare ligand for docking."
+    },
+    "rosetta":
+    {
+        "name": "rosetta",
+        "script name": "rosetta",
+        "exec_names": ["pyrt", "rosetta"],
+        "brief": "Rosetta tools.",
+        "detailed": "Rosetta tools."
     }
 }
