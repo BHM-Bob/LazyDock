@@ -7,6 +7,7 @@ import unittest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 import pyrosetta
+from pyrosetta.rosetta.core.pose import Pose
 from lazydock.pyrt.energy_utils import calcu_interface_energy
 
 
@@ -28,6 +29,9 @@ class TestCalcuInterfaceEnergy(unittest.TestCase):
         # Read pdb string for later use
         with open(cls.pdb_path, 'r') as f:
             cls.pdb_string = f.read()
+        
+        # Create pose object for testing
+        cls.pose = pyrosetta.pose_from_pdb(cls.pdb_path)
     
     def test_with_path_default_score(self):
         """Test 1: Calculate interface energy with file path and default score function"""
@@ -74,6 +78,27 @@ class TestCalcuInterfaceEnergy(unittest.TestCase):
                 scorefxn_name='non_existent_scorefxn'
             )
         print("   ✓ Expected error occurred")
+    
+    def test_with_pose_object(self):
+        """Test 5: Calculate interface energy with Pose object"""
+        print("\nTest 5: Calculating with Pose object...")
+        energy = calcu_interface_energy(
+            self.pose, 
+            self.receptor_chains, 
+            self.ligand_chains
+        )
+        self.assertIsInstance(energy, float, "Energy should be a float")
+        print(f"   ✓ Interface energy (Pose object): {energy:.4f} kcal/mol")
+        
+        # Also test with different score function
+        energy_score12 = calcu_interface_energy(
+            self.pose,
+            self.receptor_chains,
+            self.ligand_chains,
+            scorefxn_name='score12'
+        )
+        self.assertIsInstance(energy_score12, float, "Energy should be a float")
+        print(f"   ✓ Interface energy (Pose object, score12): {energy_score12:.4f} kcal/mol")
 
 
 if __name__ == '__main__':
