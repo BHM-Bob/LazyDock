@@ -2,16 +2,19 @@ import os
 from typing import List, Union
 
 import pyrosetta
+from pyrosetta.rosetta.core.pose import Pose
 from pyrosetta.rosetta.protocols.analysis import InterfaceAnalyzerMover
 
+from lazydock.pyrt.pose_utils import load_pose
 
-def calcu_interface_energy(pdb: str, receptor_chains: Union[str, List[str]],
+
+def calcu_interface_energy(pdb: str|Pose, receptor_chains: Union[str, List[str]],
                            ligand_chains: Union[str, List[str]], scorefxn_name: str = 'ref2015') -> float:
     """
     Calculate the interface energy between receptor and ligand using PyRosetta.
     
     Args:
-        pdb: PDB file path or PDB string content
+        pdb: PDB file path or PDB string content or Pose object
         receptor_chains: Receptor chains (str or list of str)
         ligand_chains: Ligand chains (str or list of str)
         scorefxn_name: Energy function name. Available options:
@@ -59,15 +62,7 @@ def calcu_interface_energy(pdb: str, receptor_chains: Union[str, List[str]],
         ligand_chains = [ligand_chains]
     
     # Create pose from pdb path or string
-    if '\n' in pdb or any(pdb.startswith(line) for line in ['ATOM', 'HETATM', 'MODEL', 'HEADER']):  # Check if it's a pdb string
-        # Create pose from string
-        pose = pyrosetta.Pose()
-        pyrosetta.rosetta.core.import_pose.pose_from_pdbstring(pose, pdb)
-    elif os.path.isfile(pdb):
-        # Create pose from file path
-        pose = pyrosetta.pose_from_pdb(pdb)
-    else:
-        raise ValueError(f"Invalid input: {pdb}. Must be a PDB file path or a valid PDB string.")
+    pose = load_pose(pdb)
     
     # Create score function
     if scorefxn_name is None:
@@ -85,6 +80,33 @@ def calcu_interface_energy(pdb: str, receptor_chains: Union[str, List[str]],
     return pose.scores['dG_separated']
 
 
+def calcu_single_energy(pdb: str|Pose, scorefxn_name: str = 'ref2015') -> float:
+    """
+    Calculate the energy of a single chain in a PDB file.
+    
+    Args:
+        pdb: PDB file path or PDB string content or Pose object
+        chain: Chain ID to calculate energy for
+        scorefxn_name: Energy function name. Available options:
+            - 'ref2015': Default all-atom energy function (most recommended)
+            - 'score12': Legacy all-atom energy function
+            - 'ref2015_cart': Cartesian version of ref2015
+            - 'beta_nov16': Requires -corrections::beta_nov16 flag
+            - 'talaris2014': Requires -corrections::restore_talaris_behavior flag
+    
+    Returns:
+        float: Energy of the specified chain in kcal/mol
+    """
+    # Create score function
+    scorefxn_name = scorefxn_name or 'ref2015'
+    scorefxn = pyrosetta.create_score_function(scorefxn_name)
+    # Create pose from pdb path or string
+    pose = load_pose(pdb)
+    # Calculate energy
+    scorefxn(pose)
+    return pose.energies().total_energy()
+
+
 if __name__ == '__main__':
     # Initialize PyRosetta
     pyrosetta.init(silent=True)
@@ -96,3 +118,7 @@ if __name__ == '__main__':
     # Calculate interface energy with score12 score function
     energy = calcu_interface_energy(pdb_path, receptor_chains, ligand_chains, scorefxn_name='score12')
     print(f"Interface energy (score12): {energy:.4f} kcal/mol")
+    
+    # Calculate single chain energy with ref2015 score function
+    energy = calcu_single_energy(pdb_path, scorefxn_name='ref2015')
+    print(f"Receptor energy (ref2015): {energy:.4f} kcal/mol")
