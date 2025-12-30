@@ -4,6 +4,7 @@ LastEditors: BHM-Bob 2262029386@qq.com
 LastEditTime: 2024-05-14 16:52:08
 Description: 
 '''
+import os
 from typing import Union
 
 import pyrosetta
@@ -19,6 +20,28 @@ from pyrosetta.rosetta.protocols.simple_moves import (
     AddPDBInfoMover, DeleteChainMover, SwitchChainOrderMover,
     SwitchResidueTypeSetMover)
 from pyrosetta.toolbox import mutate_residue
+
+
+def load_pose(pdb: str|Pose) -> Pose:
+    """
+    Load a pose from a PDB file path or a Pose object.
+    
+    Args:
+        pdb: PDB file path or Pose object
+        
+    Returns:
+        Pose: Loaded pose object
+    """
+    if isinstance(pdb, Pose):
+        pose: Pose = pdb
+    elif os.path.isfile(pdb):
+        # Create pose from file path
+        pose = pyrosetta.pose_from_pdb(pdb)
+    else:  # try to treat pdb as a pdb string
+        # Create pose from string
+        pose = pyrosetta.Pose()
+        pyrosetta.rosetta.core.import_pose.pose_from_pdbstring(pose, pdb)
+    return pose
 
 
 class _Pose(object):
