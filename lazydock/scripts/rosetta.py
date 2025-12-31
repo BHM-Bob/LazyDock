@@ -71,11 +71,16 @@ class cacl_energy(Command):
         df.to_csv(self.args.output, index=False)
 
 
-def _relax_worker(pdb_path: str, output_path: str, chain: str, max_iter: int):
+def _relax_worker(pdb_path: str, output_path: str, chain: str|list[str], max_iter: int, energy_chain: str|list[str]):
+    def _calc_energy(pose: pyrosetta.Pose, energy_chain: str|list[str]):
+        if len(energy_chain) == 1:
+            return calcu_single_energy(pose, energy_chain[0])
+        else:
+            return calcu_interface_energy(pose, energy_chain[0], energy_chain[1])
     pose = load_pose(pdb_path)
-    energy_0 = calcu_single_energy(pose)
+    energy_0 = _calc_energy(pose, energy_chain)
     pose = relax_pdb(pose, output_path, chain, max_iter)
-    energy_1 = calcu_single_energy(pose)
+    energy_1 = _calc_energy(pose, energy_chain)
     return pdb_path, output_path, energy_0, energy_1
 
 
@@ -91,6 +96,8 @@ class relax(cacl_energy):
                           help='pdb file name substring. default: empty.')
         args.add_argument('-c', '--relax-chain', type=str, nargs='+', required=True,
                           help='Chain ID to relax. required.')
+        args.add_argument('-ec', '--energy-chain', type=str, nargs='+', default='',
+                          help='Chain ID to calculate energy. If given, first will be the receptor, next will be the ligand. default: empty.')
         args.add_argument('-it', '--max-iter', type=int, default=3,
                           help='Maximum iterations for relaxation. default: 3.')
         args.add_argument('-o', '--output_suffix', type=str, default='_relaxed',
@@ -100,6 +107,10 @@ class relax(cacl_energy):
         args.add_argument('-nw', '--n-workers', type=int, default=1,
                           help='Number of workers. default: 1.')
         return args
+    
+    def process_args(self):
+        super().process_args()
+        self.args.energy_chain = self.args.energy_chain or self.args.relax_chain
     
     def main_process(self):
         pdb_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
@@ -116,7 +127,7 @@ class relax(cacl_energy):
                 pool.wait_till_free()
             else:
                 df.loc[len(df)] = list(_relax_worker(pdb_path, output_path,
-                                                     self.args.relax_chain, self.args.max_iter))
+                                                     self.args.relax_chain, self.args.max_iter, self.args.energy_chain))
         if self.args.n_workers > 1:
             for pdb_path in tqdm(list(pool.tasks.keys()), desc='Querying results from TaskPool'):
                 df.loc[len(df)] = list(pool.query_task(pdb_path, block=True, timeout=30))  # pyright: ignore[reportArgumentType]
