@@ -7,7 +7,7 @@ Description: Prepare ligand files for docking
 import argparse
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import pandas as pd
 import pyrosetta
@@ -16,7 +16,8 @@ from mbapy_lite.file import get_paths_with_extension
 from mbapy_lite.web import TaskPool
 from tqdm import tqdm
 
-from lazydock.pyrt.energy_utils import calcu_interface_energy, calcu_single_energy
+from lazydock.pyrt.energy_utils import (calcu_interface_energy,
+                                        calcu_single_energy)
 from lazydock.pyrt.pose_utils import load_pose
 from lazydock.pyrt.relax import relax_pdb
 from lazydock.scripts._script_utils_ import Command, excute_command
@@ -71,8 +72,8 @@ class cacl_energy(Command):
         df.to_csv(self.args.output, index=False)
 
 
-def _relax_worker(pdb_path: str, output_path: str, chain: str|list[str], max_iter: int, energy_chain: str|list[str]):
-    def _calc_energy(pose: pyrosetta.Pose, energy_chain: str|list[str]):
+def _relax_worker(pdb_path: str, output_path: str, chain: Union[str, List[str]], max_iter: int, energy_chain: Union[str, List[str]]):
+    def _calc_energy(pose: pyrosetta.Pose, energy_chain: Union[str, List[str]]):
         if len(energy_chain) == 1:
             return calcu_single_energy(pose, energy_chain[0])
         else:

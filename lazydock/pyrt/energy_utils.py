@@ -8,7 +8,7 @@ from pyrosetta.rosetta.protocols.analysis import InterfaceAnalyzerMover
 from lazydock.pyrt.pose_utils import load_pose
 
 
-def calcu_interface_energy(pdb: str|Pose, receptor_chains: Union[str, List[str]],
+def calcu_interface_energy(pdb: Union[str, Pose], receptor_chains: Union[str, List[str]],
                            ligand_chains: Union[str, List[str]], scorefxn_name: str = 'ref2015') -> float:
     """
     Calculate the interface energy between receptor and ligand using PyRosetta.
@@ -80,7 +80,7 @@ def calcu_interface_energy(pdb: str|Pose, receptor_chains: Union[str, List[str]]
     return pose.scores['dG_separated']
 
 
-def calcu_single_energy(pdb: str|Pose, scorefxn_name: str = 'ref2015') -> float:
+def calcu_single_energy(pdb: Union[str, Pose], scorefxn_name: str = 'ref2015') -> float:
     """
     Calculate the energy of a single chain in a PDB file.
     

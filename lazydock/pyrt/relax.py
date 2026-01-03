@@ -1,10 +1,12 @@
 # edited from https://github.com/luost26/diffab/blob/main/diffab/tools/relax/pyrosetta_relaxer.py and Kong X, Jia Y, Huang W, et al. Full-Atom Peptide Design with Geometric Latent Diffusion[C],2024.
 
 import os
+from typing import List, Union
+
 import pyrosetta
-from pyrosetta.rosetta.core.pose import Pose
 from pyrosetta.rosetta import protocols
 from pyrosetta.rosetta.core.pack.task import TaskFactory, operation
+from pyrosetta.rosetta.core.pose import Pose
 from pyrosetta.rosetta.core.scoring import ScoreType
 from pyrosetta.rosetta.core.select import residue_selector as selections
 from pyrosetta.rosetta.core.select.movemap import (MoveMapFactory,
@@ -33,12 +35,12 @@ class RelaxPDBChain:
         self.fast_relax.set_scorefxn(self.scorefxn)
         self.fast_relax.max_iter(max_iter)
         
-    def __call__(self, pdb: str|Pose, chain: str|list[str]):
+    def __call__(self, pdb: Union[str, Pose], chain: Union[str, List[str]]):
         """Relax a PDB file or string with a given chain.
         
         Args:
-            pdb (str|Pose): Path to the PDB file or a PDB string or a Pose object.
-            chain (str|list[str]): Chain ID or a list of chain IDs to relax.
+            pdb (Union[str, Pose]): Path to the PDB file or a PDB string or a Pose object.
+            chain (Union[str, List[str]]): Chain ID or a list of chain IDs to relax.
         
         Returns:
             pyrosetta.Pose: The relaxed pose.
@@ -77,13 +79,13 @@ class RelaxPDBChain:
         return pose
     
     
-def relax_pdb(pdb_path: str, output_path: str, chain: str|list[str], max_iter: int = 1000):
+def relax_pdb(pdb_path: str, output_path: str, chain: Union[str, List[str]], max_iter: int = 1000):
     """Relax a PDB file with a given chain.
     
     Args:
         pdb_path (str): Path to the PDB file.
         output_path (str): Path to the output PDB file.
-        chain (str|list[str]): Chain ID or a list of chain IDs to relax.
+        chain (Union[str, List[str]]): Chain ID or a list of chain IDs to relax.
     """
     relaxer = RelaxPDBChain(max_iter)
     pose = relaxer(pdb_path, chain)
