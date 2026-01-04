@@ -110,7 +110,7 @@ class make_ndx(trjconv):
         args.add_argument('-f', '--main-name', type=str, default='md.tpr',
                           help='main name in each sub-directory, such as md.tpr, default is %(default)s.')
         args.add_argument('-g', '--groups', type=str, nargs='+', default=['1', '0'],
-                          help='groups for gmx trjconv, default is %(default)s.')
+                          help='groups option for make_ndx, will send each string to gmx make_ndx and automatically add a "q" in the last, default is %(default)s.')
         args.add_argument('-o', '--output', type=str, default='ana_index.ndx',
                           help='output index file name in each sub-directory, such as ana_index.ndx, default is %(default)s.')
         args.add_argument('-n', '--index', type=str, default=None,
@@ -137,7 +137,7 @@ class make_ndx(trjconv):
                 elif not self.args.force:
                     put_log(f'{self.args.output} already exists, skip.')
                     continue
-            # perform trjconv
+            # perform make_ndx
             exp_acts = []
             for g in self.args.groups:
                 exp_acts.append({'>': f'{g}\r', '\\timeout': f'{g}\r'})
@@ -317,7 +317,7 @@ class simple(trjconv):
         gmx.run_gmx_with_expect('dssp', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_dssp_mat{gmx.task_uid}.dat',
                                 sel=group, n=index, _hmode='dssp', tu='ns', **kwgs)
         gmx.run_cmd_with_expect(f'dit dssp -f {main_name}_dssp_mat{gmx.task_uid}.dat -o {main_name}_dssp_mat{gmx.task_uid}.xpm')
-        gmx.run_cmd_with_expect(f'dit xpm_show -f {main_name}_dssp_mat{gmx.task_uid}.xpm -o {main_name}_dssp_mat{gmx.task_uid}.png -xs 0.01 --x_precision 0 -x "Time (ns)" -y "Residues (aa)"')
+        gmx.run_cmd_with_expect(f'dit xpm_show -f {main_name}_dssp_mat{gmx.task_uid}.xpm -o {main_name}_dssp_mat{gmx.task_uid}.png -xs 0.01 --x_precision 0 -x "Time (ns)" -y "Residues (aa)" -ns')
         if num:
             gmx.run_cmd_with_expect(f'dit xvg_compare -c 1-10 -f {main_name}_dssp_num{gmx.task_uid}.xvg -o {main_name}_dssp_num{gmx.task_uid}.png -t "DSSP number of {main_name}" -csv {main_name}_dssp_num{gmx.task_uid}.csv -ns')
     
