@@ -124,14 +124,14 @@ class relax(cacl_energy):
             output_path = pdb_path.replace('.pdb', f'{self.args.output_suffix}.pdb')
             if self.args.n_workers > 1:
                 pool.add_task(pdb_path, _relax_worker, pdb_path, output_path,
-                                                     self.args.relax_chain, self.args.max_iter)
+                                                     self.args.relax_chain, self.args.max_iter, self.args.energy_chain)
                 pool.wait_till_free()
             else:
                 df.loc[len(df)] = list(_relax_worker(pdb_path, output_path,
                                                      self.args.relax_chain, self.args.max_iter, self.args.energy_chain))
         if self.args.n_workers > 1:
             for pdb_path in tqdm(list(pool.tasks.keys()), desc='Querying results from TaskPool'):
-                df.loc[len(df)] = list(pool.query_task(pdb_path, block=True, timeout=30))  # pyright: ignore[reportArgumentType]
+                df.loc[len(df)] = list(pool.query_task(pdb_path, block=True, timeout=300))  # pyright: ignore[reportArgumentType]
             pool.close(1)
         # Save summary
         df.to_csv(self.args.summary, index=False)
