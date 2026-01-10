@@ -60,6 +60,8 @@ def run_plip_analysis(complex_pdbstr: str, receptor_chain: str, ligand_chain: st
                       mode: Union[str, List[str]] = 'all', cutoff: float = 4.):
     mol = PDBComplex()
     mol.load_pdb(complex_pdbstr, as_string=True)
+    mode = check_support_mode(mode)
+    
     try:
         mol.analyze()
         return get_atom_level_interactions(mol, receptor_chain, ligand_chain, mode, cutoff)
@@ -95,7 +97,7 @@ def check_support_mode(mode: Union[str, List[str]]):
         return SUPPORTED_MODE
     elif isinstance(mode, str) and mode in SUPPORTED_MODE:
         return [mode]
-    elif isinstance(mode, List) and all(m in SUPPORTED_MODE for m in mode):
+    elif isinstance(mode, list) and all(m in SUPPORTED_MODE for m in mode):
         return mode
     elif any(m not in SUPPORTED_MODE for m in mode):
         put_err(f'Unsupported mode: {mode}, supported: {SUPPORTED_MODE}', _exit=True)
