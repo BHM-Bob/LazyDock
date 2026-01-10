@@ -716,7 +716,7 @@ class interaction(simple_analysis, mmpbsa):
             # sort residue index
             plot_df = plot_df[sorted(list(plot_df.columns), key=lambda x: int(x[3:]))]
             # save to csv and plot
-            plot_df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_plot_df.csv'), index=False)
+            plot_df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_plot_df{suffix}.csv'), index=False)
             if not plot_df.empty:
                 fig, ax = plt.subplots(figsize=self.args.fig_size)
                 sns.heatmap(plot_df, xticklabels=list(plot_df.columns),
