@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-13 17:31:45
+LastEditTime: 2026-01-11 12:59:29
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -13,13 +13,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-from lazydock.gmx.run import Gromacs
-from lazydock.scripts._script_utils_ import Command, clean_path, process_batch_dir_lst
-from lazydock.utils import uuid4
-from mbapy_lite.base import format_secs, put_err, put_log
+from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from pymol import cmd
 from tqdm import tqdm
+
+from lazydock.gmx.run import Gromacs
+from lazydock.scripts._script_utils_ import Command, process_batch_dir_lst
+from lazydock.utils import uuid4
 
 
 class simple_protein(Command):
@@ -78,7 +79,7 @@ class simple_protein(Command):
                           help='args pass to genion command, default is %(default)s.')
         args.add_argument('--em-args', type = str, default="",
                           help='args pass to mdrun command for energy minimization, default is %(default)s.')  
-        args.add_argument('--mdrun-args', type = str, default="-v -ntomp 4 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
+        args.add_argument('--mdrun-args', type = str, default="-v -ntomp 14 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
                           help='args pass to mdrun command for production md, default is %(default)s.')
         args.add_argument('--genion-groups', type=str, default="13",
                           help='Select a continuous group of solvent molecules, default is %(default)s.')

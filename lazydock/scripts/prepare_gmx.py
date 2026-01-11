@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-13 09:21:41
+LastEditTime: 2026-01-11 13:02:52
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 
@@ -11,6 +11,12 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
+from mbapy_lite.base import put_err, put_log
+from mbapy_lite.file import get_paths_with_extension, opts_file
+from mbapy_lite.web import Browser
+from pymol import cmd
+from tqdm import tqdm
+
 from lazydock.config import CONFIG_FILE_PATH, GlobalConfig
 from lazydock.gmx.run import Gromacs
 from lazydock.gmx.thirdparty.cgenff_charmm2gmx import run_transform
@@ -19,11 +25,6 @@ from lazydock.pml.align_to_axis import align_pose_to_axis
 from lazydock.scripts._script_utils_ import Command, clean_path
 from lazydock.web.cgenff import get_login_browser as _get_login_browser
 from lazydock.web.cgenff import get_result_from_CGenFF
-from mbapy_lite.base import Configs, put_err, put_log
-from mbapy_lite.file import get_paths_with_extension, opts_file
-from mbapy_lite.web import Browser, TaskPool, random_sleep
-from pymol import cmd
-from tqdm import tqdm
 
 
 class protein(Command):
@@ -322,9 +323,9 @@ class complex(ligand):
                           help='complex name in each sub-directory.')
         args.add_argument('--max-step', type = int, default=9,
                           help='max step to do. Default is %(default)s.')
-        args.add_argument('--receptor-chain-name', type = str,
+        args.add_argument('-rc', '--receptor-chain-name', type = str,
                           help='receptor chain name.')
-        args.add_argument('--ligand-chain-name', type = str,
+        args.add_argument('-lc', '--ligand-chain-name', type = str,
                           help='ligand chain name.')
         args.add_argument('--ff-dir', type = str,
                           help='force field files directory.')
@@ -333,7 +334,7 @@ class complex(ligand):
         args.add_argument('--pdb2gmx-args', type = str, default="-ter -ignh",
                           help='args pass to pdb2gmx command, default is %(default)s.')
         args.add_argument('--n-term', type = str, default='0',
-                          help='N-Term type for gmx pdb2gmx. Default is %(default)s.')
+                          help='N-Term type for gmx pdb2gmx. If N-Term is Met, the 0 option will be MET1, 1 option will be NH3+. Default is %(default)s.')
         args.add_argument('--c-term', type = str, default='0',
                           help='C-Term type for gmx pdb2gmx. Default is %(default)s.')
         return args
