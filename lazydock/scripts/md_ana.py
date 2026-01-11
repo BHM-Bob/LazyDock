@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-02 12:21:20
+LastEditTime: 2025-08-19 20:33:02
 Description: 
 '''
 import argparse
@@ -89,6 +89,11 @@ class elastic(mmpbsa):
                           help='number of workers to parallel. Default is %(default)s.')
         return args
     
+    def process_args(self):
+        super().process_args()
+        if self.__class__.__name__ == 'elastic':
+            self.pool = TaskPool('process', self.args.n_workers).start()
+    
     def fast_calcu(self, u: mda.Universe, args: argparse.ArgumentParser):
         start, step, stop = args.begin_frame, args.traj_step, args.end_frame
         ag, v, t = u.select_atoms(args.select), [], []
@@ -149,13 +154,12 @@ class elastic(mmpbsa):
         self.top_paths, self.traj_paths = self.check_top_traj()
         self.tasks = self.find_tasks()
         print(f'find {len(self.tasks)} tasks.')
-        if self.__class__.__name__ == 'elastic':
-            self.pool = TaskPool('process', self.args.n_workers).start()
         # process each task
         bar = tqdm(total=len(self.tasks), desc='Calculating')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
-            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
+            bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             u = mda.Universe(top_path, traj_path)
             wdir = Path(wdir).resolve()
             self.analysis(u, wdir, self.args)
@@ -185,7 +189,7 @@ class rmsd(elastic):
         
     def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
         force, start, step, stop = args.force, args.begin_frame, args.traj_step, args.end_frame
-        if os.path.exists(w_dir / 'inter_frame_rmsd.pkl') and not force:
+        if os.path.exists(w_dir / 'inter_frame_rmsd.npz') and not force:
             return put_log('Inter-frame RMSD already calculated, use -F to re-run.')
         # calcu interaction for each frame
         ag, coords = u.select_atoms(args.select), []
@@ -517,7 +521,7 @@ class show_chain(elastic):
     PPrint chain info of a tpr file
     """
     def analysis(self, u: mda.Universe, w_dir: Path, args: argparse.ArgumentParser):
-        print() # new line after tqdm
+        print(f'\nframes: {len(u.trajectory)}') # new line after tqdm
         for i, chain_i in enumerate(np.unique(u.atoms.chainIDs)):
             idx = u.atoms.chainIDs == chain_i
             print(f'chain {i}: {chain_i}: {len(u.atoms[idx])} atoms')    

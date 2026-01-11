@@ -1,12 +1,14 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-24 16:55:54
+LastEditTime: 2025-09-13 13:03:46
 Description:
 '''
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List
+from uuid import uuid4
 
 from mbapy_lite.base import get_fmt_time, put_log
 from mbapy_lite.file import opts_file
@@ -19,6 +21,7 @@ class Gromacs(BaseInfo):
         self.call_name = call_name
         self.working_dir = os.path.abspath(working_dir)
         self.wdir = Path(self.working_dir).resolve()
+        self.task_uid = uuid4().hex[:4]
         
     def kwargs2cmd(self, kwargs: Dict[str, str]):
         return ' '.join([f'{"--" if k.startswith("_") else "-"}{k[1:] if k.startswith("_") else k} {v}' for k, v in kwargs.items()])
@@ -121,8 +124,23 @@ class Gromacs(BaseInfo):
         """
         return self.run_command_with_expect(f'cd "{self.working_dir}" && {cmd}', expect_actions, expect_settings, enable_log)
         
+    def get_groups(self, f_name: str) -> Dict[str, int]:
+        """
+        Get groups from tpr file using gmx make_ndx command.
         
-        
+        Parameters:
+            - f_name: str, the tpr or gro file name.
+            
+        Returns:
+            - Dict[str, int], the groups name and index.
+        """
+        ndx_name = f'./LazyDock_gmx_scripts/{get_fmt_time("%Y-%m-%d-%H-%M-%S.%f")}.ndx'
+        self.run_gmx_with_expect('make_ndx', f=f_name, o=ndx_name, expect_actions=[{'>': 'q\r'}])
+        ndx = opts_file(os.path.join(self.working_dir, ndx_name))
+        g_names = re.findall(r'\[ ([\w\-\+]+) \]', ndx)
+        return {g: i for i, g in enumerate(g_names)}
+
+
 if __name__ == '__main__':
     gmx = Gromacs()
     gmx.run_gmx_with_expect('grompp', f='topol.top', c='conf.gro', p='topol.top', o='tpr', maxwarn=1)

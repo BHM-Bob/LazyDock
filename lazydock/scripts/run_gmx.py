@@ -81,7 +81,7 @@ class simple_protein(Command):
                           help='args pass to mdrun command for energy minimization, default is %(default)s.')  
         args.add_argument('--mdrun-args', type = str, default="-v -ntomp 14 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
                           help='args pass to mdrun command for production md, default is %(default)s.')
-        args.add_argument('--genion-groups', type=str, default="13",
+        args.add_argument('--genion-groups', type=str, default="SOL",
                           help='Select a continuous group of solvent molecules, default is %(default)s.')
         args.add_argument('--potential-groups', type=str, default="11 0",
                           help='groups to plot potential, default is %(default)s.')
@@ -153,8 +153,15 @@ class simple_protein(Command):
         # STEP 3: grompp -f ions.mdp -c protein_solv.gro -p topol.top -o ions.tpr
         gmx.run_gmx_with_expect('grompp', f=mdps['ion'], c=f'{main_name}_solv.gro', p='topol.top', o='ions.tpr')
         # STEP 4: genion -s ions.tpr -o protein_solv_ions.gro -p topol.top -pname NA -nname CL -neutral
+        genion_groups = self.args.genion_groups
+        if self.args.genion_groups == 'SOL':
+            groups = gmx.get_groups('ions.tpr')
+            if 'SOL' not in groups:
+                put_err(f'can not find SOL group in ions.tpr, skip.')
+            else:
+                genion_groups = groups['SOL']
         gmx.run_gmx_with_expect(f'genion {self.args.genion_args}', s='ions.tpr', o=f'{main_name}_solv_ions.gro', p='topol.top',
-                                    expect_actions=[{'Select a group:': f'{self.args.genion_groups}\r', 'No ions to add': '', '\\timeout': ''}],
+                                    expect_actions=[{'Select a group:': f'{genion_groups}\r', 'No ions to add': '', '\\timeout': ''}],
                                     expect_settings={'start_timeout': 600})
         
     def energy_minimization(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
@@ -254,13 +261,11 @@ class simple_complex(simple_protein):
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         args = simple_protein.make_args(args)
-        method_arg_idx = args._actions.index(list(filter(lambda x: x.dest =='genion_groups', args._actions))[0])
-        args._actions[method_arg_idx].default = '15'
         args.add_argument('-ln', '--ligand-name', type = str, default='lig.gro',
                           help='ligand name in each sub-directory, such as lig.gro, default is %(default)s.')
         args.add_argument('--lig-posres', type=str, default='POSRES',
                           help='ligand position restraint symbol, default is %(default)s.')
-        args.add_argument('--tc-groups', type=str, default='1 | 13',
+        args.add_argument('--tc-groups', type=str, default='auto',
                           help='tc-grps to select, so could set tc-grps = Protein_JZ4 Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.')
         return args
         
@@ -279,8 +284,15 @@ class simple_complex(simple_protein):
         ligand.insert_content(protein_path.parent / 'topol.top', f'#include "{lig_name}.itp"\n', res_info)
         # STEP 3: make tc-grps index file
         # gmx make_ndx -f em.gro -o index.ndx
+        tc_groups = self.args.tc_groups
+        if self.args.tc_groups == 'auto':
+            groups = gmx.get_groups('em.tpr')
+            if 'Protein' not in groups and 'LIG' not in groups:
+                put_err(f'can not find Protein or LIG group in em.tpr, skip.')
+            else:
+                tc_groups = f'{groups["Protein"]} | {groups["LIG"]}'
         gmx.run_gmx_with_expect('make_ndx', f='em.gro', o='tc_index.ndx',
-                                    expect_actions=[{'>': f'{self.args.tc_groups}\r'}, {'>': 'q\r'}])
+                                    expect_actions=[{'>': f'{tc_groups}\r'}, {'>': 'q\r'}])
         for k in ['nvt', 'npt','md']:
             self.indexs[k] = 'tc_index.ndx'
         super().equilibration(protein_path, main_name, gmx, mdps)

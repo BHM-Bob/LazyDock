@@ -289,7 +289,6 @@ the program will use the ff-dir in sub-directory.')
             if self.args.max_step >= 8 and (not os.path.exists(opath_top)):
                 # just copy the ligand topology to the system topology.
                 shutil.copy(ipath, opath_top)
-                
 
 
 class complex(ligand):
@@ -356,7 +355,8 @@ class complex(ligand):
         return True
 
     @staticmethod
-    def prepare_complex_topol(ipath_rgro: str, ipath_lgro: str, ipath_top: str, opath_cgro: str, opath_top: str):
+    def prepare_complex_topol(ipath_rgro: str, ipath_lgro: str, ipath_top: str, opath_cgro: str, opath_top: str,
+                              insert_itp: bool = True, insert_prm: bool = True):
         # merge receptor and ligand gro into complex.gro
         receptor_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(ipath_rgro, 'r', way='lines')))
         lig_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(ipath_lgro, 'r', way='lines')))
@@ -365,12 +365,12 @@ class complex(ligand):
         opts_file(opath_cgro, 'w', way='lines', data=complex_gro_lines)
         # inset ligand paramters in topol.top
         topol = opts_file(ipath_top)
-        if (Path(ipath_top).parent / 'lig.itp').exists():
+        if (Path(ipath_top).parent / 'lig.itp').exists() and insert_itp:
             _topol = complex.insert_content(topol, '#include "posre.itp"\n#endif\n',
                                         '\n; Include ligand topology\n#include "lig.itp"\n')
             if _topol is not None:
                 topol = _topol
-        if (Path(ipath_top).parent / 'lig.prm').exists():
+        if (Path(ipath_top).parent / 'lig.prm').exists() and insert_prm:
             _topol = complex.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',
                                         '\n; Include ligand parameters\n#include "lig.prm"\n')
             if _topol is not None:

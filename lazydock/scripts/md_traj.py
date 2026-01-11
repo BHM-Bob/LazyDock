@@ -29,6 +29,8 @@ from tqdm import tqdm
 def run_md_traj_simple_analysis(top_path: str, traj_path: str, args: argparse.Namespace):
     root = Path(top_path).resolve().parent
     main_name = Path(traj_path).stem
+    if (root / f'{main_name}_nematic_order.csv').exists() and not args.force:
+        return put_log(f'{root} already calculated, skip.')
     def save_df(data: np.ndarray, name: str, cols: str = None):
         df = pd.DataFrame(data, columns=cols or [name])
         df.to_csv(root / f'{main_name}_{name}.csv')
@@ -114,7 +116,7 @@ class simple_analysis(RRCS):
             tasks.append(pool.add_task(None, run_md_traj_simple_analysis, top_path, traj_path, self.args))
             pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.01, update_result_queue=False)
         pool.wait_till_tasks_done(tasks)
-        pool.close()
+        pool.close(1)
         
 
 _str2func = {

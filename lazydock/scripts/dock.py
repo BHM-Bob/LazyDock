@@ -44,13 +44,6 @@ class vina(Command):
                                 help='number of tasks to parallel docking. Default is %(default)s.')
         return args
     
-    def process_batch_dir_lst(self, batch_dir_lst: List[str]):
-        batch_dir_lst = list(map(clean_path, batch_dir_lst))
-        for root in batch_dir_lst:
-            if not os.path.isdir(root):
-                put_err(f'batch_dir argument should be a directory: {root}, exit.', _exit=True)
-        return batch_dir_lst
-    
     def process_args(self):
         self.args.batch_dir = self.process_batch_dir_lst(self.args.batch_dir)
         if self.args.n_workers <= 0:
@@ -70,10 +63,7 @@ class vina(Command):
         os.system(cmd_string)
         
     def main_process(self):
-        if os.path.isdir(self.args.batch_dir):
-            configs_path = get_paths_with_extension(self.args.batch_dir, ['.txt'], name_substr=self.args.config_name)
-        else:
-            return put_err(f'dir argument should be a directory: {self.args.batch_dir}, skip.')
+        configs_path = get_paths_with_extension(self.args.batch_dir, ['.txt'], name_substr=self.args.config_name)
         print(f'get {len(configs_path)} config(s) for docking')
         self.taskpool = TaskPool('threads', self.args.n_workers).start()
         tasks = []

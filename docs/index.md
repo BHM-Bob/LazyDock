@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2025-05-28 14:57:52
+ * @LastEditTime: 2025-06-26 21:33:40
  * @Description: 
 -->
 
@@ -85,9 +85,11 @@ pip install lazydock
 - [eval_modeling](scripts/eval_modeling.md): evaluate modeling result.
 - [prepare_gmx](scripts/prepare_gmx.md): prepare gmx files.
 - [run_gmx](scripts/run_gmx.md): run gmx tasks.
+- [ana_gmx](scripts/ana_gmx.md): analyze Gromacs result, including basic analysis, PLIP, RRCS and so on.
 
 
 ## release note
+- [0.14.0](release_note/0.14.0.md)
 - [0.13.0](release_note/0.13.0.md)
 - [0.12.0](release_note/0.12.0.md)
 - [0.11.0](release_note/0.11.0.md)

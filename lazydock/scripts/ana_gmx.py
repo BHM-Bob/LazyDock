@@ -2,6 +2,7 @@ import argparse
 import os
 import shutil
 from pathlib import Path
+import time
 from typing import Dict, List, Tuple, Union
 
 if 'MBAPY_PLT_AGG' in os.environ:
@@ -92,6 +93,7 @@ class trjconv(Command):
                           'trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc',
                           n=self.args.index, pbc=self.args.pbc, ur=self.args.ur, center=True,
                           expect_actions=exp_acts, expect_settings={'timeout': 10})
+            time.sleep(5) # delay for 5 seconds, avoid `expect` conflicts
             pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 1)
         pool.close(1)
 
@@ -108,7 +110,7 @@ class make_ndx(trjconv):
         args.add_argument('-f', '--main-name', type=str, default='md.tpr',
                           help='main name in each sub-directory, such as md.tpr, default is %(default)s.')
         args.add_argument('-g', '--groups', type=str, nargs='+', default=['1', '0'],
-                          help='groups for gmx trjconv, default is %(default)s.')
+                          help='groups option for make_ndx, will send each string to gmx make_ndx and automatically add a "q" in the last, default is %(default)s.')
         args.add_argument('-o', '--output', type=str, default='ana_index.ndx',
                           help='output index file name in each sub-directory, such as ana_index.ndx, default is %(default)s.')
         args.add_argument('-n', '--index', type=str, default=None,
@@ -135,7 +137,7 @@ class make_ndx(trjconv):
                 elif not self.args.force:
                     put_log(f'{self.args.output} already exists, skip.')
                     continue
-            # perform trjconv
+            # perform make_ndx
             exp_acts = []
             for g in self.args.groups:
                 exp_acts.append({'>': f'{g}\r', '\\timeout': f'{g}\r'})
@@ -197,54 +199,56 @@ class simple(trjconv):
                           help='force to re-run the analysis, default is %(default)s.')
         args.add_argument('-D', '--delete', default=False, action='store_true',
                           help='delete the exist analysis result, default is %(default)s.')
+        args.add_argument('--task-suffix', type = str, default='',
+                          help='suffix of task, default is %(default)s.')
         return args
         
     @staticmethod
     def rms(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsd.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsd{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_rmsd.csv').unlink(missing_ok=True)
                 (gmx.wdir / f'rmsd.xvg').unlink(missing_ok=True)
                 (gmx.wdir / f'rmsd.png').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_rmsd.csv already exists, skip.')
-        gmx.run_gmx_with_expect('rms', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsd.xvg', tu='ns', n=index,
+        gmx.run_gmx_with_expect('rms', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsd{gmx.task_uid}.xvg', tu='ns', n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsd.xvg -o rmsd.png -smv -ws 10 -t "RMSD of {main_name}" -csv {main_name}_rmsd.csv -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsd{gmx.task_uid}.xvg -o rmsd{gmx.task_uid}.png -smv -ws 10 -t "RMSD of {main_name}" -csv {main_name}_rmsd{gmx.task_uid}.csv -ns')
         
     @staticmethod
     def rmsf(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', res: bool = True, force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsf.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsf{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_rmsf.csv').unlink(missing_ok=True)
                 (gmx.wdir / f'rmsf.xvg').unlink(missing_ok=True)
                 (gmx.wdir / f'rmsf.png').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_rmsf.csv already exists, skip.')
-        gmx.run_gmx_with_expect('rmsf', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsf.xvg', res=res, n=index,
+        gmx.run_gmx_with_expect('rmsf', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsf{gmx.task_uid}.xvg', res=res, n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsf.xvg -o rmsf.png -t "RMSF of {main_name}" -csv {main_name}_rmsf.csv -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsf{gmx.task_uid}.xvg -o rmsf{gmx.task_uid}.png -t "RMSF of {main_name}" -csv {main_name}_rmsf{gmx.task_uid}.csv -ns')
         
     @staticmethod
     def gyrate(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_gyrate.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_gyrate{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_gyrate.csv').unlink(missing_ok=True)
                 (gmx.wdir / f'gyrate.xvg').unlink(missing_ok=True)
                 (gmx.wdir / f'gyrate.png').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_gyrate.csv already exists, skip.')
-        gmx.run_gmx_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate.xvg', n=index,
+        gmx.run_gmx_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate{gmx.task_uid}.xvg', n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f gyrate.xvg -o gyrate.png -smv -ws 10 -t "Gyrate of {main_name}" -csv {main_name}_gyrate.csv -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f gyrate{gmx.task_uid}.xvg -o gyrate{gmx.task_uid}.png -smv -ws 10 -t "Gyrate of {main_name}" -csv {main_name}_gyrate{gmx.task_uid}.csv -ns')
         
     @staticmethod
     def hbond(gmx: Gromacs, main_name: str, index: str = None, group: Tuple[int, int] = (1, 1), dt=10, force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_hbond_num.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_hbond_num{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_hbond_dist.xvg').unlink(missing_ok=True)
                 (gmx.wdir / f'{main_name}_hbond_num.xvg').unlink(missing_ok=True)
@@ -254,89 +258,89 @@ class simple(trjconv):
             if not force:
                 return put_log(f'{main_name}_hbond_num.csv already exists, skip.')
         gmx.run_gmx_with_expect('hbond', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
-                                    num=f'{main_name}_hbond_num.xvg', dist=f'{main_name}_hbond_dist.xvg', n=index,
+                                    num=f'{main_name}_hbond_num{gmx.task_uid}.xvg', dist=f'{main_name}_hbond_dist{gmx.task_uid}.xvg', n=index,
                                     expect_actions=[{'Select a group:': f'{group[0]}\r', '\\timeout': f'{group[0]}\r'},
                                                     {'Select a group:': f'{group[1]}\r', '\\timeout': f'{group[1]}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_hbond_num.xvg -o hbond_num.png -smv -ws 10 -t "H-bond num of {main_name}" -csv {main_name}_hbond_num.csv -ns')
-        gmx.run_cmd_with_expect(f'dit xvg_show -f {main_name}_hbond_dist.xvg -o hbond_dist.png -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_hbond_num{gmx.task_uid}.xvg -o hbond_num{gmx.task_uid}.png -smv -ws 10 -t "H-bond num of {main_name}" -csv {main_name}_hbond_num{gmx.task_uid}.csv -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_show -f {main_name}_hbond_dist{gmx.task_uid}.xvg -o hbond_dist{gmx.task_uid}.png -ns')
 
     @staticmethod
     def sasa(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_sasa_tv.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_sasa_tv{gmx.task_uid}.csv')):
             if delete:
                 for ty in ['total', 'res', 'dg', 'tv']:
-                    (gmx.wdir / f'{main_name}_sasa_{ty}.xvg').unlink(missing_ok=True)
-                    (gmx.wdir / f'{main_name}_sasa_{ty}.png').unlink(missing_ok=True)
-                    (gmx.wdir / f'{main_name}_sasa_{ty}.csv').unlink(missing_ok=True)
+                    (gmx.wdir / f'{main_name}_sasa_{ty}{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                    (gmx.wdir / f'{main_name}_sasa_{ty}{gmx.task_uid}.png').unlink(missing_ok=True)
+                    (gmx.wdir / f'{main_name}_sasa_{ty}{gmx.task_uid}.csv').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_sasa_tv.csv already exists, skip.')
-        gmx.run_gmx_with_expect(f'sasa -or {main_name}_sasa_res.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
-                                    o=f'{main_name}_sasa_total.xvg', odg=f'{main_name}_sasa_dg.xvg', tv=f'{main_name}_sasa_tv.xvg', tu='ns', n=index,
+        gmx.run_gmx_with_expect(f'sasa -or {main_name}_sasa_res{gmx.task_uid}.xvg', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
+                                    o=f'{main_name}_sasa_total{gmx.task_uid}.xvg', odg=f'{main_name}_sasa_dg{gmx.task_uid}.xvg', tv=f'{main_name}_sasa_tv{gmx.task_uid}.xvg', tu='ns', n=index,
                                     expect_actions=[{'>': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
         for ty in ['total', 'res', 'dg', 'tv']:
-            gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_sasa_{ty}.xvg -o {main_name}_sasa_{ty}.png -smv -ws 10 -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}.csv -ns')
+            gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_sasa_{ty}{gmx.task_uid}.xvg -o {main_name}_sasa_{ty}{gmx.task_uid}.png -smv -ws 10 -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}{gmx.task_uid}.csv -ns')
 
     @staticmethod
     def covar(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', xmax: int = 15, force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_eigenval.csv')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_eigenval{gmx.task_uid}.csv')):
             if delete:
-                (gmx.wdir / f'{main_name}_eigenval.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_eigenval.png').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_eigenval.csv').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_eigenval{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_eigenval{gmx.task_uid}.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_eigenval{gmx.task_uid}.csv').unlink(missing_ok=True)
             if not force:
                 return put_log(f'{main_name}_eigenval.csv already exists, skip.')
-        gmx.run_gmx_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_eigenval.xvg', tu='ns', n=index,
+        gmx.run_gmx_with_expect('covar', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_eigenval{gmx.task_uid}.xvg', tu='ns', n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
-        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_eigenval.xvg -o {main_name}_eigenval.png -xmin 0 -xmax {xmax} -t "Eigenval of {main_name}" -csv {main_name}_eigenval.csv -ns')
+        gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_eigenval{gmx.task_uid}.xvg -o {main_name}_eigenval{gmx.task_uid}.png -xmin 0 -xmax {xmax} -t "Eigenval of {main_name}" -csv {main_name}_eigenval{gmx.task_uid}.csv -ns')
     
     @staticmethod
     def dssp(gmx: Gromacs, main_name: str, index: str = None, group: str = None, num: bool = False, clear: bool = False,
              force: bool = False, delete: bool = False, **kwargs):
-        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_dssp_mat.dat')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_dssp_mat{gmx.task_uid}.dat')):
             if delete:
-                (gmx.wdir / f'{main_name}_dssp_num.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_dssp_mat.dat').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_dssp_mat.xpm').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_dssp_mat.png').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_dssp_num.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_num{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_mat{gmx.task_uid}.dat').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_mat{gmx.task_uid}.xpm').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_mat{gmx.task_uid}.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_dssp_num{gmx.task_uid}.png').unlink(missing_ok=True)
             if not force:
-                return put_log(f'{main_name}_dssp_mat.dat already exists, skip.')
+                return put_log(f'{main_name}_dssp_mat{gmx.task_uid}.dat already exists, skip.')
         kwgs = {}
         if num:
-            kwgs = {'num': f'{main_name}_dssp_num.xvg'}
+            kwgs = {'num': f'{main_name}_dssp_num{gmx.task_uid}.xvg'}
         if clear:
             kwgs.update({'_clear': True})
-        gmx.run_gmx_with_expect('dssp', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_dssp_mat.dat',
+        gmx.run_gmx_with_expect('dssp', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'{main_name}_dssp_mat{gmx.task_uid}.dat',
                                 sel=group, n=index, _hmode='dssp', tu='ns', **kwgs)
-        gmx.run_cmd_with_expect(f'dit dssp -f {main_name}_dssp_mat.dat -o {main_name}_dssp_mat.xpm')
-        gmx.run_cmd_with_expect(f'dit xpm_show -f {main_name}_dssp_mat.xpm -o {main_name}_dssp_mat.png -xs 0.01 --x_precision 0 -x "Time (ns)" -y "Residues (aa)"')
+        gmx.run_cmd_with_expect(f'dit dssp -f {main_name}_dssp_mat{gmx.task_uid}.dat -o {main_name}_dssp_mat{gmx.task_uid}.xpm')
+        gmx.run_cmd_with_expect(f'dit xpm_show -f {main_name}_dssp_mat{gmx.task_uid}.xpm -o {main_name}_dssp_mat{gmx.task_uid}.png -xs 0.01 --x_precision 0 -x "Time (ns)" -y "Residues (aa)" -ns')
         if num:
-            gmx.run_cmd_with_expect(f'dit xvg_compare -c 1-10 -f {main_name}_dssp_num.xvg -o {main_name}_dssp_num.png -t "DSSP number of {main_name}" -csv {main_name}_dssp_num.csv -ns')
+            gmx.run_cmd_with_expect(f'dit xvg_compare -c 1-10 -f {main_name}_dssp_num{gmx.task_uid}.xvg -o {main_name}_dssp_num{gmx.task_uid}.png -t "DSSP number of {main_name}" -csv {main_name}_dssp_num{gmx.task_uid}.csv -ns')
     
     @staticmethod
     def free_energy_landscape(gmx: Gromacs, main_name: str, force: bool = False, delete: bool = False, **kwargs):
         # MD-DaVis
-        if os.path.exists(os.path.join(gmx.working_dir, f'FEL.html')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'FEL{gmx.task_uid}.html')):
             if delete:
-                (gmx.wdir / f'FEL.html').unlink(missing_ok=True)
+                (gmx.wdir / f'FEL{gmx.task_uid}.html').unlink(missing_ok=True)
             if not force:
-                return put_log(f'FEL.html already exists, skip.')
-        gmx.run_cmd_with_expect(f'md-davis landscape_xvg -c -T 300 -x rmsd.xvg -y gyrate.xvg -o FEL.html -n FEL -l "RMSD-Rg" --axis_labels "dict(x=\'RMSD (in nm)\', y=\'Rg (in nm)\', z=\'Free Energy (kJ mol<sup>-1</sup>)<br>\')"')
+                return put_log(f'FEL{gmx.task_uid}.html already exists, skip.')
+        gmx.run_cmd_with_expect(f'md-davis landscape_xvg -c -T 300 -x rmsd.xvg -y gyrate.xvg -o FEL{gmx.task_uid}.html -n FEL -l "RMSD-Rg" --axis_labels "dict(x=\'RMSD (in nm)\', y=\'Rg (in nm)\', z=\'Free Energy (kJ mol<sup>-1</sup>)<br>\')"')
         # gmx and dit
-        if os.path.exists(os.path.join(gmx.working_dir, f'rmsd_gyrate.png')):
+        if os.path.exists(os.path.join(gmx.working_dir, f'rmsd_gyrate{gmx.task_uid}.png')):
             if delete:
-                (gmx.wdir / f'rmsd_gyrate.png').unlink(missing_ok=True)
-                (gmx.wdir / f'rmsd_gyrate.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'sham.xpm').unlink(missing_ok=True)
+                (gmx.wdir / f'rmsd_gyrate{gmx.task_uid}.png').unlink(missing_ok=True)
+                (gmx.wdir / f'rmsd_gyrate{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'sham{gmx.task_uid}.xpm').unlink(missing_ok=True)
             if not force:
-                return put_log(f'rmsd_gyrate.png already exists, skip.')
-        gmx.run_cmd_with_expect(f'dit xvg_combine -f rmsd.xvg gyrate.xvg -c 0,1 1 -l RMSD Gyrate -o rmsd_gyrate.xvg -x "Time (ps)"')
-        gmx.run_gmx_with_expect(f'sham -f rmsd_gyrate.xvg -ls sham.xpm --ngrid 100')
-        gmx.run_cmd_with_expect(f'dit xpm_show -f sham.xpm --x_precision 2 --y_precision 2 -x "RMSD (nm)" -y "Rg (nm)" -cmap jet --colorbar_location right -ip gaussian -o rmsd_gyrate.png -ns')
+                return put_log(f'rmsd_gyrate{gmx.task_uid}.png already exists, skip.')
+        gmx.run_cmd_with_expect(f'dit xvg_combine -f rmsd{gmx.task_uid}.xvg gyrate{gmx.task_uid}.xvg -c 0,1 1 -l RMSD Gyrate -o rmsd_gyrate{gmx.task_uid}.xvg -x "Time (ps)"')
+        gmx.run_gmx_with_expect(f'sham -f rmsd_gyrate{gmx.task_uid}.xvg -ls sham{gmx.task_uid}.xpm --ngrid 100')
+        gmx.run_cmd_with_expect(f'dit xpm_show -f sham{gmx.task_uid}.xpm --x_precision 2 --y_precision 2 -x "RMSD (nm)" -y "Rg (nm)" -cmap jet --colorbar_location right -ip gaussian -o rmsd_gyrate{gmx.task_uid}.png -ns')
         
     @staticmethod
     def plot_PDF(gmx: Gromacs, main_name: str, force: bool = False, delete: bool = False, **kwargs):
@@ -386,6 +390,7 @@ class simple(trjconv):
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
             complex_path = Path(complex_path).resolve()
             gmx = Gromacs(working_dir=str(complex_path.parent))
+            gmx.task_uid = self.args.task_suffix
             main_name = complex_path.stem
             if (complex_path.parent / f'{main_name}.tpr').exists() and (complex_path.parent / f'{main_name}_center.xtc').exists():
                 put_log(f'Perform analysis for {main_name}.tpr and {main_name}_center.xtc.')
@@ -451,6 +456,8 @@ class mmpbsa(simple):
                           help='receptor chain name, such as "A".')
         args.add_argument('--ligand-chain-name', type = str, required=True,
                           help='ligand chain name, such as "LIG".')
+        args.add_argument('-F', '--force', default=False, action='store_true',
+                          help='force to re-run the analysis, default is %(default)s.')
         return args
         
     def get_complex_atoms_index(self, u: Universe):
@@ -486,7 +493,13 @@ class mmpbsa(simple):
         bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
-            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
+            bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            # check results
+            if os.path.exists(os.path.join(wdir, self.args.output+'.csv')) and not self.args.force:
+                put_log(f"{self.args.output}.csv already exists, skip.")
+                bar.update(1)
+                continue
             # get receptor and ligand atoms index range
             u = Universe(top_path, traj_path)
             rec_idx, lig_idx = self.get_complex_atoms_index(u)
@@ -502,8 +515,18 @@ class mmpbsa(simple):
                                     expect_actions=[{'>': f'a {rec_range_str}\r'}, {'>': f'name {sum_groups} MMPBSA_Receptor\r'},
                                                     {'>': f'a {lig_range_str}\r'}, {'>': f'name {sum_groups+1} MMPBSA_Ligand\r'},
                                                     {'>': 'q\r'}])
+            # check MMPBSA parameters input file
+            if not os.path.exists(os.path.join(wdir, self.args.input)):
+                if os.path.exists(self.args.input):
+                    input_name = os.path.basename(self.args.input)
+                    shutil.copy(self.args.input, os.path.join(wdir, input_name))
+                else:
+                    put_err(f"input file {self.args.input} not exists, skip.")
+                    continue
+            else:
+                input_name = self.args.input
             # call gmx_MMPBSA
-            cmd_str = f'gmx_MMPBSA -O -i {self.args.input} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.ndx -cg {sum_groups} {sum_groups+1} -cp topol.top -o {self.args.output}.dat -eo {self.args.output}.csv -nogui'
+            cmd_str = f'gmx_MMPBSA -O -i {input_name} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.ndx -cg {sum_groups} {sum_groups+1} -cp topol.top -o {self.args.output}.dat -eo {self.args.output}.csv -nogui'
             os.system(f'cd "{gmx.working_dir}" && mpirun -np {self.args.np} {cmd_str}')
             bar.update(1)
     
@@ -537,6 +560,8 @@ class interaction(simple_analysis, mmpbsa):
         mmpbsa.make_args(args, mmpbsa_args=False)
         args.add_argument('-gro', '--gro-name', type = str, default='md.gro',
                           help=f"gro file name in each sub-folder.")
+        args.add_argument('--suffix', type = str, default='',
+                          help='suffix for output file name, default is %(default)s.')
         args.add_argument('--alter-receptor-chain', type = str, default=None,
                           help='alter receptor chain name from topology to user-define, such as "A".')
         args.add_argument('--alter-ligand-chain', type = str, default=None,
@@ -569,8 +594,6 @@ class interaction(simple_analysis, mmpbsa):
                           help='First frame to start the analysis. Default is %(default)s.')
         args.add_argument('-step', '--traj-step', type=int, default=1,
                           help='Step while reading trajectory. Default is %(default)s.')
-        args.add_argument('-F', '--force', default=False, action='store_true',
-                          help='force to re-run the analysis, default is %(default)s.')
         args.add_argument('--plot-time-unit', type=int, default=100,
                           help='time unit for plot in X-Axis, default is %(default)s.')
         args.add_argument('--yticks-interval', type=int, default=10,
@@ -637,18 +660,20 @@ class interaction(simple_analysis, mmpbsa):
         # load origin dfs from data file
         self.top_paths, self.traj_paths = self.check_top_traj()
         self.tasks = self.find_tasks()
+        suffix = self.args.suffix
         print(f'find {len(self.tasks)} tasks.')
         # run tasks
         pool = TaskPool('process', self.args.n_workers).start()
         bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
-            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
+            bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             # calcu interaction and save to file OR load results if have been calculated before and not force recalculate
             top_path = Path(top_path).resolve()
             gro_path = str(top_path.parent / self.args.gro_name)
-            csv_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.csv')
-            pkl_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.pkl')
+            csv_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions{suffix}.csv')
+            pkl_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions{suffix}.pkl')
             if (not os.path.exists(csv_path) or not os.path.exists(pkl_path)) or self.args.force:
                 interactions, df = self.calcu_interaction(str(top_path), gro_path, traj_path, pool)
                 if interactions is None:
@@ -659,11 +684,11 @@ class interaction(simple_analysis, mmpbsa):
                 opts_file(pkl_path, 'wb', way='pkl', data=interactions)
             else:
                 interactions = opts_file(pkl_path, 'rb', way='pkl')
-            # ckeck whether to plot
-            if self.args.skip_plot:
-                pool.task = {}
-                bar.update(1)
-                continue
+                # ckeck whether to plot
+                if self.args.skip_plot:
+                    pool.task = {}
+                    bar.update(1)
+                    continue
             # transform interaction df to plot matrix df
             times = split_list(list(interactions.keys()), self.args.plot_time_unit)
             plot_df = pd.DataFrame()
@@ -691,7 +716,7 @@ class interaction(simple_analysis, mmpbsa):
             # sort residue index
             plot_df = plot_df[sorted(list(plot_df.columns), key=lambda x: int(x[3:]))]
             # save to csv and plot
-            plot_df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_plot_df.csv'), index=False)
+            plot_df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_plot_df{suffix}.csv'), index=False)
             if not plot_df.empty:
                 fig, ax = plt.subplots(figsize=self.args.fig_size)
                 sns.heatmap(plot_df, xticklabels=list(plot_df.columns),
@@ -704,7 +729,7 @@ class interaction(simple_analysis, mmpbsa):
                 cbar = ax.collections[0].colorbar
                 cbar.ax.tick_params(labelsize=14)
                 cbar.ax.set_ylabel('Interaction frequency', fontsize=16)
-                save_show(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions.png'), 600, show=False)
+                save_show(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions{suffix}.png'), 600, show=False)
                 plt.close(fig)
             # other things
             pool.clear()
@@ -757,8 +782,6 @@ class RRCS(mmpbsa):
                           help='Step while reading trajectory. Default is %(default)s.')
         args.add_argument('--backend', type=str, default='numpy', choices=['numpy', 'torch', 'cuda'],
                           help='backend for RRCS calculation. Default is %(default)s.')
-        args.add_argument('-F', '--force', default=False, action='store_true',
-                          help='force to re-run the analysis, default is %(default)s.')
         
     @staticmethod
     def plot_average_heatmap(scores: np.ndarray, top_path: Path):
@@ -896,7 +919,8 @@ class RRCS(mmpbsa):
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
             top_path = Path(top_path).resolve()
-            bar.set_description(f"{wdir}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
+            bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
             if os.path.exists(os.path.join(wdir, f'{top_path.stem}_RRCS.npz')) and not self.args.force:
                 put_log(f'{top_path.stem}_RRCS.npz already exists, skip.')
                 continue
@@ -993,8 +1017,6 @@ class porcupine(mmpbsa):
                           help='Step while reading trajectory. Default is %(default)s.')
         args.add_argument('-nw', '--n-workers', type=int, default=4,
                           help='number of workers to parallel. Default is %(default)s.')
-        args.add_argument('-F', '--force', default=False, action='store_true',
-                          help='force to re-run the analysis, default is %(default)s.')
         args.add_argument('-D', '--delete', default=False, action='store_true',
                           help='delete the exist analysis result, default is %(default)s.')
         
@@ -1047,7 +1069,6 @@ def main(sys_args: List[str] = None):
 
 if __name__ == '__main__':
     # dev code
-    # main('interaction -bd data_tmp/gmx/run1 -top md.tpr -traj md_center.xtc -np 8 --receptor-chain-name A --ligand-chain-name LIG --alter-ligand-chain Z --alter-ligand-res UNK --method plip --mode all'.split(' '))
     # main('rrcs -d data_tmp/gmx/run1 -top md.tpr -traj md_center.xtc -c A Z -np 2 --backend cuda'.split(' '))
     
     main()
