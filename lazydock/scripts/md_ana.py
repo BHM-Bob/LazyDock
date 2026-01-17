@@ -118,7 +118,7 @@ class elastic(mmpbsa):
                                     atom2res, res_size, ag.n_residues, 'size', backend=args.backend)
             else:
                 self.pool.add_task(frame.time, calcu_GNMAnalysis, positions, args.cutoff, backend=args.backend)
-            self.pool.wait_till(lambda : self.pool.count_waiting_tasks() == 0, wait_each_loop=0.001, update_result_queue=False)
+            self.pool.wait_till_free(wait_each_loop=0.001, update_result_queue=False)
         # gether results
         for t_i in t:
             v.append(self.pool.query_task(t_i, True, 999)[0])
@@ -160,7 +160,9 @@ class elastic(mmpbsa):
             wdir = os.path.dirname(top_path)
             wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
             bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            print(f'Loading {traj_path}...')
             u = mda.Universe(top_path, traj_path)
+            print(f'Loading {traj_path} done. {len(u.trajectory)} frames.')
             wdir = Path(wdir).resolve()
             self.analysis(u, wdir, self.args)
             bar.update(1)
