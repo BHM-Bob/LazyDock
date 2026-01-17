@@ -625,6 +625,7 @@ class interaction(simple_analysis, mmpbsa):
         
     def calcu_interaction(self, top_path: str, gro_path: str, traj_path: str, pool: TaskPool):
         # load pdbstr from traj
+        print(f'Loading trajectory {traj_path} ...')
         u, u2 = Universe(top_path, traj_path), Universe(gro_path)
         u.atoms.residues.resids = u2.atoms.residues.resids
         rec_idx, lig_idx = self.get_complex_atoms_index(u)
@@ -645,7 +646,10 @@ class interaction(simple_analysis, mmpbsa):
         interactions, df = {}, pd.DataFrame()
         for k in list(pool.tasks.keys()):
             i = len(df)
-            interactions[k] = pool.query_task(k, True, 10)
+            result = pool.query_task(k, True, 10)
+            if not isinstance(result, dict):
+                result = {}
+            interactions[k] = result
             df.loc[i, 'time'] = k
             df.loc[i, 'ref_res'] = ''
             for inter_mode, inter_value in interactions[k].items():
