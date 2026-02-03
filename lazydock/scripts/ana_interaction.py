@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-27 17:24:03
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-04-07 09:35:00
+LastEditTime: 2026-02-03 10:09:47
 Description: 
 '''
 import argparse
@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Callable, Dict, List, Set, Tuple
 
 import pandas as pd
-from lazydock.pml.autodock_utils import DlgFile
+from mbapy_lite.base import put_err, put_log
+from mbapy_lite.file import get_paths_with_extension, opts_file
+from pymol import cmd
+from tqdm import tqdm
+
+from lazydock.pml.autodock_utils import ADModel, DlgFile
 from lazydock.pml.interaction_utils import SUPPORTED_MODE as pml_mode
 from lazydock.pml.interaction_utils import \
     calcu_receptor_poses_interaction as calc_fn_pml
@@ -22,10 +27,6 @@ from lazydock.pml.plip_interaction import \
     calcu_receptor_poses_interaction as calc_fn_plip
 from lazydock.scripts._script_utils_ import (Command, clean_path,
                                              process_batch_dir_lst)
-from mbapy_lite.base import put_err, put_log
-from mbapy_lite.file import get_paths_with_extension, opts_file
-from pymol import cmd
-from tqdm import tqdm
 
 
 # TODO: change it to nargs
@@ -121,28 +122,38 @@ class simple_analysis(Command):
         w_dir = os.path.join(root, 'ligplus') if method == 'ligplus' else root
         # load receptor
         receptor_name = Path(receptor_path).stem
+        cmd.reinitialize()
         cmd.load(receptor_path, receptor_name)
         cmd.alter(receptor_name, 'chain="A"')
         bar.set_description(f'receptor loaded from {receptor_path}')
         # load poses from dlg and perform analysis
+        def prepare_lig(lig_pdbstr: str, name: str):
+            cmd.read_pdbstr(lig_pdbstr, name)
+            cmd.alter(name, 'chain="Z"')
+            cmd.alter(name, 'type="HETATM"')
+            return name
         # load poses
-        dlg = DlgFile(dlg_path, None, True, True)
-        bar.set_description(f'dlg loaded from {dlg_path}')
-        dlg.sort_pose() # sort by docking energy
         pose_names = []
-        for i, pose in enumerate(dlg.pose_lst):
-            pose_names.append(f'LIGAND_{i}')
-            cmd.read_pdbstr(pose.as_pdb_string(), pose_names[-1])
-            cmd.alter(pose_names[-1], 'chain="Z"')
-            cmd.alter(pose_names[-1], 'type="HETATM"')
-        bar.set_description(f'{len(pose_names)} pose loaded')
+        if dlg_path.endswith('.pdb'):
+            pose_names.append(prepare_lig(opts_file(dlg_path), 'LIGAND'))
+            dlg = DlgFile()
+            dlg.pose_lst = [ADModel()]
+        else:
+            dlg = DlgFile(dlg_path, None, True, True)
+            bar.set_description(f'dlg loaded from {dlg_path}')
+            dlg.sort_pose() # sort by docking energy
+            for i, pose in enumerate(dlg.pose_lst):
+                pose_names.append(prepare_lig(pose.as_pdb_string(), f'LIGAND_{i}'))
+            bar.set_description(f'{len(pose_names)} pose loaded')
         # calcu interactions
         fn, _ = simple_analysis.METHODS[method]
         bar.set_description(f'performing {method} calculation')
         interactions, mat_df = fn(receptor_name, pose_names, mode=mode, cutoff=cutoff, verbose=True, force_cwd=True, w_dir=w_dir, hydrogen_atom_only=hydrogen_atom_only)
         if interactions is None:
             cmd.reinitialize()
-            return put_err(f"No interactions found in {dlg_path}")
+            print(f'No interactions found in {dlg_path}, {len(dlg.pose_lst)} poses loaded')
+            [print(f'Pose {i}: pdb string length {len(pose.as_pdb_string())}, energy {pose.energy}') for i, pose in enumerate(dlg.pose_lst)]
+            return
         if method == 'pymol':
             interactions = {k:v[-1] for k,v in interactions.items()}
         bar.set_description(f'{method} interactions calculated')
@@ -180,7 +191,7 @@ class simple_analysis(Command):
         # load origin dfs from data file
         if self.args.batch_dir:
             r_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb', '.pdbqt'], name_substr=self.args.receptor)
-            l_paths = get_paths_with_extension(self.args.batch_dir, ['.pdbqt', '.dlg'], name_substr=self.args.ligand)
+            l_paths = get_paths_with_extension(self.args.batch_dir, ['.pdbqt', '.pdb', '.dlg'], name_substr=self.args.ligand)
             if not self.check_file_num_paried(r_paths, l_paths):
                 return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:{self.invalid_roots}")
             for r_path, l_path in zip(r_paths, l_paths):
