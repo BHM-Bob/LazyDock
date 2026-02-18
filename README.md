@@ -1,12 +1,12 @@
 <!--
  * @Date: 2024-05-06 17:19:11
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2025-03-30 20:33:48
+ * @LastEditTime: 2025-08-06 10:12:54
  * @Description: 
 -->
 
 
-<h1 style="text-align:center;">LazyDock: Lazy Dock, Easy Life</h1>
+<h1 style="text-align:center;">LazyDock: Faster, Easier, and All-In-One Experence in Docking & MD</h1>
 
 <p style="text-align:center;">
 <img src="https://static.pepy.tech/badge/lazydock" alt="Downloads" style="display:inline-block; margin-left:auto; margin-right:auto;" />
@@ -53,3 +53,9 @@ pip install lazydock -U
 
 ## Docs
 - [read the docs: lazydock.rtfd.io](https://lazydock.rtfd.io)
+
+## Quick View
+**LazyDock is a python package that provides a fast, easy, and all-in-one experience in docking and MD.**  
+- For molecular docking, it has tools help pocket detect, parameters file distrbute, batchlize docking perform (via Vina, HDOCK...), docking result convertng, batchlize interaction analysis (support PyMOL, PLIP, LigPlus).  
+- For molecular dynamic simulation (GROMACS), it has tools help box settings, ligand, protein(s), ligand-protein system preparation, energy minimization, equilibration, product MD run in batch mode.  
+- For molecular dynamic simulation analysis, it has tools help basic analysis (GROMACS), Elastic Network Analysis, PCA, interaction analysis (support PyMOL, PLIP), RRCS, and so on, many of which has CUDA accelerate.
