@@ -8,7 +8,8 @@ Processes trajectory files using GROMACS `trjconv` to center the system and hand
 | `-d`  | `--batch-dir`    | str (+)  | `['.']` | Directories containing trajectory files to process. |
 | `-n`  | `--main-name`    | str      | `'md.tpr'` | Filename pattern for topology/input files (e.g., `md.tpr`). |
 | `-g`  | `--groups`       | str (+)  | `['1','0']` | Atom groups used by `trjconv` for alignment. |
-|       | `-pbc`           | str      | `'mol'` | PBC treatment method (`mol`, `atom`, `res`, etc.). |
+| `-ndx`| `--index`        | str      | `None` | Index file name in each sub-directory, such as tc_index.ndx. |
+|       | `-pbc`           | str      | `'mol'` | PBC treatment method (`mol`, `atom`, `res`, `whole`, `cluster`, `nojump`). |
 |       | `-ur`            | str      | `'compact'` | Unit-cell representation (`rect`, `tric`, `compact`). |
 | `-nw` | `--n-workers`    | int      | `1` | Number of parallel workers for processing. |
 | `-F`  | `--force`        | flag     | `False` | Reprocess trajectories even if output exists. |
@@ -43,6 +44,7 @@ Creates or updates index files for trajectory analysis using GROMACS `make_ndx`.
 | `-f`  | `--main-name`    | str      | `'md.tpr'` | Filename pattern for topology files. |
 | `-g`  | `--groups`       | str (+)  | `['1','0']` | Groups to include in the index file. |
 | `-o`  | `--output`       | str      | `'ana_index.ndx'` | Name for the output index file. |
+| `-n`  | `--index`        | str      | `None` | Index file name in each sub-directory, such as tc_index.ndx. |
 | `-F`  | `--force`        | flag     | `False` | Overwrite existing index files. |
 | `-D`  | `--delete`       | flag     | `False` | Delete existing index files first. |
 
@@ -71,6 +73,7 @@ Performs standard MD analyses (RMSD, RMSF, Rg, Hbonds, SASA, PCA/DSSP) and plots
 |-------|---------------------|-----------|-----------------------|-------------|
 | `-d`  | `--batch-dir`       | str (+)  | `['.']` | Directories to analyze. |
 | `-n`  | `--main-name`       | str      | `'md.tpr'` | Topology filename pattern. |
+| `-t`  | `--main-type`       | str (+)  | `[]` | Additional file type filters. |
 | `-ndx`| `--index`           | str      | `None` | Input index file (e.g., `ana_index.ndx`). |
 |       | `--methods`         | str (+)  | `[all]` | Analyses to run: `rms`, `rmsf`, `gyrate`, `hbond`, `sasa`, `covar`, `dssp`, `FEL`, `PDF`. |
 |       | `--dit-style`       | str      | `None` | Path to `.mplstyle` file for plot customization. |
@@ -81,8 +84,10 @@ Performs standard MD analyses (RMSD, RMSF, Rg, Hbonds, SASA, PCA/DSSP) and plots
 | `-dg` | `--dssp-group`      | str      | `'1'` | Group for DSSP secondary structure. |
 |       | `--dssp-num`        | flag     | `False` | Calculate DSSP residue types. |
 |       | `--dssp-clear`      | flag     | `False` | Clear DSSP selections. |
+| `-xmax`| `--eigenval-xmax`  | int      | `15` | Maximum value for eigenval plot. |
 | `-F`  | `--force`           | flag     | `False` | Reprocess existing data. |
 | `-D`  | `--delete`          | flag     | `False` | Delete existing results. |
+|       | `--task-suffix`     | str      | `''` | Suffix for task identification. |
 
 #### Behavior  
 1. **Runs Analysis**: Executes tools like `rms`, `rmsf`, `hbond`, etc., per `methods` list.  
@@ -152,10 +157,16 @@ Identifies non-covalent interactions (e.g., H-bonds, hydrophobic) between recept
 |       | `--cutoff`         | float    | `4.0` | Distance threshold (Å). |
 |       | `--hydrogen-atom-only` | flag | `False` | Only analyze polar contacts. |
 |       | `--output-style`   | str      | `'receptor'` | Output table format. |
+|       | `--max-plot`       | int      | `None` | Maximum residues to plot. |
+|       | `--skip-plot`      | flag     | `False` | Skip plot generation. |
+|       | `--ref-res`        | str      | `''` | Reference residue names. |
 | `-nw` | `--n-workers`       | int      | `4` | Number of parallel processes. |
 | `-b`  | `--begin-frame`     | int      | `1` | First frame to analyze. |
 | `-e`  | `--end-frame`       | int      | `None` | Last frame to analyze. |
+| `-step`| `--traj-step`      | int      | `1` | Step while reading trajectory. |
 |       | `--plot-time-unit`  | int      | `100` | Frames per heatmap time unit. |
+|       | `--yticks-interval`| int      | `10` | Interval for y axis ticks. |
+|       | `--fig-size`        | int (+)  | `[9, 6]` | Figure size. |
 
 #### Behavior  
 1. **Maps Interactions**: Per-frame detection using PyMOL/PLIP and stores results.  
@@ -188,6 +199,7 @@ Computes Residue-Residue Contact Scores (RRCS) to quantify dynamic interactions 
 | `-np` | `--n-workers`     | int      | `4` | Parallel worker count. |
 | `-b`  | `--begin-frame`   | int      | `0` | First frame to process. |
 | `-e`  | `--end-frame`     | int      | `None` | Last frame to process. |
+| `-step`| `--traj-step`    | int      | `1` | Step while reading trajectory. |
 |       | `--backend`       | str      | `'numpy'` | Compute backend: `numpy`, `torch`, or `cuda`. |
 
 #### Behavior  
@@ -220,7 +232,10 @@ Generates PyMOL "porcupine plots" using `modevectors` to visualize structural dy
 | `-traj`| `--traj-name`    | str      | `'md_center.xtc'` | Trajectory filename pattern. |
 | `-b`  | `--begin-frame`   | int      | `0` | First frame. |
 | `-e`  | `--end-frame`     | int      | `None` | Last frame. |
-|       | `-D`             | flag      | `False` | Delete existing output. |
+| `-step`| `--traj-step`    | int      | `1` | Step while reading trajectory. |
+| `-nw` | `--n-workers`     | int      | `4` | Number of parallel processes. |
+| `-F`  | `--force`         | flag     | `False` | Reprocess even if output exists. |
+| `-D`  | `--delete`        | flag     | `False` | Delete existing output. |
 
 #### Behavior  
 1. **Loads Trajectory**: Splits into start/end states.  

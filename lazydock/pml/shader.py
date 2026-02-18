@@ -1,7 +1,7 @@
 '''
 Date: 2024-08-31 21:40:56
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-03-05 09:34:08
+LastEditTime: 2025-07-05 19:06:48
 Description: 
 '''
 from dataclasses import dataclass
@@ -91,7 +91,7 @@ class ShaderValues:
         """
         if isinstance(df, str):
             df = pd.read_excel(df, index_col = 0)
-        df = df.sum(axis=sum_axis)[1:] # first row is index and colum names
+        df = df.sum(axis=sum_axis)
         for res, v in zip(df.index, df.values):
             chain, resi, _ = res.split(':')
             self.chains.setdefault(chain, []).append(ShaderRes(model, chain, int(resi), c_value=v))

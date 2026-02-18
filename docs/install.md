@@ -27,6 +27,7 @@ pip install git+https://gitee.com/BHM-Bob/BA_PY.git
   8. compas: needed by `lazydock.pml.align_to_axis` to calculate bonding box.
   9. md-davis: needed by `lazydock.scripts.ana_gmx` to run MD-DaVis.
   10. expect: a software for running shell command, needed by `lazydock.gmx.run.Gromacs`.
+  11. autodocktools-py3: a python package as AutoDockTooks.
 
 ## install lazydock-pymol-plugin
 In pymol plugin installation GUI, install `path-to-site-packages/lazydock_pymol_plugin/__init__.py`.
@@ -59,6 +60,11 @@ Version are from gmx_MMPBSA's docs.
 #### install expect for lazydock
 ```bash
 sudo apt install expect
+```
+
+#### install autodocktools-py3
+```bash
+pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3"
 ```
 
 ## python env compatibility

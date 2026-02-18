@@ -1,17 +1,23 @@
 '''
 Date: 2024-12-13 20:18:59
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-23 17:39:02
+LastEditTime: 2026-01-11 13:02:52
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
-
 import argparse
 import os
 import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
+from mbapy_lite.base import put_err, put_log
+from mbapy_lite.file import get_paths_with_extension, opts_file
+from mbapy_lite.web import Browser
+from pymol import cmd
+from tqdm import tqdm
+
 from lazydock.config import CONFIG_FILE_PATH, GlobalConfig
+from lazydock.gmx.prepare_ff import *
 from lazydock.gmx.run import Gromacs
 from lazydock.gmx.thirdparty.cgenff_charmm2gmx import run_transform
 from lazydock.gmx.thirdparty.sort_mol2_bonds import sort_bonds
@@ -19,11 +25,6 @@ from lazydock.pml.align_to_axis import align_pose_to_axis
 from lazydock.scripts._script_utils_ import Command, clean_path
 from lazydock.web.cgenff import get_login_browser as _get_login_browser
 from lazydock.web.cgenff import get_result_from_CGenFF
-from mbapy_lite.base import Configs, put_err, put_log
-from mbapy_lite.file import get_paths_with_extension, opts_file
-from mbapy_lite.web import Browser, TaskPool, random_sleep
-from pymol import cmd
-from tqdm import tqdm
 
 
 class protein(Command):
@@ -59,33 +60,14 @@ class protein(Command):
         self.args.dir = clean_path(self.args.dir)
         self.args.n_term = self.args.n_term.split(',')
         self.args.c_term = self.args.c_term.split(',')
-        
-    @staticmethod
-    def prepare_ff_dir(w_dir: Path, ff_dir: str):
-        if ff_dir is None:
-            return put_err('ff-dir is None, skip transform.')
-        if os.path.exists(ff_dir):
-            _ff_dir = w_dir / Path(ff_dir).name
-            if not _ff_dir.exists():
-                shutil.copytree(os.path.abspath(ff_dir), _ff_dir, dirs_exist_ok=True)
-                put_log(f'copy {ff_dir} to {_ff_dir}')
-            else:
-                put_log(f'ff-dir(repeat in sub-directory) already exists in {_ff_dir}, skip.')
-        ## if ff-dir already in each sub-directory, do not overwrite it.
-        elif os.path.exists(w_dir / ff_dir):
-            _ff_dir = w_dir / ff_dir
-            put_log(f'ff-dir already exists in (sub directory) {_ff_dir}, skip.')
-        else:
-            _ff_dir = None
-            put_err(f'cannot find ff_dir: {ff_dir} in {w_dir}, set ff_dir to None, skip.')
-        return _ff_dir
+
         
     def main_process(self):
         # get protein paths
         if os.path.isdir(self.args.dir):
             proteins_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.protein_name)
         else:
-            put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
+            put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')
         # process each complex
         for protein_path in tqdm(proteins_path, total=len(proteins_path)):
@@ -103,7 +85,7 @@ class protein(Command):
                 cmd.save(opath, 'protein')
                 cmd.reinitialize()
             # STEP 1: Prepare the Protein Topology
-            ff_dir = self.prepare_ff_dir(protein_path.parent, self.args.ff_dir)
+            ff_dir = prepare_ff_dir(protein_path.parent, self.args.ff_dir)
             if ff_dir is None:
                 continue
             ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}.gro')
@@ -165,33 +147,6 @@ the program will use the ff-dir in sub-directory.')
         self.args.dir = clean_path(self.args.dir)
 
     @staticmethod
-    def insert_content(content: str, before: str, new_content: str):
-        is_file, path = False, None
-        if os.path.isfile(content):
-            is_file, path = True, content
-            content = opts_file(content)
-        idx1 = content.find(before)
-        if idx1 == -1:
-            return put_err(f'{before} not found, skip.')
-        content = content[:idx1+len(before)] + new_content + content[idx1+len(before):]
-        if is_file:
-            opts_file(path, 'w', data=content)
-        return content
-
-    @staticmethod
-    def fix_name_in_mol2(ipath: str, opath: str):
-        lines = opts_file(ipath, way='lines')
-        lines[1] = 'LIG\n'
-        get_idx_fn = lambda content, offset: lines.index(list(filter(lambda x: x.startswith(content), lines[offset:]))[0])
-        atom_st = get_idx_fn('@<TRIPOS>ATOM', 0)+1
-        atom_ed = get_idx_fn('@<TRIPOS>', atom_st+1)
-        for i in range(atom_st, atom_ed):
-            resn = lines[i].split()[7].strip()
-            resn_idx = lines[i].index(resn)
-            lines[i] = lines[i][:resn_idx] + 'LIG' + ' '*(min(0, len(resn) - 3)) + lines[i][resn_idx+len(resn):]
-        opts_file(opath, 'w', way='lines', data=lines)
-
-    @staticmethod
     def get_login_browser(download_dir: str):
         put_log(f'getting CGenFF account from {CONFIG_FILE_PATH}')
         email, password = GlobalConfig.named_accounts['CGenFF']['email'], GlobalConfig.named_accounts['CGenFF']['password']
@@ -220,7 +175,7 @@ the program will use the ff-dir in sub-directory.')
         # STEP 3: fix ligand name and residue name in mol2 file.
         ipath, opath = opath, str(main_path.parent / f'3_{main_path.stem}_ligand_named.mol2')
         if self.args.max_step >= 3 and (not os.path.exists(opath)):
-            self.fix_name_in_mol2(ipath, opath)
+            fix_name_in_mol2(ipath, opath)
         # STEP 4: sort mol2 bonds by lazydock.
         ipath, opath = opath, str(main_path.parent / f'4_{main_path.stem}_ligand_sorted.mol2')
         if self.args.max_step >= 4 and (not os.path.exists(opath)):
@@ -232,13 +187,13 @@ the program will use the ff-dir in sub-directory.')
             if self.get_str_from_CGenFF(ipath, cgenff_path, browser=self.browser) is None:
                 return 
         if self.args.max_step >= 5 and (not os.path.exists(opath_str) or not os.path.exists(opath_mol2)) and os.path.exists(cgenff_path):
-            for file_name, content in opts_file(cgenff_path, 'r', way='zip').items():
+            for file_name, content in opts_file(cgenff_path, 'r', way='zip').items():  # pyright: ignore[reportAttributeAccessIssue]
                 opts_file(cgenff_path.parent / file_name.replace('4_', '5_'), 'wb', data=content)
         # STEP 6: transfer str file to top and gro file by cgenff_charmm2gmx.py
         ipath_str, ipath_mol2, opath_itp = opath_str, opath_mol2, str(main_path.parent / f'lig.itp')
         # check and copy ff-dir
         ## if ff-dir is a asbpath to charmmFF dir, copy it to sub-directory.
-        ff_dir = self.prepare_ff_dir(main_path.parent, self.args.ff_dir)
+        ff_dir = prepare_ff_dir(main_path.parent, self.args.ff_dir)
         if ff_dir is None:
             return
         if self.args.max_step >= 6 and (not os.path.exists(opath_itp)):
@@ -277,7 +232,7 @@ the program will use the ff-dir in sub-directory.')
             ipath, opath_gro = str(ligand_path.parent / f'lig_ini.pdb'), str(ligand_path.parent / f'lig.gro')
             if self.args.max_step >= 7 and (not os.path.exists(opath_gro)):
                 # pymol will change the order of atoms!!!
-                opts_file(ipath, 'w', data=opts_file(ipath).replace('LIG  ', 'LIG Z'))
+                opts_file(ipath, 'w', data=opts_file(ipath).replace('LIG  ', 'LIG Z'))  # pyright: ignore[reportAttributeAccessIssue]
                 # because may do not have Gromacs installed, so just try
                 try:
                     gmx.run_gmx_with_expect(f'editconf -f lig_ini.pdb -o lig.gro')
@@ -321,9 +276,9 @@ class complex(ligand):
                           help='complex name in each sub-directory.')
         args.add_argument('--max-step', type = int, default=9,
                           help='max step to do. Default is %(default)s.')
-        args.add_argument('--receptor-chain-name', type = str,
+        args.add_argument('-rc', '--receptor-chain-name', type = str,
                           help='receptor chain name.')
-        args.add_argument('--ligand-chain-name', type = str,
+        args.add_argument('-lc', '--ligand-chain-name', type = str,
                           help='ligand chain name.')
         args.add_argument('--ff-dir', type = str,
                           help='force field files directory.')
@@ -332,7 +287,7 @@ class complex(ligand):
         args.add_argument('--pdb2gmx-args', type = str, default="-ter -ignh",
                           help='args pass to pdb2gmx command, default is %(default)s.')
         args.add_argument('--n-term', type = str, default='0',
-                          help='N-Term type for gmx pdb2gmx. Default is %(default)s.')
+                          help='N-Term type for gmx pdb2gmx. If N-Term is Met, the 0 option will be MET1, 1 option will be NH3+. Default is %(default)s.')
         args.add_argument('--c-term', type = str, default='0',
                           help='C-Term type for gmx pdb2gmx. Default is %(default)s.')
         return args
@@ -352,30 +307,6 @@ class complex(ligand):
             else:
                 cmd.save(opath, mol)
         return True
-
-    @staticmethod
-    def prepare_complex_topol(ipath_rgro: str, ipath_lgro: str, ipath_top: str, opath_cgro: str, opath_top: str,
-                              insert_itp: bool = True, insert_prm: bool = True):
-        # merge receptor and ligand gro into complex.gro
-        receptor_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(ipath_rgro, 'r', way='lines')))
-        lig_gro_lines = list(filter(lambda x: len(x.strip()), opts_file(ipath_lgro, 'r', way='lines')))
-        complex_gro_lines = receptor_gro_lines[:-1] + lig_gro_lines[2:-1] + receptor_gro_lines[-1:]
-        complex_gro_lines[1] = f'{int(receptor_gro_lines[1]) + int(lig_gro_lines[1])}\n'
-        opts_file(opath_cgro, 'w', way='lines', data=complex_gro_lines)
-        # inset ligand paramters in topol.top
-        topol = opts_file(ipath_top)
-        if (Path(ipath_top).parent / 'lig.itp').exists() and insert_itp:
-            _topol = complex.insert_content(topol, '#include "posre.itp"\n#endif\n',
-                                        '\n; Include ligand topology\n#include "lig.itp"\n')
-            if _topol is not None:
-                topol = _topol
-        if (Path(ipath_top).parent / 'lig.prm').exists() and insert_prm:
-            _topol = complex.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',
-                                        '\n; Include ligand parameters\n#include "lig.prm"\n')
-            if _topol is not None:
-                topol = _topol
-        topol += 'LIG                 1\n'
-        opts_file(opath_top, 'w', data=topol)
         
     def main_process(self):
         # allocate browser for CGenFF
@@ -422,22 +353,84 @@ class complex(ligand):
             # STEP 9: Prepare the Complex Topology
             opath_cgro, opath_top = str(complex_path.parent / 'complex.gro'), str(complex_path.parent / 'topol.top')
             if self.args.max_step >= 9 and (not os.path.exists(opath_cgro)) and os.path.exists(opath_rgro) and os.path.exists(opath_lgro):
-                self.prepare_complex_topol(opath_rgro, opath_lgro, opath_top, opath_cgro, opath_top)
+                prepare_complex_topol(opath_rgro, opath_lgro, opath_top, opath_cgro, opath_top)
+                
+                
+class complex_sobtop(complex):
+    HELP = """
+    prepare complex for GROMACS MDS with sobtop to prepare topology.
+    - input complex.pdb should have two chains, one for receptor and one for ligand.
+    - complex.pdb should already add hydrogens by Avogadro or other software.
+    - complex.pdb is supposed to be aligned with the axes to save space when MDS.
+    - sobtop is a tool used in this script to generate ligand forcefield for GROMACS MDS.
+    - you should cite sobtop if you use it in your work.
+    
+    STEPS:
+    0. center complex.pdb by obabel, align with xyz axes by lazydock.
+    1. extract receptor and ligand from complex.pdb.
+    2. transfer ligand.pdb to mol2 by obabel.
+    3. fix ligand name in mol2 file.
+    4. sort mol2 bonds by lazydock.
+    5. prepare the ligand topology by sobtop (GAFF atom type)
+    6. prepare protein topology.
+    7. prepare ligand topology.
+    8. merge receptor and ligand gro into complex.gro, prepare topol.top.
+    """
+    def __init__(self, args: argparse.Namespace):
+        super().__init__(args)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '--dir', type = str, default='.',
+                          help='complex directory. Default is %(default)s.')
+        args.add_argument('-n', '--complex-name', type = str,
+                          help='complex name in each sub-directory.')
+        args.add_argument('-rc', '--receptor-chain-name', type = str,
+                          help='receptor chain name.')
+        args.add_argument('-lc', '--ligand-chain-name', type = str,
+                          help='ligand chain name.')
+        args.add_argument('--ff-dir', type = str,
+                          help='force field files directory.')
+        args.add_argument('--pdb2gmx-args', type = str, default="-ter -ignh",
+                          help='args pass to pdb2gmx command, default is %(default)s.')
+        args.add_argument('--n-term', type = str, default='0',
+                          help='N-Term type for gmx pdb2gmx. If N-Term is Met, the 0 option will be MET1, 1 option will be NH3+. Default is %(default)s.')
+        args.add_argument('--c-term', type = str, default='0',
+                          help='C-Term type for gmx pdb2gmx. Default is %(default)s.')
+        return args
+    
+    def main_process(self):
+        # allocate browser for CGenFF
+        if not self.args.disable_browser:
+            self.browser = self.get_login_browser(str(self.args.dir))
+        # get complex paths
+        if os.path.isdir(self.args.dir):
+            complexs_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.complex_name)
+        else:
+            put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
+        put_log(f'get {len(complexs_path)} complex(s)')
+        # process each complex
+        for complex_path in tqdm(complexs_path, total=len(complexs_path)):
+            complex_path = Path(complex_path).resolve()
+            prepare_complex_with_sobtop(complex_path, self.args.ff_dir,
+                                        self.args.receptor_chain_name, self.args.ligand_chain_name,
+                                        self.args.pdb2gmx_args, self.args.n_term, self.args.c_term)
+
 
 
 _str2func = {
     'protein': protein,
     'ligand': ligand,
     'complex': complex,
+    'complex_sobtop': complex_sobtop,
 }
 
 def main(sys_args: List[str] = None):
     args_paser = argparse.ArgumentParser(description = 'tools for GROMACS.')
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
 
-    prepare_protein_args = protein.make_args(subparsers.add_parser('protein', description=protein.HELP))
-    prepare_ligand_args = ligand.make_args(subparsers.add_parser('ligand', description=ligand.HELP))
-    prepare_complex_args = complex.make_args(subparsers.add_parser('complex', description=complex.HELP))
+    for n in _str2func:
+        _str2func[n].make_args(subparsers.add_parser(n, description=_str2func[n].HELP, aliases=[n.replace('_', '-')]))
 
     args = args_paser.parse_args(sys_args)
     if args.sub_command in _str2func:

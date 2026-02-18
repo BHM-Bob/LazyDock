@@ -1,13 +1,14 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-06-16 15:56:22
+LastEditTime: 2025-09-13 13:03:46
 Description:
 '''
 import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List
+from uuid import uuid4
 
 from mbapy_lite.base import get_fmt_time, put_log
 from mbapy_lite.file import opts_file
@@ -20,6 +21,7 @@ class Gromacs(BaseInfo):
         self.call_name = call_name
         self.working_dir = os.path.abspath(working_dir)
         self.wdir = Path(self.working_dir).resolve()
+        self.task_uid = uuid4().hex[:4]
         
     def kwargs2cmd(self, kwargs: Dict[str, str]):
         return ' '.join([f'{"--" if k.startswith("_") else "-"}{k[1:] if k.startswith("_") else k} {v}' for k, v in kwargs.items()])

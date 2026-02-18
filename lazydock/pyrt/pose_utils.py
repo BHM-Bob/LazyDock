@@ -4,7 +4,8 @@ LastEditors: BHM-Bob 2262029386@qq.com
 LastEditTime: 2024-05-14 16:52:08
 Description: 
 '''
-from typing import Union
+import os
+from typing import List, Union
 
 import pyrosetta
 from mbapy_lite.base import get_default_call_for_None, parameter_checker
@@ -19,6 +20,28 @@ from pyrosetta.rosetta.protocols.simple_moves import (
     AddPDBInfoMover, DeleteChainMover, SwitchChainOrderMover,
     SwitchResidueTypeSetMover)
 from pyrosetta.toolbox import mutate_residue
+
+
+def load_pose(pdb: Union[str, Pose]) -> Pose:
+    """
+    Load a pose from a PDB file path or a Pose object.
+    
+    Args:
+        pdb: PDB file path or Pose object
+        
+    Returns:
+        Pose: Loaded pose object
+    """
+    if isinstance(pdb, Pose):
+        pose: Pose = pdb
+    elif os.path.isfile(pdb):
+        # Create pose from file path
+        pose = pyrosetta.pose_from_pdb(pdb)
+    else:  # try to treat pdb as a pdb string
+        # Create pose from string
+        pose = pyrosetta.Pose()
+        pyrosetta.rosetta.core.import_pose.pose_from_pdbstring(pose, pdb)
+    return pose
 
 
 class _Pose(object):
@@ -96,7 +119,7 @@ class _Pose(object):
         self.delete_chain_mover.apply(self.pose)
         return self
         
-    def swap_chain(self, order: str | list[str]) -> '_Pose':
+    def swap_chain(self, order: Union[str, List[str]]) -> '_Pose':
         if isinstance(order, list) and not isinstance(order, str):
             order = ''.join(order)
         else:
@@ -105,7 +128,7 @@ class _Pose(object):
         self.swap_chain_mover.apply(self.pose)
         return self
     
-    def split_chain(self, return_Pose: bool = False) -> list['_Pose'] | list[Pose]:
+    def split_chain(self, return_Pose: bool = False) -> Union[List['_Pose'], List[Pose]]:
         chains = self.pose.split_by_chain()
         return [_Pose(chain) for chain in chains] if return_Pose else chains
     

@@ -101,6 +101,13 @@ class Command:
     def exec_from_session(self, session: Union[str, Dict[str, Any]]):
         if isinstance(session, str) and check_parameters_path(session):
             session = self.load_session(session)
+    
+    def process_batch_dir_lst(self, batch_dir_lst: List[str]):
+        batch_dir_lst = list(map(clean_path, batch_dir_lst))
+        for root in batch_dir_lst:
+            if not os.path.isdir(root):
+                put_err(f'batch_dir argument should be a directory: {root}, exit.', _exit=True)
+        return batch_dir_lst
  
 
 def excute_command(args_paser: argparse.ArgumentParser, sys_args: List[str],
