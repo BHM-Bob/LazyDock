@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-01-11 12:59:29
+LastEditTime: 2026-02-19 16:06:50
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -59,8 +59,10 @@ class simple_protein(Command):
                           help='start time, such as "2025-01-15 17:30:00", program will sleep until the start time.')
         args.add_argument('--auto-box', action='store_true', default=False,
                           help='FLAG, whether to automatically generate rectangular bounding box via on pymol.cmd.get_extent.')
-        args.add_argument('--auto-box-padding', type=float, default=1.2,
-                          help='distance, padding the box size, default is %(default)s.')
+        args.add_argument('--auto-box-padding', type=float, nargs=6, default=[1.2, 1.2, 1.2, 1.2, 1.2, 1.2],
+                          help='distance for positive X-Y-Z dim, negative X-Y-Z dim, padding the box size, default is %(default)s.')
+        args.add_argument('--auto-box-shift', type=float, nargs=3, default=[0, 0, 0],
+                          help='distance for X-Y-Z dim, shift the box center, default is %(default)s.')
         args.add_argument('--ion-mdp', type = str, required=True,
                           help='energy minimization mdp file, if is a file-path, will copy to working directory; if is a file-name, will search in working directory.')
         args.add_argument('--em-mdp', type = str, required=True,
@@ -97,12 +99,13 @@ class simple_protein(Command):
 
     def process_args(self):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
-        if self.args.start_time is not None:
+        if hasattr(self.args, 'start_time') and self.args.start_time is not None:
             self.args.start_time = datetime.strptime(self.args.start_time, '%Y-%m-%d %H:%M:%S')
 
-    def get_mdp(self, working_dir: Path):
+    def get_mdp(self, working_dir: Path, mdp_names: List[str] = None) -> Dict[str, str]:
         mdps = {}
-        for name in ['ion', 'em', 'nvt', 'npt','md']:
+        mdp_names = mdp_names or ['ion', 'em', 'nvt', 'npt','md']
+        for name in mdp_names:
             mdp_file = getattr(self.args, f'{name}_mdp')
             if os.path.isfile(mdp_file):
                 shutil.copy(mdp_file, working_dir)
@@ -114,16 +117,22 @@ class simple_protein(Command):
         return mdps
 
     @staticmethod
-    def get_box(mol_path: Path, padding: float, sele: str = 'not resn SOL'):
+    def get_box(mol_path: Path, padding: Union[float, List[float]], sele: str = 'not resn SOL'):
         cmd.reinitialize()
         name = uuid4()
         cmd.load(str(mol_path), mol_path.name)
         cmd.select(name, sele)
         ([minX, minY, minZ], [maxX, maxY, maxZ]) = cmd.get_extent(name)
         box_center = list(map(lambda x: x/20, [maxX+minX, maxY+minY, maxZ+minZ]))
-        box_size = list(map(lambda x: x/10+2*padding, [maxX-minX, maxY-minY, maxZ-minZ]))
+        if isinstance(padding, float):
+            padding = [padding]*6
+        padding1, padding2 = padding[:3], padding[3:]
+        box_size = list(map(lambda x: x[0]/10+2*(x[1]+x[2]), zip([maxX-minX, maxY-minY, maxZ-minZ], padding1, padding2)))
         cmd.reinitialize()
         return box_center, box_size
+    
+    def apply_box_center_shift(self, box_center: List[float]) -> List[float]:
+        return [x+shift for x, shift in zip(box_center, self.args.auto_box_shift)]
     
     def make_box(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         # STEP 1: editconf -f protein.gro -o protein_newbox.gro -c -d 1.0 -bt cubic
@@ -142,7 +151,7 @@ class simple_protein(Command):
             prot_center, _ = self.get_box(protein_path.parent / f'{main_name}_newbox_tmp.gro', self.args.auto_box_padding)
             put_log(f'protein box size: {box_size}, tmp solvated box size: {solv_size}, protein center: {prot_center}, tmp solvated center: {solv_center}, shift: {shift}')
             # calculate new box center
-            box_center = [s+(x1-x2) for s, x1, x2 in zip(shift, solv_center, prot_center)]
+            box_center = [s+(x1-x2)+shift for s, x1, x2, shift in zip(shift, solv_center, prot_center, self.args.auto_box_shift)]
             # run editconf with new box center and size
             editconf_args += f' -center {" ".join(map(lambda x: f"{x:.2f}", box_center))}'
             _, log_path = gmx.run_gmx_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro', enable_log=True)
@@ -327,9 +336,8 @@ def main(sys_args: List[str] = None):
     args_paser = argparse.ArgumentParser(description = 'tools for GROMACS.')
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
 
-    simple_protein_args = simple_protein.make_args(subparsers.add_parser('simple-protein', description=simple_protein.HELP))
-    simple_ligand_args = simple_ligand.make_args(subparsers.add_parser('simple-ligand', description=simple_ligand.HELP))
-    simple_complex_args = simple_complex.make_args(subparsers.add_parser('simple-complex', description=simple_complex.HELP))
+    for n, _cls in _str2func.items():
+        _cls.make_args(subparsers.add_parser(n, description=_cls.HELP))
 
     args = args_paser.parse_args(sys_args)
     if args.sub_command in _str2func:

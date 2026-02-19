@@ -118,5 +118,21 @@
         "exec_names": ["pyrt", "rosetta"],
         "brief": "Rosetta tools.",
         "detailed": "Rosetta tools."
+    },
+    "prepare_gmx_umbrella":
+    {
+        "name": "prepare_gmx_umbrella",
+        "script name": "prepare_gmx_umbrella",
+        "exec_names": ["prepare_gmx_umbrella", "prepare-gmx-umbrella"],
+        "brief": "GROMACS molecular prepare tools for umbrella sampling.",
+        "detailed": "GROMACS molecular prepare tools for umbrella sampling."
+    },
+    "run_gmx_umbrella":
+    {
+        "name": "run_gmx_umbrella",
+        "script name": "run_gmx_umbrella",
+        "exec_names": ["run_gmx_umbrella", "run-gmx-umbrella"],
+        "brief": "GROMACS molecular run tools for umbrella sampling.",
+        "detailed": "GROMACS molecular run tools for umbrella sampling."
     }
 }
