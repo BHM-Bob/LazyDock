@@ -1,7 +1,7 @@
 '''
-Date: 2026-02-18 22:36:48
+Date: 2026-02-19
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-02-19 16:28:05
+LastEditTime: 2026-02-20 00:19:50
 Description: steps most from http://www.mdtutorials.com/gmx/umbrella
 '''
 import argparse
@@ -13,12 +13,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-from MDAnalysis import Universe
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
+from MDAnalysis import Universe
 from pymol import cmd
 from tqdm import tqdm
-import numpy as np
 
 from lazydock.gmx.run import Gromacs
 from lazydock.scripts._script_utils_ import Command, process_batch_dir_lst
@@ -45,8 +47,22 @@ class pull(_simple_protein):
                           help='chain name for pull, such as A.')
         args.add_argument('-rc', '--restrain-chain', type=str, required=True,
                           help='chain name for position restrain, such as B.')
+        args.add_argument('-posres', '--position-restrain', action='store_true', default=False,
+                          help='add position restrain define in topol-itp file for restrain chain, default is %(default)s.')
+        args.add_argument('-sd', '--start-distance', type=float, default=None,
+                          help='start distance (nm) from pull trajectory for sampling MD run, default is %(default)s.')
+        args.add_argument('-ed', '--end-distance', type=float, default=None,
+                          help='end distance (nm) from pull trajectory for sampling MD run, default is %(default)s.')
+        args.add_argument('-di', '--distance-interval', type=float, default=0.2,
+                          help='distance (nm) interval from pull trajectory for sampling MD run, default is %(default)s.')
         args.add_argument('--pull-mdp', type = str, required=True,
                           help='pull mdp file, a file-path, will copy to working directory.')
+        args.add_argument('--nvt-mdp', type = str, required=True,
+                          help='nvt mdp file, if is a file-path, will copy to working directory.')
+        args.add_argument('--npt-mdp', type = str, required=True,
+                          help='npt mdp file, if is a file-path, will copy to working directory.')
+        args.add_argument('--md-mdp', type = str, required=True,
+                          help='production md mdp file, if is a file-path, will copy to working directory.')
         args.add_argument('--maxwarn', type=int, default=0,
                           help='maxwarn for em,nvt,npt,md gmx grompp command, default is %(default)s.')
         
@@ -72,6 +88,16 @@ class pull(_simple_protein):
                                 expect_actions=[{'>': f'a {pull_range_str}\r'}, {'>': f'name {len(groups)} PULL_Chain\r'},
                                                 {'>': f'a {res_range_str}\r'}, {'>': f'name {len(groups)+1} RESTRAIN_Chain\r'},
                                                 {'>': 'q\r'}])
+        
+    def calcu_com_com_distance(self, u: Universe):
+        res_idx, pull_idx = self.get_complex_atoms_index(u)
+        res_ag, pull_ag = u.atoms[res_idx], u.atoms[pull_idx]
+        com_dis_df = pd.DataFrame(columns=['frame_idx', 'com_com_dist'])
+        for frame_idx, _ in tqdm(enumerate(u.trajectory), total=u.trajectory.n_frames,
+                                 desc=f'calculate com-com distance for chain {self.args.restrain_chain} and {self.args.pull_chain}', leave=False):
+            com_com_dist = np.linalg.norm(res_ag.center_of_mass() - pull_ag.center_of_mass(), axis=0) / 10 # convert to nm
+            com_dis_df.loc[frame_idx] = [frame_idx, com_com_dist]
+        return com_dis_df
 
     def main_process(self):
         # get protein paths
@@ -81,7 +107,7 @@ class pull(_simple_protein):
             put_err(f'dir argument should be a directory: {self.args.batch_dir}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')
         # check mdp files
-        mdp_names = ['pull']
+        mdp_names = ['pull', 'nvt', 'npt', 'md']
         mdp_exist = list(map(lambda x: os.path.isfile(getattr(self.args, f'{x}_mdp')), mdp_names))
         if not all(mdp_exist):
             missing_names = [n for n, e in zip(mdp_names, mdp_exist) if not e]
@@ -90,20 +116,63 @@ class pull(_simple_protein):
         for protein_path in tqdm(proteins_path, total=len(proteins_path)):
             protein_path = Path(protein_path).resolve()
             main_name = protein_path.stem
-            # check if md.tpr exists, if yes, skip
-            if os.path.exists(protein_path.parent / 'pull.tpr'):
-                put_log(f'{protein_path} already done with pull.tpr, skip.')
-                continue
-            # prepare gmx env and mdp files
             gmx = Gromacs(working_dir=str(protein_path.parent))
-            mdps = self.get_mdp(protein_path.parent, ['pull'])
-            # STEP 1: make restraints index file
-            self.make_restrain_idx(protein_path, gmx)
-            # STEP 2: gmx grompp -f md_pull.mdp -c npt.gro -p topol.top -r npt.gro -n index.ndx -t npt.cpt -o pull.tpr
-            gmx.run_gmx_with_expect('grompp', f=mdps['pull'], c='npt.gro', p='topol.top', r='npt.gro', n='pull.ndx',
-                                        t='npt.cpt', o='pull.tpr', maxwarn=self.args.maxwarn)
-            # STEP 3: gmx mdrun -deffnm pull -pf pullf.xvg -px pullx.xvg
-            gmx.run_gmx_with_expect('mdrun -v', deffnm='pull', pf='pullf.xvg', px='pullx.xvg')
+            # prepare gmx env and mdp files
+            mdps = self.get_mdp(protein_path.parent, mdp_names)
+            # check if md.tpr exists, if yes, skip STEP 1 ~ 3
+            if os.path.exists(protein_path.parent / 'pull.tpr'):
+                put_log(f'{protein_path} already done with pull.tpr, skip pulling run.')
+            else:
+                # STEP 1: make restraints index file
+                self.make_restrain_idx(protein_path, gmx)
+                # STEP 2: gmx grompp -f md_pull.mdp -c npt.gro -p topol.top -r npt.gro -n index.ndx -t npt.cpt -o pull.tpr
+                gmx.run_gmx_with_expect('grompp', f=mdps['pull'], c='npt.gro', p='topol.top', r='npt.gro', n='pull.ndx',
+                                            t='npt.cpt', o='pull.tpr', maxwarn=self.args.maxwarn)
+                # STEP 3: gmx mdrun -deffnm pull -pf pullf.xvg -px pullx.xvg
+                gmx.run_gmx_with_expect('mdrun -v', deffnm='pull', pf='pullf.xvg', px='pullx.xvg')
+                gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pullx.xvg -o pullx.png -t "Pull X of {main_name}" -csv pullx.csv -ns')
+                gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pullf.xvg -o pullf.png -t "Pull F of {main_name}" -csv pullf.csv -ns')
+            # STEP 4: calculate com-com distance v.s. time curve
+            u = Universe(str(protein_path.parent / 'pull.tpr'), str(protein_path.parent / 'pull.xtc'))
+            com_dis_df = self.calcu_com_com_distance(u)
+            com_dis_df.to_csv(protein_path.parent / 'pull_com_com_dist.csv', index=False)
+            fig, ax = plt.subplots(figsize=(9, 6))
+            ax.plot(com_dis_df['frame_idx'], com_dis_df['com_com_dist'])
+            ax.set_xlabel('Frame Index', fontsize=14)
+            ax.set_ylabel('COM-COM Distance (nm)', fontsize=14)
+            ax.grid(linestyle='--')
+            fig.savefig(protein_path.parent / 'pull_com_com_dist.png', dpi=600)
+            # STEP 5: sample MD trajectory frame from pull trajectory
+            start_dist = self.args.start_distance or com_dis_df['com_com_dist'].values[0]
+            end_dist = self.args.end_distance or com_dis_df['com_com_dist'].max()
+            sample_df = pd.DataFrame(columns=['dist_idx', 'real_dist', 'frame_idx', 'sample_name'])
+            for dist_i in tqdm(np.arange(start_dist, end_dist, self.args.distance_interval),
+                                  desc=f'sample MD trajectory from pull trajectory {main_name}', leave=False):
+                frame_idx = np.argmin(np.abs(com_dis_df['com_com_dist'] - dist_i))
+                u.trajectory[frame_idx]
+                real_dist = com_dis_df['com_com_dist'].values[frame_idx]
+                sample_df.loc[len(sample_df)] = [dist_i, real_dist, frame_idx, f'pull_sample_{frame_idx}.gro']
+                print(f'\n\nsample {dist_i:.2f} nm (real {real_dist:.2f} nm) at frame {frame_idx}')
+                u.atoms.write(protein_path.parent / sample_df.loc[len(sample_df)-1, 'sample_name'], reindex=False)
+            sample_df.to_csv(protein_path.parent / 'pull_sample.csv', index=False)
+            # STEP 6: run MD simulation for each sample
+            for sample_gro in tqdm(sample_df['sample_name'], desc=f'run MD simulation for each sample', leave=False):
+                sample_main_name = sample_gro.split(".")[0]
+                # STEP 6.1: run nvt equlibration
+                gmx.run_gmx_with_expect('grompp', f=mdps['nvt'], c=sample_gro,
+                                        p='topol.top', r=sample_gro, n='pull.ndx',
+                                        o=f'{sample_main_name}_nvt.tpr', maxwarn=self.args.maxwarn)
+                gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_nvt')
+                # STEP 6.2: run npt equlibration
+                gmx.run_gmx_with_expect('grompp', f=mdps['npt'], c=f'{sample_main_name}_nvt.gro',
+                                        p='topol.top', r=f'{sample_main_name}_nvt.gro', t=f'{sample_main_name}_nvt.cpt', n='pull.ndx',
+                                        o=f'{sample_main_name}_npt.tpr', maxwarn=self.args.maxwarn)
+                gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_npt')
+                # STEP 6.3: run md simulation
+                gmx.run_gmx_with_expect('grompp', f=mdps['md'], c=f'{sample_main_name}_npt.gro',
+                                        t=f'{sample_main_name}_npt.cpt', p='topol.top', n='pull.ndx',
+                                        o=f'{sample_main_name}_md.tpr', imd=f'{sample_main_name}_md.gro', maxwarn=self.args.maxwarn)
+                gmx.run_gmx_with_expect('mdrun -v', deffnm=sample_main_name)
             
 
 class simple_protein(_simple_protein):
