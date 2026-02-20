@@ -1,7 +1,7 @@
 '''
 Date: 2026-02-19
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-02-20 00:19:50
+LastEditTime: 2026-02-20 10:42:41
 Description: steps most from http://www.mdtutorials.com/gmx/umbrella
 '''
 import argparse
@@ -145,13 +145,13 @@ class pull(_simple_protein):
             # STEP 5: sample MD trajectory frame from pull trajectory
             start_dist = self.args.start_distance or com_dis_df['com_com_dist'].values[0]
             end_dist = self.args.end_distance or com_dis_df['com_com_dist'].max()
-            sample_df = pd.DataFrame(columns=['dist_idx', 'real_dist', 'frame_idx', 'sample_name'])
+            sample_df = pd.DataFrame(columns=['dist', 'real_dist', 'frame_idx', 'sample_name', 'main_name'])
             for dist_i in tqdm(np.arange(start_dist, end_dist, self.args.distance_interval),
                                   desc=f'sample MD trajectory from pull trajectory {main_name}', leave=False):
                 frame_idx = np.argmin(np.abs(com_dis_df['com_com_dist'] - dist_i))
                 u.trajectory[frame_idx]
                 real_dist = com_dis_df['com_com_dist'].values[frame_idx]
-                sample_df.loc[len(sample_df)] = [dist_i, real_dist, frame_idx, f'pull_sample_{frame_idx}.gro']
+                sample_df.loc[len(sample_df)] = [dist_i, real_dist, frame_idx, f'pull_sample_{frame_idx}.gro', f'pull_sample_{frame_idx}']
                 print(f'\n\nsample {dist_i:.2f} nm (real {real_dist:.2f} nm) at frame {frame_idx}')
                 u.atoms.write(protein_path.parent / sample_df.loc[len(sample_df)-1, 'sample_name'], reindex=False)
             sample_df.to_csv(protein_path.parent / 'pull_sample.csv', index=False)
@@ -170,9 +170,15 @@ class pull(_simple_protein):
                 gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_npt')
                 # STEP 6.3: run md simulation
                 gmx.run_gmx_with_expect('grompp', f=mdps['md'], c=f'{sample_main_name}_npt.gro',
-                                        t=f'{sample_main_name}_npt.cpt', p='topol.top', n='pull.ndx',
+                                        t=f'{sample_main_name}_npt.cpt', p='topol.top', r=f'{sample_main_name}_npt.gro', n='pull.ndx',
                                         o=f'{sample_main_name}_md.tpr', imd=f'{sample_main_name}_md.gro', maxwarn=self.args.maxwarn)
-                gmx.run_gmx_with_expect('mdrun -v', deffnm=sample_main_name)
+                gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_md')
+            # STEP 7: perform WHAM analysis
+            opts_file(str(protein_path.parent / 'pull_wham_tpr_lst.dat'), 'w',
+                      data='\n'.join([f'{sample_main_name}_md.tpr' for sample_main_name in sample_df['main_name']]))
+            opts_file(str(protein_path.parent / 'pull_wham_pullf.dat'), 'w',
+                      data='\n'.join([f'{sample_main_name}_md_pullf.xvg' for sample_main_name in sample_df['main_name']]))
+            gmx.run_gmx_with_expect('wham',  it='pull_wham_tpr_lst.dat', if_='pull_wham_pullf.dat', o='pull_wham_hist.xvg', hist=True, unit='kCal')
             
 
 class simple_protein(_simple_protein):
