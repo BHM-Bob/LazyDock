@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-18 10:48:32
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-09-13 13:03:46
+LastEditTime: 2026-02-23 09:20:37
 Description:
 '''
 import os
@@ -24,7 +24,18 @@ class Gromacs(BaseInfo):
         self.task_uid = uuid4().hex[:4]
         
     def kwargs2cmd(self, kwargs: Dict[str, str]):
-        return ' '.join([f'{"--" if k.startswith("_") else "-"}{k[1:] if k.startswith("_") else k} {v}' for k, v in kwargs.items()])
+        fmt_kwgs = {}
+        for k, v in kwargs.items():
+            # in case of '--args'
+            if k.startswith('_'):
+                fmt_kwgs[f'--{k[1:]}'] = v
+            # in case of args name is a Python keywords
+            elif k.endswith('_'):
+                fmt_kwgs[f'-{k[:-1]}'] = v
+            # in case of '-args'
+            else:
+                fmt_kwgs[f'-{k}'] = v
+        return ' '.join([f'{k} {v}' for k, v in fmt_kwgs.items()])
     
     def gen_command(self, sub_commmand: str, **kwargs):
         """
