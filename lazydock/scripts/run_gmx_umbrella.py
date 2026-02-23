@@ -1,7 +1,7 @@
 '''
 Date: 2026-02-19
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-02-23 11:36:28
+LastEditTime: 2026-02-23 11:59:25
 Description: steps most from http://www.mdtutorials.com/gmx/umbrella
 '''
 import argparse
@@ -233,6 +233,10 @@ class any_sample(pull):
         args.add_argument('--maxwarn', type=int, default=0,
                           help='maxwarn for em,nvt,npt,md gmx grompp command, default is %(default)s.')
 
+    def process_args(self):
+        # no batch processing, so just skip
+        pass
+    
     def main_process(self):
         # check mdp files
         mdp_names = ['nvt', 'npt', 'md']
