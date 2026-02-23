@@ -1,7 +1,7 @@
 '''
 Date: 2026-02-19
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-02-23 11:59:25
+LastEditTime: 2026-02-23 12:01:48
 Description: steps most from http://www.mdtutorials.com/gmx/umbrella
 '''
 import argparse
@@ -215,6 +215,7 @@ class any_sample(pull):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
+        self.iter_run_arg = [] # no batch processing, so just skip
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
