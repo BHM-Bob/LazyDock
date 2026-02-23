@@ -1,7 +1,7 @@
 '''
 Date: 2026-02-19
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-02-20 10:42:41
+LastEditTime: 2026-02-23 11:36:28
 Description: steps most from http://www.mdtutorials.com/gmx/umbrella
 '''
 import argparse
@@ -98,6 +98,41 @@ class pull(_simple_protein):
             com_com_dist = np.linalg.norm(res_ag.center_of_mass() - pull_ag.center_of_mass(), axis=0) / 10 # convert to nm
             com_dis_df.loc[frame_idx] = [frame_idx, com_com_dist]
         return com_dis_df
+    
+    def run_sample(self, sample_gro: str, sample_main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        # STEP 6.1: run nvt equlibration
+        gmx.run_gmx_with_expect('grompp', f=mdps['nvt'], c=sample_gro,
+                                p='topol.top', r=sample_gro, n='pull.ndx',
+                                o=f'{sample_main_name}_nvt.tpr', maxwarn=self.args.maxwarn)
+        gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_nvt')
+        # STEP 6.2: run npt equlibration
+        gmx.run_gmx_with_expect('grompp', f=mdps['npt'], c=f'{sample_main_name}_nvt.gro',
+                                p='topol.top', r=f'{sample_main_name}_nvt.gro', t=f'{sample_main_name}_nvt.cpt', n='pull.ndx',
+                                o=f'{sample_main_name}_npt.tpr', maxwarn=self.args.maxwarn)
+        gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_npt')
+        # STEP 6.3: run md simulation
+        gmx.run_gmx_with_expect('grompp', f=mdps['md'], c=f'{sample_main_name}_npt.gro',
+                                t=f'{sample_main_name}_npt.cpt', p='topol.top', r=f'{sample_main_name}_npt.gro', n='pull.ndx',
+                                o=f'{sample_main_name}_md.tpr', imd=f'{sample_main_name}_md.gro', maxwarn=self.args.maxwarn)
+        gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_md')
+
+    @staticmethod
+    def plot_hist(xvg_path: str, png_path: str, title: str = None):
+        # 读取histograms.xvg（假设有多列，第一列是位置，后面每列是一个窗口的直方图）
+        data = np.loadtxt(xvg_path, comments=['#', '@'])
+        x = data[:, 0]
+        histograms = data[:, 1:]
+        np.save(png_path.replace('.png', '.npy'), histograms)
+        plt.figure(figsize=(10, 6))
+        for i in range(histograms.shape[1]):
+            plt.plot(x, histograms[:, i], alpha=0.5, label=f'Window {i}')
+        plt.grid(True)
+        plt.xlabel('COM-COM Distance (nm)')
+        plt.ylabel('Probability Density')
+        plt.title('Umbrella Sampling Histograms')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        plt.savefig(png_path, dpi=600)
 
     def main_process(self):
         # get protein paths
@@ -158,182 +193,98 @@ class pull(_simple_protein):
             # STEP 6: run MD simulation for each sample
             for sample_gro in tqdm(sample_df['sample_name'], desc=f'run MD simulation for each sample', leave=False):
                 sample_main_name = sample_gro.split(".")[0]
-                # STEP 6.1: run nvt equlibration
-                gmx.run_gmx_with_expect('grompp', f=mdps['nvt'], c=sample_gro,
-                                        p='topol.top', r=sample_gro, n='pull.ndx',
-                                        o=f'{sample_main_name}_nvt.tpr', maxwarn=self.args.maxwarn)
-                gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_nvt')
-                # STEP 6.2: run npt equlibration
-                gmx.run_gmx_with_expect('grompp', f=mdps['npt'], c=f'{sample_main_name}_nvt.gro',
-                                        p='topol.top', r=f'{sample_main_name}_nvt.gro', t=f'{sample_main_name}_nvt.cpt', n='pull.ndx',
-                                        o=f'{sample_main_name}_npt.tpr', maxwarn=self.args.maxwarn)
-                gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_npt')
-                # STEP 6.3: run md simulation
-                gmx.run_gmx_with_expect('grompp', f=mdps['md'], c=f'{sample_main_name}_npt.gro',
-                                        t=f'{sample_main_name}_npt.cpt', p='topol.top', r=f'{sample_main_name}_npt.gro', n='pull.ndx',
-                                        o=f'{sample_main_name}_md.tpr', imd=f'{sample_main_name}_md.gro', maxwarn=self.args.maxwarn)
-                gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_md')
+                self.run_sample(sample_gro, sample_main_name, gmx, mdps)
             # STEP 7: perform WHAM analysis
             opts_file(str(protein_path.parent / 'pull_wham_tpr_lst.dat'), 'w',
                       data='\n'.join([f'{sample_main_name}_md.tpr' for sample_main_name in sample_df['main_name']]))
             opts_file(str(protein_path.parent / 'pull_wham_pullf.dat'), 'w',
                       data='\n'.join([f'{sample_main_name}_md_pullf.xvg' for sample_main_name in sample_df['main_name']]))
-            gmx.run_gmx_with_expect('wham',  it='pull_wham_tpr_lst.dat', if_='pull_wham_pullf.dat', o='pull_wham_hist.xvg', hist=True, unit='kCal')
-            
+            gmx.run_gmx_with_expect('wham',  it='pull_wham_tpr_lst.dat', if_='pull_wham_pullf.dat',
+                                    o='pull_wham_pme.xvg', hist='pull_wham_hist.xvg', unit='kCal')
+            # STEP 8: plot WHAM histogram and curve
+            gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pull_wham_pme.xvg -o pull_wham_pme.png -t "WHAM PME of {main_name}" -csv pull_wham_pme.csv')
+            self.plot_hist('pull_wham_hist.xvg', 'pull_wham_pme.png')
 
-class simple_protein(_simple_protein):
+
+class any_sample(pull):
     HELP = """
-    run simple protein GROMACS simulation
-    1. gmx editconf -f protein.gro -o protein_newbox.gro -c -d 1.0 -bt cubic
-    2. gmx solvate -cp protein_newbox.gro -cs spc216.gro -o protein_solv.gro -p topol.top
-    3. gmx grompp -f ions.mdp -c protein_solv.gro -p topol.top -o ions.tpr
-    4. gmx genion -s ions.tpr -o protein_solv_ions.gro -p topol.top -pname NA -nname CL -neutral
-    5. gmx grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
-    6. gmx mdrun -v -deffnm em
-    7. gmx energy -f em.edr -o potential.xvg # At the prompt, type "10 0" to select Potential (10); zero (0) terminates input.
-    8. gmx grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
-    9. gmx mdrun -deffnm nvt
-    10. gmx energy -f nvt.edr -o temperature.xvg # Type "16 0" at the prompt to select the temperature of the system and exit.
-    11. gmx grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
-    12. gmx mdrun -deffnm npt
-    13. gmx energy -f npt.edr -o pressure.xvg # Type "18 0" at the prompt to select the pressure of the system and exit.
-    14. gmx energy -f npt.edr -o density.xvg # using energy and entering "24 0" at the prompt.
-    15. gmx grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
-    16. gmx mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
-    
-    if step 16 terminated, you can use gmx mdrun -s md.tpr -cpi md.cpt -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
+    run any sample GROMACS simulation.
+    This command is designed for running supplement pull sample while the first pull-sample is not enough.
+    This command can be used for running any com-com distance sample.
+    This command is a one-command-one-task command, which means it is not for batch processing.
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
-        self.indexs = {}
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        _simple_protein.make_args(args)
-        return args
-        
-    def energy_minimization(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
-        # STEP 5: grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
-        gmx.run_gmx_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro',
-                                    p='topol.top', o='em.tpr', maxwarn=self.args.maxwarn)
-        # STEP 6: mdrun -v -deffnm em
-        gmx.run_gmx_with_expect(f'mdrun {self.args.em_args}', deffnm='em')
-        # STEP 7: energy -f em.edr -o potential.xvg
-        gmx.run_gmx_with_expect('energy', f='em.edr', o='potential.xvg',
-                                    expect_actions=[{'line or a zero.': f'{self.args.potential_groups}\r'}])
-        os.system(f'cd "{protein_path.parent}" && dit xvg_compare -c 1 -f potential.xvg -o potential.png -t "EM Potential of {main_name}" -csv {main_name}_potential.csv -ns')
-        
-    def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
-        # STEP 8: grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
-        gmx.run_gmx_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top',
-                                    o='nvt.tpr', n=self.indexs.get('nvt', None), maxwarn=self.args.maxwarn)
-        # STEP 9: mdrun -deffnm nvt
-        gmx.run_gmx_with_expect('mdrun', deffnm='nvt')
-        # STEP 10: energy -f nvt.edr -o temperature.xvg
-        gmx.run_gmx_with_expect('energy', f='nvt.edr', o='temperature.xvg',
-                                    expect_actions=[{'line or a zero.': f'{self.args.temperature_groups}\r'}])
-        os.system(f'cd "{protein_path.parent}" && dit xvg_compare -c 1 -f temperature.xvg -o temperature.png -smv -ws 10 -t "NVT Temperature of {main_name}" -csv {main_name}_temperature.csv -ns')
-        # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
-        gmx.run_gmx_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt',
-                                    p='topol.top', o='npt.tpr', n=self.indexs.get('npt', None), maxwarn=self.args.maxwarn)
-        # STEP 12: mdrun -deffnm npt
-        gmx.run_gmx_with_expect('mdrun', deffnm='npt')
-        # STEP 13: energy -f npt.edr -o pressure.xvg
-        gmx.run_gmx_with_expect('energy', f='npt.edr', o='pressure.xvg',
-                                    expect_actions=[{'line or a zero.': f'{self.args.pressure_groups}\r'}])
-        os.system(f'cd "{protein_path.parent}" && dit xvg_compare -c 1 -f pressure.xvg -o pressure.png -smv -ws 10 -t "NPT Pressure of {main_name}" -csv {main_name}_pressure.csv -ns')
-        # STEP 14: energy -f npt.edr -o density.xvg
-        gmx.run_gmx_with_expect('energy', f='npt.edr', o='density.xvg',
-                                    expect_actions=[{'line or a zero.': f'{self.args.density_groups}\r'}])
-        os.system(f'cd "{protein_path.parent}" && dit xvg_compare -c 1 -f density.xvg -o density.png -smv -ws 10 -t "NPT Density of {main_name}" -csv {main_name}_density.csv -ns')
-        
-    def production_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
-        # STEP 15: grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
-        gmx.run_gmx_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top',
-                                    o='md.tpr', imd='md.gro', n=self.indexs.get('md', None), maxwarn=self.args.maxwarn)
-        # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
-        gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='md')
+        args.add_argument('-n', '--protein-name', type = str, required=True,
+                          help='protein name in each sub-directory, such as protein.gro.')
+        args.add_argument('-s', '--suffix', type = str, required=True,
+                          help='suffix for result name (exclude sample GROMACS name).')
+        args.add_argument('-dis', '--distance', type=float, nargs='+', required=True,
+                          help='start distance (nm) from pull trajectory for sampling MD run.')
+        args.add_argument('--nvt-mdp', type = str, required=True,
+                          help='nvt mdp file, if is a file-path, will copy to working directory.')
+        args.add_argument('--npt-mdp', type = str, required=True,
+                          help='npt mdp file, if is a file-path, will copy to working directory.')
+        args.add_argument('--md-mdp', type = str, required=True,
+                          help='production md mdp file, if is a file-path, will copy to working directory.')
+        args.add_argument('--maxwarn', type=int, default=0,
+                          help='maxwarn for em,nvt,npt,md gmx grompp command, default is %(default)s.')
 
     def main_process(self):
-        # get protein paths
-        if os.path.isdir(self.args.batch_dir):
-            proteins_path = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.protein_name)
-        else:
-            put_err(f'dir argument should be a directory: {self.args.batch_dir}, exit.', _exit=True)
-        put_log(f'get {len(proteins_path)} protein(s)')
         # check mdp files
-        mdp_names = ['ion', 'em', 'nvt', 'npt','md']
+        mdp_names = ['nvt', 'npt', 'md']
         mdp_exist = list(map(lambda x: os.path.isfile(getattr(self.args, f'{x}_mdp')), mdp_names))
         if not all(mdp_exist):
             missing_names = [n for n, e in zip(mdp_names, mdp_exist) if not e]
             put_log(f'Warning: can not find mdp files in abspath: {", ".join(missing_names)}, skip.')
-        # sleep until start time
-        self.sleep_until_start_time()
-        # process each complex
-        for protein_path in tqdm(proteins_path, total=len(proteins_path)):
-            protein_path = Path(protein_path).resolve()
-            main_name = protein_path.stem
-            # check if md.tpr exists, if yes, skip
-            if os.path.exists(protein_path.parent / 'md.tpr'):
-                put_log(f'{protein_path} already done with md.tpr, skip.')
-                continue
-            # prepare gmx env and mdp files
-            gmx = Gromacs(working_dir=str(protein_path.parent))
-            mdps = self.get_mdp(protein_path.parent)
-            # STEP 1 ~ 4: make box, solvate, ions
-            self.make_box(protein_path, main_name, gmx, mdps)
-            # STEP 5 ~ 7: energy minimization
-            self.energy_minimization(protein_path, main_name, gmx, mdps)
-            # STEP 8 ~ 14: equilibration
-            self.equilibration(protein_path, main_name, gmx, mdps)
-            exit()
-            # STEP 15 ~ 16: production md
-            self.production_md(protein_path, main_name, gmx, mdps)
-
-
-class simple_complex(_simple_complex):
-    HELP = _simple_complex.HELP.replace('protein', 'complex')
-    def __init__(self, args, printf=print):
-        super().__init__(args, printf)
-        
-    @staticmethod
-    def make_args(args: argparse.ArgumentParser):
-        args = _simple_complex.make_args(args)
-        return args
-        
-    def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
-        from lazydock.scripts.prepare_gmx import ligand
-        lig_name = Path(self.args.ligand_name).stem
-        # STEP 1: make restraints file for ligand
-        # make_ndx -f jz4.gro -o index_jz4.ndx
-        gmx.run_gmx_with_expect('make_ndx', f=f'{lig_name}.gro', o=f'index_{lig_name}.ndx',
-                                    expect_actions=[{'>': '0 & ! a H*\r'}, {'>': 'q\r'}])
-        # gmx genrestr -f jz4.gro -n index_jz4.ndx -o posre_jz4.itp -fc 1000 1000 1000
-        gmx.run_gmx_with_expect('genrestr', f=f'{lig_name}.gro', n=f'index_{lig_name}.ndx', o=f'posre_{lig_name}.itp', fc='1000 1000 1000',
-                                     expect_actions=[{'Select a group:': '3\r'}])
-        # STEP 2: add restraints info into topol.top
-        res_info = f'\n; Ligand position restraints\n#ifdef {self.args.lig_posres}\n#include "posre_{lig_name}.itp"\n#endif\n\n'
-        ligand.insert_content(protein_path.parent / 'topol.top', f'#include "{lig_name}.itp"\n', res_info)
-        # STEP 3: make tc-grps index file
-        # gmx make_ndx -f em.gro -o index.ndx
-        tc_groups = self.args.tc_groups
-        if self.args.tc_groups == 'auto':
-            groups = gmx.get_groups('em.tpr')
-            if 'Protein' not in groups and 'LIG' not in groups:
-                put_err(f'can not find Protein or LIG group in em.tpr, skip.')
-            else:
-                tc_groups = f'{groups["Protein"]} | {groups["LIG"]}'
-        gmx.run_gmx_with_expect('make_ndx', f='em.gro', o='tc_index.ndx',
-                                    expect_actions=[{'>': f'{tc_groups}\r'}, {'>': 'q\r'}])
-        for k in ['nvt', 'npt','md']:
-            self.indexs[k] = 'tc_index.ndx'
-        super().equilibration(protein_path, main_name, gmx, mdps)
+        # run sample
+        protein_path = Path(self.args.protein_name).resolve()
+        main_name = protein_path.stem
+        gmx = Gromacs(working_dir=str(protein_path.parent))
+        # prepare gmx env and mdp files
+        mdps = self.get_mdp(protein_path.parent, mdp_names)
+        # check if pull.tpr exists, if not, exit
+        if not os.path.exists(protein_path.parent / 'pull.tpr'):
+            return put_err(f'can not find pull.tpr, exit.')
+        # STEP 1: load com-com distance, 
+        u = Universe(str(protein_path.parent / 'pull.tpr'), str(protein_path.parent / 'pull.xtc'))
+        com_dis_df = pd.read_csv(protein_path.parent / 'pull_com_com_dist.csv')
+        sample_df = pd.read_csv(protein_path.parent / 'pull_sample.csv')
+        start_run_idx = len(sample_df)
+        # STEP 2: extract sample gro files from pull trajectory
+        for dist_i in tqdm(self.args.distance, desc=f'sample MD trajectory from pull trajectory {main_name}', leave=False):
+            nearst_idx = np.argmin(np.abs(sample_df['dist'] - dist_i))
+            frame_idx = np.argmin(np.abs(com_dis_df['com_com_dist'] - dist_i))
+            u.trajectory[frame_idx]
+            real_dist = com_dis_df['com_com_dist'].values[frame_idx]
+            sample_df.loc[len(sample_df)] = [dist_i, real_dist, frame_idx, f'pull_sample_{frame_idx}.gro', f'pull_sample_{frame_idx}']
+            print(f'\n\nsample {dist_i:.2f} nm (real {real_dist:.2f} nm) at frame {frame_idx}')
+            print(f'nearst sample in previous run is {sample_df.loc[nearst_idx, "dist"]:.2f} nm')
+            u.atoms.write(protein_path.parent / sample_df.loc[len(sample_df)-1, 'sample_name'], reindex=False)
+        # STEP 6: run MD simulation for each sample
+        for sample_gro in tqdm(sample_df['sample_name'][start_run_idx:], desc=f'run MD simulation for each sample', leave=False):
+            sample_main_name = sample_gro.split(".")[0]
+            self.run_sample(sample_gro, sample_main_name, gmx, mdps)
+        # STEP 7: perform WHAM analysis
+        suffix = self.args.suffix
+        sample_df = sample_df.sort_values(by='dist')
+        opts_file(str(protein_path.parent / f'pull_wham_tpr_lst_{suffix}.dat'), 'w',
+                    data='\n'.join([f'{sample_main_name}_md.tpr' for sample_main_name in sample_df['main_name']]))
+        opts_file(str(protein_path.parent / f'pull_wham_pullf_{suffix}.dat'), 'w',
+                    data='\n'.join([f'{sample_main_name}_md_pullf.xvg' for sample_main_name in sample_df['main_name']]))
+        gmx.run_gmx_with_expect('wham',  it=f'pull_wham_tpr_lst_{suffix}.dat', if_=f'pull_wham_pullf_{suffix}.dat',
+                                o=f'pull_wham_pme_{suffix}.xvg', hist=f'pull_wham_hist_{suffix}.xvg', unit='kCal')
+        # STEP 8: plot WHAM histogram and curve
+        gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pull_wham_pme_{suffix}.xvg -o pull_wham_pme_{suffix}.png -t "WHAM PME of {main_name}" -csv pull_wham_pme_{suffix}.csv')
+        self.plot_hist(f'pull_wham_hist_{suffix}.xvg', f'pull_wham_pme_{suffix}.png')
 
 
 _str2func = {
     'pull': pull,
-    'simple-protein': simple_protein,
-    'simple-complex': simple_complex,
+    'any-sample': any_sample,
 }
 
 def main(sys_args: List[str] = None):
@@ -349,7 +300,4 @@ def main(sys_args: List[str] = None):
 
 
 if __name__ == "__main__":
-    # pass
-    # main(r'complex -d data_tmp/gmx/complex -n complex.pdb --receptor-chain-name A --ligand-chain-name Z --ff-dir data_tmp/gmx/charmm36-jul2022.ff'.split())
-    
     main()
