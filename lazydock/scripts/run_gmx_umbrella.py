@@ -1,15 +1,11 @@
 '''
 Date: 2026-02-19
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-02-23 12:01:48
+LastEditTime: 2026-02-26 19:36:35
 Description: steps most from http://www.mdtutorials.com/gmx/umbrella
 '''
 import argparse
 import os
-import re
-import shutil
-import time
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
@@ -22,8 +18,9 @@ from MDAnalysis import Universe
 from pymol import cmd
 from tqdm import tqdm
 
+from lazydock.gmx.prepare_ff import insert_content
 from lazydock.gmx.run import Gromacs
-from lazydock.scripts._script_utils_ import Command, process_batch_dir_lst
+from lazydock.scripts._script_utils_ import make_args_and_excute
 from lazydock.scripts.run_gmx import simple_complex as _simple_complex
 from lazydock.scripts.run_gmx import simple_protein as _simple_protein
 from lazydock.utils import uuid4
@@ -32,6 +29,9 @@ from lazydock.utils import uuid4
 class pull(_simple_protein):
     HELP = """
     run pull process for umbrella sampling, steps most from http://www.mdtutorials.com/gmx/umbrella
+    Note: 
+        1. pull-chain will be named as PULL_Chain in pull.ndx, and restrain-chain will be named as RESTRAIN_Chain.
+        2. if use posres, you should add define=-DXXX in each mdp file(pull, nvt, npt, pull_md).
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
@@ -47,8 +47,12 @@ class pull(_simple_protein):
                           help='chain name for pull, such as A.')
         args.add_argument('-rc', '--restrain-chain', type=str, required=True,
                           help='chain name for position restrain, such as B.')
-        args.add_argument('-posres', '--position-restrain', action='store_true', default=False,
-                          help='add position restrain define in topol-itp file for restrain chain, default is %(default)s.')
+        args.add_argument('-cca', '--calcu-center-atom', type=int, default=None,
+                          help='add pull-group1-pbcatom = #number_of_your_central_atom in mdp file, will replace group idx with restrain group cca value, default is %(default)s.')
+        args.add_argument('-posres', '--position-restrain', type=str, nargs='+', default=None,
+                          help='add position restrain define in topol-itp file, format is CHAIN_ID RESTRAIN_DEF, example is A POSRES_RESTRAIN_CHAIN. Default is %(default)s.')
+        args.add_argument('-po', '--pull-only', action='store_true', default=False,
+                          help='only run pull process, default is %(default)s.')
         args.add_argument('-sd', '--start-distance', type=float, default=None,
                           help='start distance (nm) from pull trajectory for sampling MD run, default is %(default)s.')
         args.add_argument('-ed', '--end-distance', type=float, default=None,
@@ -65,6 +69,13 @@ class pull(_simple_protein):
                           help='production md mdp file, if is a file-path, will copy to working directory.')
         args.add_argument('--maxwarn', type=int, default=0,
                           help='maxwarn for em,nvt,npt,md gmx grompp command, default is %(default)s.')
+        
+    def process_args(self):
+        super().process_args()
+        if self.args.position_restrain is not None:
+            if not len(self.args.position_restrain) % 2 == 0:
+                put_err("position_restrain must be even number of arguments, input as CHAIN_ID_1 RESTRAIN_DEF_1 CHAIN_ID_2 RESTRAIN_DEF_2. exit")
+                exit(1)
         
     def get_complex_atoms_index(self, u: Universe):
         pull_idx = u.atoms.chainIDs == self.args.pull_chain
@@ -89,6 +100,14 @@ class pull(_simple_protein):
                                                 {'>': f'a {res_range_str}\r'}, {'>': f'name {len(groups)+1} RESTRAIN_Chain\r'},
                                                 {'>': 'q\r'}])
         
+    def apply_restrain_def(self, gmx: Gromacs):
+        """add position restrain define in topol_Protein_chain_A.itp file"""
+        to_insert_content = '\n\n#ifdef POSERES_DEF\n#include "posre_Protein_chain_CHAIN_ID.itp"\n#endif\n\n'
+        for chain_id, restrain_def in zip(self.args.position_restrain[::2], self.args.position_restrain[1::2]):
+            itp_path = str(gmx.working_dir / f'topol_Protein_chain_{chain_id}.itp')
+            if os.path.exists(itp_path):
+                insert_content(itp_path, '#endif', to_insert_content.replace('CHAIN_ID', chain_id).replace('POSERES_DEF', restrain_def))
+        
     def calcu_com_com_distance(self, u: Universe):
         res_idx, pull_idx = self.get_complex_atoms_index(u)
         res_ag, pull_ag = u.atoms[res_idx], u.atoms[pull_idx]
@@ -98,6 +117,20 @@ class pull(_simple_protein):
             com_com_dist = np.linalg.norm(res_ag.center_of_mass() - pull_ag.center_of_mass(), axis=0) / 10 # convert to nm
             com_dis_df.loc[frame_idx] = [frame_idx, com_com_dist]
         return com_dis_df
+    
+    def apply_center_atom(self, gmx: Gromacs, u: Universe, mdps: Dict[str, str]):
+        _, res_idx = self.get_complex_atoms_index(u)
+        res_ag = u.atoms[res_idx]
+        center_pos = res_ag.center_of_mass()
+        center_com_dist = np.linalg.norm(center_pos - res_ag.positions, axis=0)
+        res_center_atom_idx = np.argmin(center_com_dist).astype(int)
+        for mdp_name in mdps:
+            mdp_config = opts_file(os.path.join(gmx.working_dir, mdp_name))
+            if 'pull-group1-pbcatom' in mdp_config:
+                put_err(f"mdp file {mdp_name} already has pull-group1-pbcatom, skip.")
+                continue
+            new_mdp_config = mdp_config + f'\n\npull-group1-pbcatom = {res_center_atom_idx}'
+            opts_file(os.path.join(gmx.working_dir, mdp_name), 'w', data=new_mdp_config)
     
     def run_sample(self, sample_gro: str, sample_main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         # STEP 6.1: run nvt equlibration
@@ -177,6 +210,13 @@ class pull(_simple_protein):
             ax.set_ylabel('COM-COM Distance (nm)', fontsize=14)
             ax.grid(linestyle='--')
             fig.savefig(protein_path.parent / 'pull_com_com_dist.png', dpi=600)
+            ## calcu center atoms for each chain and add to mdp file
+            if self.args.calcu_center_atom:
+                self.apply_center_atom(gmx, u, mdps)
+            ## check if pull-only
+            if self.args.pull_only:
+                put_log(f'pull only option enabled, skip sampling run.')
+                continue
             # STEP 5: sample MD trajectory frame from pull trajectory
             start_dist = self.args.start_distance or com_dis_df['com_com_dist'].values[0]
             end_dist = self.args.end_distance or com_dis_df['com_com_dist'].max()
@@ -246,6 +286,7 @@ class any_sample(pull):
             missing_names = [n for n, e in zip(mdp_names, mdp_exist) if not e]
             put_log(f'Warning: can not find mdp files in abspath: {", ".join(missing_names)}, skip.')
         # run sample
+        suffix = self.args.suffix
         protein_path = Path(self.args.protein_name).resolve()
         main_name = protein_path.stem
         gmx = Gromacs(working_dir=str(protein_path.parent))
@@ -263,18 +304,21 @@ class any_sample(pull):
         for dist_i in tqdm(self.args.distance, desc=f'sample MD trajectory from pull trajectory {main_name}', leave=False):
             nearst_idx = np.argmin(np.abs(sample_df['dist'] - dist_i))
             frame_idx = np.argmin(np.abs(com_dis_df['com_com_dist'] - dist_i))
+            if frame_idx in sample_df['frame_idx']:
+                print(f'frame {frame_idx} has been sampled, skip.')
+                continue
             u.trajectory[frame_idx]
             real_dist = com_dis_df['com_com_dist'].values[frame_idx]
             sample_df.loc[len(sample_df)] = [dist_i, real_dist, frame_idx, f'pull_sample_{frame_idx}.gro', f'pull_sample_{frame_idx}']
             print(f'\n\nsample {dist_i:.2f} nm (real {real_dist:.2f} nm) at frame {frame_idx}')
             print(f'nearst sample in previous run is {sample_df.loc[nearst_idx, "dist"]:.2f} nm')
             u.atoms.write(protein_path.parent / sample_df.loc[len(sample_df)-1, 'sample_name'], reindex=False)
+        sample_df.to_csv(protein_path.parent / f'pull_sample_{suffix}.csv', index=False)
         # STEP 6: run MD simulation for each sample
         for sample_gro in tqdm(sample_df['sample_name'][start_run_idx:], desc=f'run MD simulation for each sample', leave=False):
             sample_main_name = sample_gro.split(".")[0]
             self.run_sample(sample_gro, sample_main_name, gmx, mdps)
         # STEP 7: perform WHAM analysis
-        suffix = self.args.suffix
         sample_df = sample_df.sort_values(by='dist')
         opts_file(str(protein_path.parent / f'pull_wham_tpr_lst_{suffix}.dat'), 'w',
                     data='\n'.join([f'{sample_main_name}_md.tpr' for sample_main_name in sample_df['main_name']]))
@@ -292,16 +336,9 @@ _str2func = {
     'any-sample': any_sample,
 }
 
+
 def main(sys_args: List[str] = None):
-    args_paser = argparse.ArgumentParser(description = 'tools for GROMACS.')
-    subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
-
-    for n, func in _str2func.items():
-        func.make_args(subparsers.add_parser(n, description=func.HELP))
-
-    args = args_paser.parse_args(sys_args)
-    if args.sub_command in _str2func:
-        _str2func[args.sub_command](args).excute()
+    make_args_and_excute('tools for GROMACS.', _str2func, sys_args)
 
 
 if __name__ == "__main__":
