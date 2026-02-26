@@ -1,7 +1,7 @@
 '''
 Date: 2026-02-18 22:36:48
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-02-19 14:42:08
+LastEditTime: 2026-02-23 22:00:02
 Description: steps most from http://www.mdtutorials.com/gmx/umbrella
 '''
 import argparse
@@ -45,48 +45,6 @@ class simple_protein(_simple_protein):
     def make_args(args: argparse.ArgumentParser):
         _simple_protein.make_args(args)
         return args
-        
-    def energy_minimization(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
-        # STEP 5: grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
-        gmx.run_gmx_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro',
-                                    p='topol.top', o='em.tpr', maxwarn=self.args.maxwarn)
-        # STEP 6: mdrun -v -deffnm em
-        gmx.run_gmx_with_expect(f'mdrun {self.args.em_args}', deffnm='em')
-        # STEP 7: energy -f em.edr -o potential.xvg
-        gmx.run_gmx_with_expect('energy', f='em.edr', o='potential.xvg',
-                                    expect_actions=[{'line or a zero.': f'{self.args.potential_groups}\r'}])
-        os.system(f'cd "{protein_path.parent}" && dit xvg_compare -c 1 -f potential.xvg -o potential.png -t "EM Potential of {main_name}" -csv {main_name}_potential.csv -ns')
-        
-    def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
-        # STEP 8: grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
-        gmx.run_gmx_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top',
-                                    o='nvt.tpr', n=self.indexs.get('nvt', None), maxwarn=self.args.maxwarn)
-        # STEP 9: mdrun -deffnm nvt
-        gmx.run_gmx_with_expect('mdrun', deffnm='nvt')
-        # STEP 10: energy -f nvt.edr -o temperature.xvg
-        gmx.run_gmx_with_expect('energy', f='nvt.edr', o='temperature.xvg',
-                                    expect_actions=[{'line or a zero.': f'{self.args.temperature_groups}\r'}])
-        os.system(f'cd "{protein_path.parent}" && dit xvg_compare -c 1 -f temperature.xvg -o temperature.png -smv -ws 10 -t "NVT Temperature of {main_name}" -csv {main_name}_temperature.csv -ns')
-        # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
-        gmx.run_gmx_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt',
-                                    p='topol.top', o='npt.tpr', n=self.indexs.get('npt', None), maxwarn=self.args.maxwarn)
-        # STEP 12: mdrun -deffnm npt
-        gmx.run_gmx_with_expect('mdrun', deffnm='npt')
-        # STEP 13: energy -f npt.edr -o pressure.xvg
-        gmx.run_gmx_with_expect('energy', f='npt.edr', o='pressure.xvg',
-                                    expect_actions=[{'line or a zero.': f'{self.args.pressure_groups}\r'}])
-        os.system(f'cd "{protein_path.parent}" && dit xvg_compare -c 1 -f pressure.xvg -o pressure.png -smv -ws 10 -t "NPT Pressure of {main_name}" -csv {main_name}_pressure.csv -ns')
-        # STEP 14: energy -f npt.edr -o density.xvg
-        gmx.run_gmx_with_expect('energy', f='npt.edr', o='density.xvg',
-                                    expect_actions=[{'line or a zero.': f'{self.args.density_groups}\r'}])
-        os.system(f'cd "{protein_path.parent}" && dit xvg_compare -c 1 -f density.xvg -o density.png -smv -ws 10 -t "NPT Density of {main_name}" -csv {main_name}_density.csv -ns')
-        
-    def production_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
-        # STEP 15: grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
-        gmx.run_gmx_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top',
-                                    o='md.tpr', imd='md.gro', n=self.indexs.get('md', None), maxwarn=self.args.maxwarn)
-        # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
-        gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='md')
 
     def main_process(self):
         # get protein paths
