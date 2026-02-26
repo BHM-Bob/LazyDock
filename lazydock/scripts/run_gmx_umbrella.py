@@ -1,7 +1,7 @@
 '''
 Date: 2026-02-19
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-02-26 19:36:35
+LastEditTime: 2026-02-26 21:59:15
 Description: steps most from http://www.mdtutorials.com/gmx/umbrella
 '''
 import argparse
@@ -104,7 +104,7 @@ class pull(_simple_protein):
         """add position restrain define in topol_Protein_chain_A.itp file"""
         to_insert_content = '\n\n#ifdef POSERES_DEF\n#include "posre_Protein_chain_CHAIN_ID.itp"\n#endif\n\n'
         for chain_id, restrain_def in zip(self.args.position_restrain[::2], self.args.position_restrain[1::2]):
-            itp_path = str(gmx.working_dir / f'topol_Protein_chain_{chain_id}.itp')
+            itp_path = str(gmx.wdir / f'topol_Protein_chain_{chain_id}.itp')
             if os.path.exists(itp_path):
                 insert_content(itp_path, '#endif', to_insert_content.replace('CHAIN_ID', chain_id).replace('POSERES_DEF', restrain_def))
         
@@ -125,7 +125,7 @@ class pull(_simple_protein):
         center_com_dist = np.linalg.norm(center_pos - res_ag.positions, axis=0)
         res_center_atom_idx = np.argmin(center_com_dist).astype(int)
         for mdp_name in mdps:
-            mdp_config = opts_file(os.path.join(gmx.working_dir, mdp_name))
+            mdp_config = opts_file(os.path.join(gmx.working_dir, mdps[mdp_name]))
             if 'pull-group1-pbcatom' in mdp_config:
                 put_err(f"mdp file {mdp_name} already has pull-group1-pbcatom, skip.")
                 continue
@@ -197,6 +197,9 @@ class pull(_simple_protein):
                 gmx.run_gmx_with_expect('grompp', f=mdps['pull'], c='npt.gro', p='topol.top', r='npt.gro', n='pull.ndx',
                                             t='npt.cpt', o='pull.tpr', maxwarn=self.args.maxwarn)
                 # STEP 3: gmx mdrun -deffnm pull -pf pullf.xvg -px pullx.xvg
+                ## check apply pos restrain def
+                if self.args.position_restrain:
+                    self.apply_restrain_def(gmx)
                 gmx.run_gmx_with_expect('mdrun -v', deffnm='pull', pf='pullf.xvg', px='pullx.xvg')
                 gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pullx.xvg -o pullx.png -t "Pull X of {main_name}" -csv pullx.csv -ns')
                 gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pullf.xvg -o pullf.png -t "Pull F of {main_name}" -csv pullf.csv -ns')
