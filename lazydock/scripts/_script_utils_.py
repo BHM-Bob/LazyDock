@@ -1,7 +1,7 @@
 '''
 Date: 2024-11-23 19:53:42
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-02-18 17:21:42
+LastEditTime: 2026-02-26 16:58:46
 Description:
 '''
 import argparse
@@ -108,7 +108,7 @@ class Command:
             if not os.path.isdir(root):
                 put_err(f'batch_dir argument should be a directory: {root}, exit.', _exit=True)
         return batch_dir_lst
- 
+
 
 def excute_command(args_paser: argparse.ArgumentParser, sys_args: List[str],
                    _str2func: Dict[str, callable]):
@@ -130,6 +130,15 @@ def excute_command(args_paser: argparse.ArgumentParser, sys_args: List[str],
             traceback.print_exception(type(e), e, e.__traceback__)
     else:
         put_err(f'no such sub commmand: {args.sub_command}')
-    
-        
-        
+
+
+def make_args_and_excute(desc: str, _str2func: Dict[str, Union[callable, type]], sys_args: List[str]):
+    args_paser = argparse.ArgumentParser(description = desc)
+    subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
+
+    for n, func in _str2func.items():
+        func.make_args(subparsers.add_parser(n, description=func.HELP, formatter_class=argparse.RawDescriptionHelpFormatter))
+
+    args = args_paser.parse_args(sys_args)
+    if args.sub_command in _str2func:
+        _str2func[args.sub_command](args).excute()
