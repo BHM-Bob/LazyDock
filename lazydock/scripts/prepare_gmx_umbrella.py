@@ -1,7 +1,7 @@
 '''
 Date: 2026-02-18 22:36:48
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-02-23 22:00:02
+LastEditTime: 2026-02-26 19:37:12
 Description: steps most from http://www.mdtutorials.com/gmx/umbrella
 '''
 import argparse
@@ -14,12 +14,14 @@ from mbapy_lite.file import get_paths_with_extension, opts_file
 from pymol import cmd
 from tqdm import tqdm
 
+from lazydock.gmx.prepare_ff import insert_content
 from lazydock.gmx.run import Gromacs
+from lazydock.scripts._script_utils_ import make_args_and_excute
 from lazydock.scripts.run_gmx import simple_complex as _simple_complex
 from lazydock.scripts.run_gmx import simple_protein as _simple_protein
 
 
-class simple_protein(_simple_protein):
+class protein(_simple_protein):
     HELP = """
     run simple protein GROMACS simulation
     1. gmx editconf -f protein.gro -o protein_newbox.gro -c -d 1.0 -bt cubic
@@ -44,6 +46,9 @@ class simple_protein(_simple_protein):
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         _simple_protein.make_args(args)
+        for action in args._actions[:]:
+            if action.dest == 'md_mdp':
+                action.required = False
         return args
 
     def main_process(self):
@@ -54,7 +59,7 @@ class simple_protein(_simple_protein):
             put_err(f'dir argument should be a directory: {self.args.batch_dir}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')
         # check mdp files
-        mdp_names = ['ion', 'em', 'nvt', 'npt','md']
+        mdp_names = ['ion', 'em', 'nvt', 'npt']
         mdp_exist = list(map(lambda x: os.path.isfile(getattr(self.args, f'{x}_mdp')), mdp_names))
         if not all(mdp_exist):
             missing_names = [n for n, e in zip(mdp_names, mdp_exist) if not e]
@@ -71,7 +76,7 @@ class simple_protein(_simple_protein):
                 continue
             # prepare gmx env and mdp files
             gmx = Gromacs(working_dir=str(protein_path.parent))
-            mdps = self.get_mdp(protein_path.parent)
+            mdps = self.get_mdp(protein_path.parent, mdp_names)
             # STEP 1 ~ 4: make box, solvate, ions
             self.make_box(protein_path, main_name, gmx, mdps)
             # STEP 5 ~ 7: energy minimization
@@ -80,7 +85,7 @@ class simple_protein(_simple_protein):
             self.equilibration(protein_path, main_name, gmx, mdps)
 
 
-class simple_complex(_simple_complex):
+class complex(_simple_complex):
     HELP = _simple_complex.HELP.replace('protein', 'complex')
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
@@ -88,6 +93,8 @@ class simple_complex(_simple_complex):
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         args = _simple_complex.make_args(args)
+        # Remove md-mdp argument inherited from _simple_complex
+        args._actions = [action for action in args._actions if action.dest != 'md_mdp']
         return args
         
     def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
@@ -102,7 +109,7 @@ class simple_complex(_simple_complex):
                                      expect_actions=[{'Select a group:': '3\r'}])
         # STEP 2: add restraints info into topol.top
         res_info = f'\n; Ligand position restraints\n#ifdef {self.args.lig_posres}\n#include "posre_{lig_name}.itp"\n#endif\n\n'
-        ligand.insert_content(protein_path.parent / 'topol.top', f'#include "{lig_name}.itp"\n', res_info)
+        insert_content(protein_path.parent / 'topol.top', f'#include "{lig_name}.itp"\n', res_info)
         # STEP 3: make tc-grps index file
         # gmx make_ndx -f em.gro -o index.ndx
         tc_groups = self.args.tc_groups
@@ -120,20 +127,13 @@ class simple_complex(_simple_complex):
 
 
 _str2func = {
-    'simple-protein': simple_protein,
-    'simple-complex': simple_complex,
+    'protein': protein,
+    'complex': complex,
 }
 
+
 def main(sys_args: List[str] = None):
-    args_paser = argparse.ArgumentParser(description = 'tools for GROMACS.')
-    subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
-
-    for n, func in _str2func.items():
-        func.make_args(subparsers.add_parser(n, description=func.HELP))
-
-    args = args_paser.parse_args(sys_args)
-    if args.sub_command in _str2func:
-        _str2func[args.sub_command](args).excute()
+    make_args_and_excute('tools for GROMACS.', _str2func, sys_args)
 
 
 if __name__ == "__main__":
