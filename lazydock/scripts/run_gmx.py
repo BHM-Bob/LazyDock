@@ -1,7 +1,7 @@
 '''
 Date: 2024-12-21 08:49:55
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2026-02-19 16:06:50
+LastEditTime: 2026-02-26 19:37:08
 Description: steps most from http://www.mdtutorials.com/gmx
 '''
 import argparse
@@ -18,8 +18,10 @@ from mbapy_lite.file import get_paths_with_extension, opts_file
 from pymol import cmd
 from tqdm import tqdm
 
+from lazydock.gmx.prepare_ff import insert_content
 from lazydock.gmx.run import Gromacs
-from lazydock.scripts._script_utils_ import Command, process_batch_dir_lst
+from lazydock.scripts._script_utils_ import (Command, make_args_and_excute,
+                                             process_batch_dir_lst)
 from lazydock.utils import uuid4
 
 
@@ -290,7 +292,7 @@ class simple_complex(simple_protein):
                                      expect_actions=[{'Select a group:': '3\r'}])
         # STEP 2: add restraints info into topol.top
         res_info = f'\n; Ligand position restraints\n#ifdef {self.args.lig_posres}\n#include "posre_{lig_name}.itp"\n#endif\n\n'
-        ligand.insert_content(protein_path.parent / 'topol.top', f'#include "{lig_name}.itp"\n', res_info)
+        insert_content(protein_path.parent / 'topol.top', f'#include "{lig_name}.itp"\n', res_info)
         # STEP 3: make tc-grps index file
         # gmx make_ndx -f em.gro -o index.ndx
         tc_groups = self.args.tc_groups
@@ -332,16 +334,9 @@ _str2func = {
     'simple-complex': simple_complex,
 }
 
+
 def main(sys_args: List[str] = None):
-    args_paser = argparse.ArgumentParser(description = 'tools for GROMACS.')
-    subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
-
-    for n, _cls in _str2func.items():
-        _cls.make_args(subparsers.add_parser(n, description=_cls.HELP))
-
-    args = args_paser.parse_args(sys_args)
-    if args.sub_command in _str2func:
-        _str2func[args.sub_command](args).excute()
+    make_args_and_excute('tools for GROMACS.', _str2func, sys_args)
 
 
 if __name__ == "__main__":
