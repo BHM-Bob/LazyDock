@@ -76,12 +76,12 @@ def prepare_complex_topol(ipath_rgro: str, ipath_lgro: str, ipath_top: str, opat
     # inset ligand paramters in topol.top
     topol = opts_file(ipath_top)
     if (Path(ipath_top).parent / 'lig.itp').exists() and insert_itp:
-        _topol = complex.insert_content(topol, '#include "posre.itp"\n#endif\n',  # pyright: ignore[reportAttributeAccessIssue]
+        _topol = insert_content(topol, '#include "posre.itp"\n#endif\n',  # pyright: ignore[reportAttributeAccessIssue]
                                     '\n; Include ligand topology\n#include "lig.itp"\n')
         if _topol is not None:
             topol = _topol
     if (Path(ipath_top).parent / 'lig.prm').exists() and insert_prm:
-        _topol = complex.insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',  # pyright: ignore[reportAttributeAccessIssue]
+        _topol = insert_content(topol, '#include "./charmm36-jul2022.ff/forcefield.itp"\n',  # pyright: ignore[reportAttributeAccessIssue]
                                     '\n; Include ligand parameters\n#include "lig.prm"\n')
         if _topol is not None:
             topol = _topol
