@@ -32,9 +32,11 @@ def get_result_from_CGenFF(mol2_path: str, username: str = None, password: str =
     b.get('https://app.cgenff.com/homepage')
     # upload mol2 file and click "Submit" button
     b.click(element='//*[@id="root"]/div/main/div/div/div[2]/div[1]/div/p/div/div[3]/div[1]/div/button')
-    upload = b.find_elements('/html/body/div[2]/div[3]/div/div[1]/div/input')[0]
+    upload = b.find_elements('/html/body/div[3]/div[3]/div/div[1]/div/input')[0]
     upload.send_keys(mol2_path)
-    b.click(element='/html/body/div[2]/div[3]/div/div[2]/button[2]')
+    b.click(element='/html/body/div[3]/div[3]/div/div[2]/button[2]')
+    # select 4.6 version
+    b.click(element='//*[@id="root"]/div/main/div/div[1]/div/div[3]/div[1]/div[2]/div/label[1]/span/input')
     # check and run
     b.click(element='//*[@id="root"]/div/main/div/div[1]/div/div[3]/div[2]/button[2]')
     b.click(element='//*[@id="root"]/div/main/div/div[2]/button[1]') # RUN CGENFF ENGINE
