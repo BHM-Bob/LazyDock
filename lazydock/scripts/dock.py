@@ -54,7 +54,11 @@ class vina(Command):
     def run_vina(config_path: Path, vina_name: str, vina_args: str):
         print(f'current: {config_path}')
         config = opts_file(config_path, way='lines')
-        out_name = list(filter(lambda x: x.startswith('out'), config))[0].split('=')[1].strip()
+        try:
+            out_name = list(filter(lambda x: x.startswith('out'), config))[0].split('=')[1].strip()
+        except:
+            put_err(f'config {config_path} has no out_name: {config}.')
+            return 
         if (config_path.parent / out_name).exists():
             print(f'{config_path.parent} has done, skip')
             return 
@@ -65,7 +69,7 @@ class vina(Command):
     def main_process(self):
         configs_path = get_paths_with_extension(self.args.batch_dir, ['.txt'], name_substr=self.args.config_name)
         print(f'get {len(configs_path)} config(s) for docking')
-        self.taskpool = TaskPool('threads', self.args.n_workers).start()
+        self.taskpool = TaskPool('threads', self.args.n_workers, report_error=True).start()
         tasks = []
         for config_path in tqdm(configs_path, total=len(configs_path)):
             tasks.append(self.taskpool.add_task(None, self.run_vina, Path(config_path), self.args.vina_name, self.args.vina_args))
