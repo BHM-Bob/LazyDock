@@ -52,7 +52,7 @@ class trjconv(Command):
                           help='index file name in each sub-directory, such as tc_index.ndx, default is %(default)s.')
         args.add_argument('-pbc', type=str, default='mol', choices=['mol', 'atom', 'res', 'whole', 'cluster', 'nojump'],
                           help='pbc option for gmx trjconv, default is %(default)s.')
-        args.add_argument('-ur', type=str, default='compact', choices=['rect', 'tric', 'compact'],
+        args.add_argument('-ur', type=str, default='rect', choices=['rect', 'tric', 'compact'],
                           help='ur option for gmx trjconv, default is %(default)s.')
         args.add_argument('-nw', '--n-workers', type=int, default=1,
                           help='number of workers to parallel. Default is %(default)s.')
