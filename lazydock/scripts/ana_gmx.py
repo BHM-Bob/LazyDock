@@ -207,11 +207,11 @@ class simple(trjconv):
     def rms(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsd{gmx.task_uid}.csv')):
             if delete:
-                (gmx.wdir / f'{main_name}_rmsd.csv').unlink(missing_ok=True)
-                (gmx.wdir / f'rmsd.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'rmsd.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_rmsd{gmx.task_uid}.csv').unlink(missing_ok=True)
+                (gmx.wdir / f'rmsd{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'rmsd{gmx.task_uid}.png').unlink(missing_ok=True)
             if not force:
-                return put_log(f'{main_name}_rmsd.csv already exists, skip.')
+                return put_log(f'{main_name}_rmsd{gmx.task_uid}.csv already exists, skip.')
         gmx.run_gmx_with_expect('rms', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsd{gmx.task_uid}.xvg', tu='ns', n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'},
                                                     {'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
@@ -222,11 +222,11 @@ class simple(trjconv):
     def rmsf(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', res: bool = True, force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsf{gmx.task_uid}.csv')):
             if delete:
-                (gmx.wdir / f'{main_name}_rmsf.csv').unlink(missing_ok=True)
-                (gmx.wdir / f'rmsf.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'rmsf.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_rmsf{gmx.task_uid}.csv').unlink(missing_ok=True)
+                (gmx.wdir / f'rmsf{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'rmsf{gmx.task_uid}.png').unlink(missing_ok=True)
             if not force:
-                return put_log(f'{main_name}_rmsf.csv already exists, skip.')
+                return put_log(f'{main_name}_rmsf{gmx.task_uid}.csv already exists, skip.')
         gmx.run_gmx_with_expect('rmsf', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'rmsf{gmx.task_uid}.xvg', res=res, n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
@@ -236,11 +236,11 @@ class simple(trjconv):
     def gyrate(gmx: Gromacs, main_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_gyrate{gmx.task_uid}.csv')):
             if delete:
-                (gmx.wdir / f'{main_name}_gyrate.csv').unlink(missing_ok=True)
-                (gmx.wdir / f'gyrate.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'gyrate.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_gyrate{gmx.task_uid}.csv').unlink(missing_ok=True)
+                (gmx.wdir / f'gyrate{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'gyrate{gmx.task_uid}.png').unlink(missing_ok=True)
             if not force:
-                return put_log(f'{main_name}_gyrate.csv already exists, skip.')
+                return put_log(f'{main_name}_gyrate{gmx.task_uid}.csv already exists, skip.')
         gmx.run_gmx_with_expect('gyrate', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc', o=f'gyrate{gmx.task_uid}.xvg', n=index,
                                     expect_actions=[{'Select a group:': f'{group}\r', '\\timeout': f'{group}\r'}],
                                     expect_settings={'timeout': 10}, **kwargs)
@@ -250,13 +250,13 @@ class simple(trjconv):
     def hbond(gmx: Gromacs, main_name: str, index: str = None, group: Tuple[int, int] = (1, 1), dt=10, force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_hbond_num{gmx.task_uid}.csv')):
             if delete:
-                (gmx.wdir / f'{main_name}_hbond_dist.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_hbond_num.xvg').unlink(missing_ok=True)
-                (gmx.wdir / f'{main_name}_hbond_num.csv').unlink(missing_ok=True)
-                (gmx.wdir / f'hbond_dist.png').unlink(missing_ok=True)
-                (gmx.wdir / f'hbond_num.png').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_hbond_dist{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_hbond_num{gmx.task_uid}.xvg').unlink(missing_ok=True)
+                (gmx.wdir / f'{main_name}_hbond_num{gmx.task_uid}.csv').unlink(missing_ok=True)
+                (gmx.wdir / f'hbond_dist{gmx.task_uid}.png').unlink(missing_ok=True)
+                (gmx.wdir / f'hbond_num{gmx.task_uid}.png').unlink(missing_ok=True)
             if not force:
-                return put_log(f'{main_name}_hbond_num.csv already exists, skip.')
+                return put_log(f'{main_name}_hbond_num{gmx.task_uid}.csv already exists, skip.')
         gmx.run_gmx_with_expect('hbond', s=f'{main_name}.tpr', f=f'{main_name}_center.xtc',
                                     num=f'{main_name}_hbond_num{gmx.task_uid}.xvg', dist=f'{main_name}_hbond_dist{gmx.task_uid}.xvg', n=index,
                                     expect_actions=[{'Select a group:': f'{group[0]}\r', '\\timeout': f'{group[0]}\r'},
@@ -348,13 +348,13 @@ class simple(trjconv):
             if delete:
                 (gmx.wdir / f'{main_name}_PDF.png').unlink(missing_ok=True)
             if not force:
-                return put_log(f'{main_name}_PDF.png already exists, skip rms.')
+                return put_log(f'{main_name}_PDF.png already exists, skip PDF.')
         """idea from https://pymolwiki.org/index.php/Geo_Measures_Plugin"""
         # read data and calculate density
-        if not os.path.exists(f'{gmx.working_dir}/{main_name}_rmsd.csv') or not os.path.exists(f'{gmx.working_dir}/{main_name}_gyrate.csv'):
-            return put_log(f'{main_name}_rmsd.csv or {main_name}_gyrate.csv not exists, skip rms.')
-        x = pd.read_csv(f'{gmx.working_dir}/{main_name}_rmsd.csv').values[:, -1]
-        y = pd.read_csv(f'{gmx.working_dir}/{main_name}_gyrate.csv').values[:, -1]
+        if not os.path.exists(f'{gmx.working_dir}/{main_name}_rmsd{gmx.task_uid}.csv') or not os.path.exists(f'{gmx.working_dir}/{main_name}_gyrate{gmx.task_uid}.csv'):
+            return put_log(f'{main_name}_rmsd{gmx.task_uid}.csv or {main_name}_gyrate{gmx.task_uid}.csv not exists, skip PDF.')
+        x = pd.read_csv(f'{gmx.working_dir}/{main_name}_rmsd{gmx.task_uid}.csv').values[:, -1]
+        y = pd.read_csv(f'{gmx.working_dir}/{main_name}_gyrate{gmx.task_uid}.csv').values[:, -1]
         xy = np.vstack([x, y])
         z = gaussian_kde(xy)(xy)
         # Sort the points by density, so that the densest points are plotted last
