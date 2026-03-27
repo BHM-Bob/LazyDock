@@ -62,7 +62,7 @@ class simple_protein(Command):
         args.add_argument('--auto-box', action='store_true', default=False,
                           help='FLAG, whether to automatically generate rectangular bounding box via on pymol.cmd.get_extent.')
         args.add_argument('--auto-box-padding', type=float, nargs=6, default=[1.2, 1.2, 1.2, 1.2, 1.2, 1.2],
-                          help='distance for positive X-Y-Z dim, negative X-Y-Z dim, padding the box size, default is %(default)s.')
+                          help='distance for X1 Y1 Z1 X2 Y2 Z2 dim, padding the box size, default is %(default)s.')
         args.add_argument('--auto-box-shift', type=float, nargs=3, default=[0, 0, 0],
                           help='distance for X-Y-Z dim, shift the box center, default is %(default)s.')
         args.add_argument('--ion-mdp', type = str, required=True,
@@ -129,7 +129,7 @@ class simple_protein(Command):
         if isinstance(padding, float):
             padding = [padding]*6
         padding1, padding2 = padding[:3], padding[3:]
-        box_size = list(map(lambda x: x[0]/10+2*(x[1]+x[2]), zip([maxX-minX, maxY-minY, maxZ-minZ], padding1, padding2)))
+        box_size = list(map(lambda x: x[0]/10+x[1]+x[2], zip([maxX-minX, maxY-minY, maxZ-minZ], padding1, padding2)))
         cmd.reinitialize()
         return box_center, box_size
     
@@ -153,7 +153,7 @@ class simple_protein(Command):
             prot_center, _ = self.get_box(protein_path.parent / f'{main_name}_newbox_tmp.gro', self.args.auto_box_padding)
             put_log(f'protein box size: {box_size}, tmp solvated box size: {solv_size}, protein center: {prot_center}, tmp solvated center: {solv_center}, shift: {shift}')
             # calculate new box center
-            box_center = [s+(x1-x2)+shift for s, x1, x2, shift in zip(shift, solv_center, prot_center, self.args.auto_box_shift)]
+            box_center = [s+(x1-x2)+s2 for s, x1, x2, s2 in zip(shift, solv_center, prot_center, self.args.auto_box_shift)]
             # run editconf with new box center and size
             editconf_args += f' -center {" ".join(map(lambda x: f"{x:.2f}", box_center))}'
             _, log_path = gmx.run_gmx_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox.gro', enable_log=True)
