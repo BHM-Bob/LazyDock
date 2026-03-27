@@ -81,7 +81,7 @@ class simple_protein(Command):
                           help='args pass to solvate command, default is %(default)s.')
         args.add_argument('--genion-args', type = str, default="-pname NA -nname CL -neutral",
                           help='args pass to genion command, default is %(default)s.')
-        args.add_argument('--em-args', type = str, default="",
+        args.add_argument('--em-args', type = str, default="-v",
                           help='args pass to mdrun command for energy minimization, default is %(default)s.')  
         args.add_argument('--mdrun-args', type = str, default="-v -ntomp 14 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
                           help='args pass to mdrun command for production md, default is %(default)s.')
@@ -191,7 +191,7 @@ class simple_protein(Command):
         gmx.run_gmx_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top',
                                     o='nvt.tpr', n=self.indexs.get('nvt', None), maxwarn=self.args.maxwarn)
         # STEP 9: mdrun -deffnm nvt
-        gmx.run_gmx_with_expect('mdrun', deffnm='nvt')
+        gmx.run_gmx_with_expect('mdrun', deffnm='nvt', v=True)
         # STEP 10: energy -f nvt.edr -o temperature.xvg
         gmx.run_gmx_with_expect('energy', f='nvt.edr', o='temperature.xvg',
                                     expect_actions=[{'line or a zero.': f'{self.args.temperature_groups}\r'}])
@@ -200,7 +200,7 @@ class simple_protein(Command):
         gmx.run_gmx_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt',
                                     p='topol.top', o='npt.tpr', n=self.indexs.get('npt', None), maxwarn=self.args.maxwarn)
         # STEP 12: mdrun -deffnm npt
-        gmx.run_gmx_with_expect('mdrun', deffnm='npt')
+        gmx.run_gmx_with_expect('mdrun', deffnm='npt', v=True)
         # STEP 13: energy -f npt.edr -o pressure.xvg
         gmx.run_gmx_with_expect('energy', f='npt.edr', o='pressure.xvg',
                                     expect_actions=[{'line or a zero.': f'{self.args.pressure_groups}\r'}])
