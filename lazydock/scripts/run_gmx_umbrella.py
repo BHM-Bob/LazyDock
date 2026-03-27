@@ -48,7 +48,9 @@ class pull(_simple_protein):
         args.add_argument('-rc', '--restrain-chain', type=str, required=True,
                           help='chain name for position restrain, such as B.')
         args.add_argument('-cca', '--calcu-center-atom', type=int, default=None,
-                          help='add pull-group1-pbcatom = #number_of_your_central_atom in mdp file, will replace group idx with restrain group cca value, default is %(default)s.')
+                          help='add pull-groupX-pbcatom = #number_of_your_central_atom in mdp file, will replace group idx X with input cca value, default is %(default)s.')
+        args.add_argument('-pprpsc', '--pull-pbc-ref-prev-step-com', type=str, default='no',
+                          help='"no": use the specified reference atom to handle periodic boundaries. "yes": use the previous step\'s center of mass (initialized from that reference atom) to handle periodic boundaries, which helps when pull groups are large. default is %(default)s.')
         args.add_argument('-posres', '--position-restrain', type=str, nargs='+', default=None,
                           help='add position restrain define in topol-itp file, format is CHAIN_ID RESTRAIN_DEF, example is A POSRES_RESTRAIN_CHAIN. Default is %(default)s.')
         args.add_argument('-po', '--pull-only', action='store_true', default=False,
@@ -122,15 +124,20 @@ class pull(_simple_protein):
         _, res_idx = self.get_complex_atoms_index(u)
         res_ag = u.atoms[res_idx]
         center_pos = res_ag.center_of_mass()
-        center_com_dist = np.linalg.norm(center_pos - res_ag.positions, axis=0)
+        center_com_dist = np.linalg.norm(center_pos - res_ag.positions, axis=1)
         res_center_atom_idx = np.argmin(center_com_dist).astype(int)
+        print(center_com_dist, '\nres_center_atom_idx: ', res_center_atom_idx)
+        cca_name = f'pull-group{self.args.calcu_center_atom}-pbcatom'
         for mdp_name in mdps:
             mdp_config = opts_file(os.path.join(gmx.working_dir, mdps[mdp_name]))
-            if 'pull-group1-pbcatom' in mdp_config:
-                put_err(f"mdp file {mdp_name} already has pull-group1-pbcatom, skip.")
+            if cca_name in mdp_config:
+                put_log(f"mdp file {mdp_name} already has {cca_name}, skip.")
                 continue
-            new_mdp_config = mdp_config + f'\n\npull-group1-pbcatom = {res_center_atom_idx}'
-            opts_file(os.path.join(gmx.working_dir, mdp_name), 'w', data=new_mdp_config)
+            new_mdp_config = mdp_config + f'\n\n{cca_name} = {res_center_atom_idx}\n'
+            if self.args.pull_pbc_ref_prev_step_com == 'yes':
+                new_mdp_config += f'\npull-pbc-ref-prev-step-com = yes\n'
+            opts_file(os.path.join(gmx.working_dir, mdps[mdp_name]), 'w', data=new_mdp_config)
+            put_log(f"apply center atom {cca_name} = {res_center_atom_idx} to {mdp_name}")
     
     def run_sample(self, sample_gro: str, sample_main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         # STEP 6.1: run nvt equlibration
@@ -193,6 +200,10 @@ class pull(_simple_protein):
             else:
                 # STEP 1: make restraints index file
                 self.make_restrain_idx(protein_path, gmx)
+                # STEP 1.1: apply center atom to mdp file before grompp
+                if self.args.calcu_center_atom:
+                    u = Universe(str(protein_path.parent / 'npt.tpr'), str(protein_path.parent / 'npt.xtc'))
+                    self.apply_center_atom(gmx, u, mdps)
                 # STEP 2: gmx grompp -f md_pull.mdp -c npt.gro -p topol.top -r npt.gro -n index.ndx -t npt.cpt -o pull.tpr
                 gmx.run_gmx_with_expect('grompp', f=mdps['pull'], c='npt.gro', p='topol.top', r='npt.gro', n='pull.ndx',
                                             t='npt.cpt', o='pull.tpr', maxwarn=self.args.maxwarn)
