@@ -200,17 +200,17 @@ class pull(_simple_protein):
             else:
                 # STEP 1: make restraints index file
                 self.make_restrain_idx(protein_path, gmx)
-                # STEP 1.1: apply center atom to mdp file before grompp
+                # STEP 1.1: apply center atom to mdp file BEFORE grompp
                 if self.args.calcu_center_atom:
                     u = Universe(str(protein_path.parent / 'npt.tpr'), str(protein_path.parent / 'npt.xtc'))
                     self.apply_center_atom(gmx, u, mdps)
+                ## STEP 1.2: apply pos restrain define in topol-itp file BEFORE grompp
+                if self.args.position_restrain:
+                    self.apply_restrain_def(gmx)
                 # STEP 2: gmx grompp -f md_pull.mdp -c npt.gro -p topol.top -r npt.gro -n index.ndx -t npt.cpt -o pull.tpr
                 gmx.run_gmx_with_expect('grompp', f=mdps['pull'], c='npt.gro', p='topol.top', r='npt.gro', n='pull.ndx',
                                             t='npt.cpt', o='pull.tpr', maxwarn=self.args.maxwarn)
                 # STEP 3: gmx mdrun -deffnm pull -pf pullf.xvg -px pullx.xvg
-                ## check apply pos restrain def
-                if self.args.position_restrain:
-                    self.apply_restrain_def(gmx)
                 gmx.run_gmx_with_expect('mdrun -v', deffnm='pull', pf='pullf.xvg', px='pullx.xvg')
                 gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pullx.xvg -o pullx.png -t "Pull X of {main_name}" -csv pullx.csv -ns')
                 gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pullf.xvg -o pullf.png -t "Pull F of {main_name}" -csv pullf.csv -ns')
