@@ -43,6 +43,8 @@ class pull(_simple_protein):
                           help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
         args.add_argument('-n', '--protein-name', type = str, required=True,
                           help='protein name in each sub-directory, such as protein.gro.')
+        args.add_argument('-sn', '--start-name', type=str, default='npt',
+                          help='start name for pull process, such as npt, will use npt.tpr/npt.cpt to continue pull simulation, default is %(default)s.')
         args.add_argument('-pc', '--pull-chain', type=str, required=True,
                           help='chain name for pull, such as A.')
         args.add_argument('-rc', '--restrain-chain', type=str, required=True,
@@ -165,11 +167,12 @@ class pull(_simple_protein):
         np.save(png_path.replace('.png', '.npy'), histograms)
         plt.figure(figsize=(10, 6))
         for i in range(histograms.shape[1]):
-            plt.plot(x, histograms[:, i], alpha=0.5, label=f'Window {i}')
+            peak_pos = x[np.argmax(histograms[:, i])]
+            plt.plot(x, histograms[:, i], alpha=0.5, label=f'Window {i}, Peak: {peak_pos:.2f}')
         plt.grid(True)
         plt.xlabel('COM-COM Distance (nm)')
         plt.ylabel('Probability Density')
-        plt.title('Umbrella Sampling Histograms')
+        plt.title(title or 'Umbrella Sampling Histograms')
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.tight_layout()
         plt.savefig(png_path, dpi=600)
@@ -202,28 +205,31 @@ class pull(_simple_protein):
                 self.make_restrain_idx(protein_path, gmx)
                 # STEP 1.1: apply center atom to mdp file BEFORE grompp
                 if self.args.calcu_center_atom:
-                    u = Universe(str(protein_path.parent / 'npt.tpr'), str(protein_path.parent / 'npt.xtc'))
+                    u = Universe(str(protein_path.parent / f'{self.args.start_name}.tpr'), str(protein_path.parent / f'{self.args.start_name}.xtc'))
                     self.apply_center_atom(gmx, u, mdps)
                 ## STEP 1.2: apply pos restrain define in topol-itp file BEFORE grompp
                 if self.args.position_restrain:
                     self.apply_restrain_def(gmx)
                 # STEP 2: gmx grompp -f md_pull.mdp -c npt.gro -p topol.top -r npt.gro -n index.ndx -t npt.cpt -o pull.tpr
-                gmx.run_gmx_with_expect('grompp', f=mdps['pull'], c='npt.gro', p='topol.top', r='npt.gro', n='pull.ndx',
-                                            t='npt.cpt', o='pull.tpr', maxwarn=self.args.maxwarn)
+                gmx.run_gmx_with_expect('grompp', f=mdps['pull'], c=f'{self.args.start_name}.gro', p='topol.top', r=f'{self.args.start_name}.gro', n='pull.ndx',
+                                            t=f'{self.args.start_name}.cpt', o='pull.tpr', maxwarn=self.args.maxwarn)
                 # STEP 3: gmx mdrun -deffnm pull -pf pullf.xvg -px pullx.xvg
                 gmx.run_gmx_with_expect('mdrun -v', deffnm='pull', pf='pullf.xvg', px='pullx.xvg')
                 gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pullx.xvg -o pullx.png -t "Pull X of {main_name}" -csv pullx.csv -ns')
                 gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pullf.xvg -o pullf.png -t "Pull F of {main_name}" -csv pullf.csv -ns')
             # STEP 4: calculate com-com distance v.s. time curve
             u = Universe(str(protein_path.parent / 'pull.tpr'), str(protein_path.parent / 'pull.xtc'))
-            com_dis_df = self.calcu_com_com_distance(u)
-            com_dis_df.to_csv(protein_path.parent / 'pull_com_com_dist.csv', index=False)
-            fig, ax = plt.subplots(figsize=(9, 6))
-            ax.plot(com_dis_df['frame_idx'], com_dis_df['com_com_dist'])
-            ax.set_xlabel('Frame Index', fontsize=14)
-            ax.set_ylabel('COM-COM Distance (nm)', fontsize=14)
-            ax.grid(linestyle='--')
-            fig.savefig(protein_path.parent / 'pull_com_com_dist.png', dpi=600)
+            if not os.path.exists(protein_path.parent / 'pull_com_com_dist.png'):
+                com_dis_df = self.calcu_com_com_distance(u)
+                com_dis_df.to_csv(protein_path.parent / 'pull_com_com_dist.csv', index=False)
+                fig, ax = plt.subplots(figsize=(9, 6))
+                ax.plot(com_dis_df['frame_idx'], com_dis_df['com_com_dist'])
+                ax.set_xlabel('Frame Index', fontsize=14)
+                ax.set_ylabel('COM-COM Distance (nm)', fontsize=14)
+                ax.grid(linestyle='--')
+                fig.savefig(protein_path.parent / 'pull_com_com_dist.png', dpi=600)
+            else:
+                com_dis_df = pd.read_csv(protein_path.parent / 'pull_com_com_dist.csv')
             ## calcu center atoms for each chain and add to mdp file
             if self.args.calcu_center_atom:
                 self.apply_center_atom(gmx, u, mdps)
@@ -247,6 +253,9 @@ class pull(_simple_protein):
             # STEP 6: run MD simulation for each sample
             for sample_gro in tqdm(sample_df['sample_name'], desc=f'run MD simulation for each sample', leave=False):
                 sample_main_name = sample_gro.split(".")[0]
+                if os.path.exists(protein_path.parent / f'{sample_main_name}_md.tpr'):
+                    put_log(f'sample {sample_main_name} already done with {sample_main_name}_md.tpr, skip MD run.')
+                    continue
                 self.run_sample(sample_gro, sample_main_name, gmx, mdps)
             # STEP 7: perform WHAM analysis
             opts_file(str(protein_path.parent / 'pull_wham_tpr_lst.dat'), 'w',
@@ -257,7 +266,7 @@ class pull(_simple_protein):
                                     o='pull_wham_pme.xvg', hist='pull_wham_hist.xvg', unit='kCal')
             # STEP 8: plot WHAM histogram and curve
             gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pull_wham_pme.xvg -o pull_wham_pme.png -t "WHAM PME of {main_name}" -csv pull_wham_pme.csv')
-            self.plot_hist('pull_wham_hist.xvg', 'pull_wham_pme.png')
+            self.plot_hist('pull_wham_hist.xvg', 'pull_wham_hist.png')
 
 
 class any_sample(pull):
