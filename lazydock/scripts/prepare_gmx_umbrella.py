@@ -83,6 +83,10 @@ class protein(_simple_protein):
             self.energy_minimization(protein_path, main_name, gmx, mdps)
             # STEP 8 ~ 14: equilibration
             self.equilibration(protein_path, main_name, gmx, mdps)
+            # STEP 15 ~ 16: production md if assigned md-mdp
+            if self.args.md_mdp:
+                md_mdp = self.get_mdp(protein_path.parent, ['md'])
+                self.production_md(protein_path, main_name, gmx, md_mdp)
 
 
 class complex(_simple_complex):
@@ -92,38 +96,13 @@ class complex(_simple_complex):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args = _simple_complex.make_args(args)
-        # Remove md-mdp argument inherited from _simple_complex
-        args._actions = [action for action in args._actions if action.dest != 'md_mdp']
+        _simple_complex.make_args(args)
+        for action in args._actions[:]:
+            if action.dest == 'md_mdp':
+                action.required = False
         return args
         
-    def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
-        from lazydock.scripts.prepare_gmx import ligand
-        lig_name = Path(self.args.ligand_name).stem
-        # STEP 1: make restraints file for ligand
-        # make_ndx -f jz4.gro -o index_jz4.ndx
-        gmx.run_gmx_with_expect('make_ndx', f=f'{lig_name}.gro', o=f'index_{lig_name}.ndx',
-                                    expect_actions=[{'>': '0 & ! a H*\r'}, {'>': 'q\r'}])
-        # gmx genrestr -f jz4.gro -n index_jz4.ndx -o posre_jz4.itp -fc 1000 1000 1000
-        gmx.run_gmx_with_expect('genrestr', f=f'{lig_name}.gro', n=f'index_{lig_name}.ndx', o=f'posre_{lig_name}.itp', fc='1000 1000 1000',
-                                     expect_actions=[{'Select a group:': '3\r'}])
-        # STEP 2: add restraints info into topol.top
-        res_info = f'\n; Ligand position restraints\n#ifdef {self.args.lig_posres}\n#include "posre_{lig_name}.itp"\n#endif\n\n'
-        insert_content(protein_path.parent / 'topol.top', f'#include "{lig_name}.itp"\n', res_info)
-        # STEP 3: make tc-grps index file
-        # gmx make_ndx -f em.gro -o index.ndx
-        tc_groups = self.args.tc_groups
-        if self.args.tc_groups == 'auto':
-            groups = gmx.get_groups('em.tpr')
-            if 'Protein' not in groups and 'LIG' not in groups:
-                put_err(f'can not find Protein or LIG group in em.tpr, skip.')
-            else:
-                tc_groups = f'{groups["Protein"]} | {groups["LIG"]}'
-        gmx.run_gmx_with_expect('make_ndx', f='em.gro', o='tc_index.ndx',
-                                    expect_actions=[{'>': f'{tc_groups}\r'}, {'>': 'q\r'}])
-        for k in ['nvt', 'npt','md']:
-            self.indexs[k] = 'tc_index.ndx'
-        super().equilibration(protein_path, main_name, gmx, mdps)
+
 
 
 _str2func = {
