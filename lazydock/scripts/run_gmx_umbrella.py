@@ -284,10 +284,20 @@ class any_sample(pull):
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-n', '--protein-name', type = str, required=True,
                           help='protein name in each sub-directory, such as protein.gro.')
+        args.add_argument('--exist-sample', type=str, default='pull_sample.csv',
+                          help='Exist sample csv record file, default is %(default)s.')
         args.add_argument('-s', '--suffix', type = str, required=True,
                           help='suffix for result name (exclude sample GROMACS name).')
         args.add_argument('-dis', '--distance', type=float, nargs='+', required=True,
                           help='start distance (nm) from pull trajectory for sampling MD run.')
+        args.add_argument('-pc', '--pull-chain', type=str, required=True,
+                          help='chain name for pull, such as A.')
+        args.add_argument('-rc', '--restrain-chain', type=str, required=True,
+                          help='chain name for position restrain, such as B.')
+        args.add_argument('-cca', '--calcu-center-atom', type=int, default=None,
+                          help='add pull-groupX-pbcatom = #number_of_your_central_atom in mdp file, will replace group idx X with input cca value, default is %(default)s.')
+        args.add_argument('-pprpsc', '--pull-pbc-ref-prev-step-com', type=str, default='no',
+                          help='"no": use the specified reference atom to handle periodic boundaries. "yes": use the previous step\'s center of mass (initialized from that reference atom) to handle periodic boundaries, which helps when pull groups are large. default is %(default)s.')
         args.add_argument('--nvt-mdp', type = str, required=True,
                           help='nvt mdp file, if is a file-path, will copy to working directory.')
         args.add_argument('--npt-mdp', type = str, required=True,
@@ -321,7 +331,7 @@ class any_sample(pull):
         # STEP 1: load com-com distance, 
         u = Universe(str(protein_path.parent / 'pull.tpr'), str(protein_path.parent / 'pull.xtc'))
         com_dis_df = pd.read_csv(protein_path.parent / 'pull_com_com_dist.csv')
-        sample_df = pd.read_csv(protein_path.parent / 'pull_sample.csv')
+        sample_df = pd.read_csv(protein_path.parent / self.args.exist_sample)
         start_run_idx = len(sample_df)
         # STEP 2: extract sample gro files from pull trajectory
         for dist_i in tqdm(self.args.distance, desc=f'sample MD trajectory from pull trajectory {main_name}', leave=False):
@@ -338,6 +348,9 @@ class any_sample(pull):
             u.atoms.write(protein_path.parent / sample_df.loc[len(sample_df)-1, 'sample_name'], reindex=False)
         sample_df.to_csv(protein_path.parent / f'pull_sample_{suffix}.csv', index=False)
         # STEP 6: run MD simulation for each sample
+        if self.args.calcu_center_atom:
+            u = Universe(str(protein_path.parent / 'npt.tpr'), str(protein_path.parent / 'npt.xtc'))
+            self.apply_center_atom(gmx, u, mdps)
         for sample_gro in tqdm(sample_df['sample_name'][start_run_idx:], desc=f'run MD simulation for each sample', leave=False):
             sample_main_name = sample_gro.split(".")[0]
             self.run_sample(sample_gro, sample_main_name, gmx, mdps)
@@ -351,7 +364,7 @@ class any_sample(pull):
                                 o=f'pull_wham_pme_{suffix}.xvg', hist=f'pull_wham_hist_{suffix}.xvg', unit='kCal')
         # STEP 8: plot WHAM histogram and curve
         gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pull_wham_pme_{suffix}.xvg -o pull_wham_pme_{suffix}.png -t "WHAM PME of {main_name}" -csv pull_wham_pme_{suffix}.csv')
-        self.plot_hist(f'pull_wham_hist_{suffix}.xvg', f'pull_wham_pme_{suffix}.png')
+        self.plot_hist(f'pull_wham_hist_{suffix}.xvg', f'pull_wham_hist_{suffix}.png')
 
 
 _str2func = {
