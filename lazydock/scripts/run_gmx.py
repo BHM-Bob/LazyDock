@@ -43,9 +43,13 @@ class simple_protein(Command):
     13. gmx energy -f npt.edr -o pressure.xvg # Type "18 0" at the prompt to select the pressure of the system and exit.
     14. gmx energy -f npt.edr -o density.xvg # using energy and entering "24 0" at the prompt.
     15. gmx grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
-    16. gmx mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
+    16. gmx mdrun -v -ntomp 14 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
     
     if step 16 terminated, you can use gmx mdrun -s md.tpr -cpi md.cpt -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
+    
+    if want run a continue simulation using md.mdp, you can use the command:
+    gmx grompp -f md.mdp -c md.gro -t md.cpt -p topol.top -o md_continue.tpr (-n tc_index.ndx for complex)
+    gmx mdrun -v -ntomp 14 -deffnm md_continue -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf, ['batch_dir'])
@@ -110,7 +114,10 @@ class simple_protein(Command):
         for name in mdp_names:
             mdp_file = getattr(self.args, f'{name}_mdp')
             if os.path.isfile(mdp_file):
-                shutil.copy(mdp_file, working_dir)
+                if (working_dir / Path(mdp_file).name).exists():
+                    put_log(f'{mdp_file} already exists, skip copy.')
+                else:
+                    shutil.copy(mdp_file, working_dir)
                 mdps[name] = Path(mdp_file).name
             elif os.path.isfile(working_dir / mdp_file):
                 mdps[name] = (working_dir / mdp_file).name
