@@ -48,8 +48,10 @@ class simple_analysis(Command):
                           help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
         args.add_argument('-s', '--suffix', type = str, default='',
                           help="suffix for output file, default is %(default)s.")
+        args.add_argument('--skip-mismatch', default=False, action='store_true',
+                          help='skip the docking result file if the receptor and ligand do not match, default is %(default)s.')
         args.add_argument('--method', type = str, default='pymol', choices=simple_analysis.METHODS.keys(),
-                          help='search input directory recursively, default is %(default)s.')
+                          help='interaction detect method, default is %(default)s.')
         args.add_argument('--mode', type = str, default='all',
                           help=f'interaction mode, multple modes can be separated by comma, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nligplus: {",".join(ligplus_mode)}\nplip: {",".join(plip_mode)}')
         args.add_argument('--cutoff', type = float, default=4,
@@ -178,10 +180,10 @@ class simple_analysis(Command):
         
     def check_file_num_paried(self, r_paths: List[str], l_paths: List[str]):
         if len(r_paths)!= len(l_paths):
-            r_roots = [os.path.dirname(p) for p in r_paths]
-            l_roots = [os.path.dirname(p) for p in l_paths]
-            roots_count = {root: r_roots.count(root)+l_roots.count(root) for root in (set(r_roots) | set(l_roots))}
-            self.invalid_roots = '\n'.join([root for root, count in roots_count.items() if count!= 2])
+            self.r_roots = [os.path.dirname(p) for p in r_paths]
+            self.l_roots = [os.path.dirname(p) for p in l_paths]
+            self.roots_count = {root: self.r_roots.count(root)+self.l_roots.count(root) for root in (set(self.r_roots) | set(self.l_roots))}
+            self.invalid_roots = [root for root, count in self.roots_count.items() if count!= 2]
             return False
         return True
 
@@ -193,7 +195,21 @@ class simple_analysis(Command):
             r_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb', '.pdbqt'], name_substr=self.args.receptor)
             l_paths = get_paths_with_extension(self.args.batch_dir, ['.pdbqt', '.pdb', '.dlg'], name_substr=self.args.ligand)
             if not self.check_file_num_paried(r_paths, l_paths):
-                return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:{self.invalid_roots}")
+                if self.args.skip_mismatch:
+                    put_log('skip mismatch and check path based on receptor, make sure you pass the full file name!')
+                    new_r_paths, new_l_paths = [], []
+                    for r_path in r_paths:
+                        if (Path(r_path).parent / self.args.ligand).exists():
+                            new_r_paths.append(r_path)
+                            new_l_paths.append(str(Path(r_path).parent / self.args.ligand))
+                    r_paths, l_paths = new_r_paths, new_l_paths
+                    put_log(f"found {len(self.r_roots)} roots, {len(self.invalid_roots)} invalid roots, now {len(r_paths)} valid roots left.")
+                    for i, (r_path, l_path) in enumerate(zip(r_paths, l_paths)):
+                        print(f"{i}: receptor: {Path(r_path).relative_to(self.args.batch_dir)}, ligand: {Path(l_path).relative_to(self.args.batch_dir)}")
+                    if input('continue? (y/n)') != 'y':
+                        exit(1)
+                else:
+                    return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:{'\n'.join(self.invalid_roots)}")
             for r_path, l_path in zip(r_paths, l_paths):
                 self.tasks.append((r_path, l_path, self.args.method, self.args.mode))
         else:
