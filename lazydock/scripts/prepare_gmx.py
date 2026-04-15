@@ -22,6 +22,7 @@ from lazydock.gmx.run import Gromacs
 from lazydock.gmx.thirdparty.cgenff_charmm2gmx import run_transform
 from lazydock.gmx.thirdparty.sort_mol2_bonds import sort_bonds
 from lazydock.pml.align_to_axis import align_pose_to_axis
+from lazydock.pml.utils import get_seq
 from lazydock.scripts._script_utils_ import Command, clean_path
 from lazydock.web.cgenff import get_login_browser as _get_login_browser
 from lazydock.web.cgenff import get_result_from_CGenFF
@@ -46,10 +47,10 @@ class protein(Command):
                           help='protein file name in each sub-directory.')
         args.add_argument('--ff-dir', type = str,
                           help='force field files directory.')
-        args.add_argument('--n-term', type = str, default='0',
-                          help='N-Term type for gmx pdb2gmx, can be seperated by comma. Default is %(default)s.')
-        args.add_argument('--c-term', type = str, default='0',
-                          help='C-Term type for gmx pdb2gmx, can be seperated by comma. Default is %(default)s.')
+        args.add_argument('--n-term', type = str, default='0', nargs='+',
+                          help='N-Term type for gmx pdb2gmx, if "auto", will be 1 if is MET, else 0. Default is %(default)s.')   
+        args.add_argument('--c-term', type = str, default='0', nargs='+',
+                          help='C-Term type for gmx pdb2gmx, if "auto", will be 1 if is MET, else 0. Default is %(default)s.')
         args.add_argument('--chain-num', type=int, default=1,
                           help='number of chains in the protein. Default is %(default)s.')
         args.add_argument('--pdb2gmx-args', type = str, default="-ter -ignh",
@@ -58,8 +59,15 @@ class protein(Command):
     
     def process_args(self):
         self.args.dir = clean_path(self.args.dir)
-        self.args.n_term = self.args.n_term.split(',')
-        self.args.c_term = self.args.c_term.split(',')
+        # if term's len is 1 but get more than 1 chain num, copy terms.
+        if len(self.args.n_term) == 1 and self.args.chain_num > 1:
+            self.args.n_term = self.args.n_term * self.args.chain_num
+        if len(self.args.c_term) == 1 and self.args.chain_num > 1:
+            self.args.c_term = self.args.c_term * self.args.chain_num
+        # check if n-term or c-term's length is correct.
+        if not (1 <= len(self.args.n_term) <= self.args.chain_num) or not  (1 <= len(self.args.c_term) <= self.args.chain_num):
+            put_err(f'n-term or c-term length should be 1 or {self.args.chain_num}, skip.')
+            exit(1)
 
         
     def main_process(self):
@@ -91,19 +99,25 @@ class protein(Command):
             ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}.gro')
             if not os.path.exists(opath_rgro):
                 expect_acts = [{'dihedrals)': '1\r'}, {'None': '1\r'}]
-                # if term's len is 1 but get more than 1 chain num, copy terms.
-                if len(self.args.n_term) == 1 and self.args.chain_num > 1:
-                    self.args.n_term = self.args.n_term * self.args.chain_num
-                if len(self.args.c_term) == 1 and self.args.chain_num > 1:
-                    self.args.c_term = self.args.c_term * self.args.chain_num
-                # check if n-term or c-term's length is correct.
-                if not (1 <= len(self.args.n_term) <= self.args.chain_num) or not  (1 <= len(self.args.c_term) <= self.args.chain_num):
-                    put_err(f'n-term or c-term length should be 1 or {self.args.chain_num}, skip.')
-                    continue
                 # assign n-term and c-term to expect_acts.
-                for chain_i in range(self.args.chain_num):
-                    expect_acts.append({'None': f'{self.args.n_term[chain_i]}\r'})
-                    expect_acts.append({'None': f'{self.args.c_term[chain_i]}\r'})
+                cmd.load(ipath, 'protein')
+                chains = cmd.get_chains('protein')
+                seqs = {chain: get_seq(f'protein and chain {chain}') for chain in chains}
+                print(seqs)
+                cmd.reinitialize()
+                for chain_i, chain_name in enumerate(chains):
+                    if self.args.n_term[chain_i] == 'auto' or self.args.c_term[chain_i] == 'auto':
+                        seq = seqs[chain_name]
+                        if self.args.n_term[chain_i] == 'auto' and seq[0] == 'M':
+                            n_term = '1'
+                        else:
+                            n_term = '0'
+                        if self.args.c_term[chain_i] == 'auto' and seq[-1] == 'M':
+                            c_term = '1'
+                        else:
+                            c_term = '0'
+                    expect_acts.append({'None': f'{n_term}\r'})
+                    expect_acts.append({'None': f'{c_term}\r'})
                 # run pdb2gmx
                 gmx.run_gmx_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}', expect_acts)
 
