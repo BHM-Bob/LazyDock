@@ -60,6 +60,13 @@ def exec_scripts():
     pause_after_exec = '--pause-after-exec' in sys.argv
     if pause_after_exec:
         sys.argv.remove('--pause-after-exec')
+    # check --force-exit-after-exec argumet
+    force_exit_after_exec = '--force-exit-after-exec' in sys.argv
+    if force_exit_after_exec:
+        sys.argv.remove('--force-exit-after-exec')
+    if pause_after_exec and force_exit_after_exec:
+        print('error: --pause-after-exec and --force-exit-after-exec can not be set together, exit.')
+        os._exit(1)
     # check and exec scripts NOTE: DO NOT use exec
     script_name = exec2script[sys.argv[1]]
     script = importlib.import_module(f'.{script_name}', 'lazydock.scripts')
@@ -67,6 +74,9 @@ def exec_scripts():
     # pause if --pause-after-exec
     if pause_after_exec:
         os.system('pause') # avoid cmd window close immediately
+    # force exit if --force-exit-after-exec
+    if force_exit_after_exec:
+        os._exit(0)
     
 def main():  
     def _handle_unkown():
