@@ -458,6 +458,8 @@ class mmpbsa(simple):
                           help='ligand chain name, such as "LIG".')
         args.add_argument('-F', '--force', default=False, action='store_true',
                           help='force to re-run the analysis, default is %(default)s.')
+        args.add_argument('-ph', '--placeholder', default=None, type=str,
+                          help='detect and write MMPBSA_PLACEHOLDER file for distribute analysis, avoid duplicate analysis. default is %(default)s.')
         return args
         
     def get_complex_atoms_index(self, u: Universe):
@@ -500,6 +502,14 @@ class mmpbsa(simple):
                 put_log(f"{self.args.output}.csv already exists, skip.")
                 bar.update(1)
                 continue
+            # check placeholder
+            if self.args.placeholder and os.path.exists(os.path.join(wdir, self.args.placeholder)):
+                put_log(f"{self.args.placeholder} already exists, skip.")
+                bar.update(1)
+                continue
+            # write placeholder
+            if self.args.placeholder:
+                opts_file(os.path.join(wdir, self.args.placeholder), 'w', way='str', data=wdir)
             # get receptor and ligand atoms index range
             u = Universe(top_path, traj_path)
             rec_idx, lig_idx = self.get_complex_atoms_index(u)
@@ -522,6 +532,8 @@ class mmpbsa(simple):
                     shutil.copy(self.args.input, os.path.join(wdir, input_name))
                 else:
                     put_err(f"input file {self.args.input} not exists, skip.")
+                    if self.args.placeholder:
+                        os.remove(os.path.join(wdir, self.args.placeholder))
                     continue
             else:
                 input_name = self.args.input
