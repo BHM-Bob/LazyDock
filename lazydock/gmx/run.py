@@ -89,7 +89,7 @@ class Gromacs(BaseInfo):
         put_log(f'Get command:\n{cmd}', head='LazyDock')
         # just run the command if no expect actions
         if expect_actions is None or not expect_actions:
-            ret_val = os.system(cmd)
+            ret_val = os.system(f'cd "{self.working_dir}" && {cmd}')
             if enable_log:
                 ret_val = (ret_val, log_path)
             return ret_val
