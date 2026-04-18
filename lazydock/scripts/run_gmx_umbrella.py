@@ -156,7 +156,7 @@ class pull(_simple_protein):
         gmx.run_gmx_with_expect('grompp', f=mdps['md'], c=f'{sample_main_name}_npt.gro',
                                 t=f'{sample_main_name}_npt.cpt', p='topol.top', r=f'{sample_main_name}_npt.gro', n='pull.ndx',
                                 o=f'{sample_main_name}_md.tpr', imd=f'{sample_main_name}_md.gro', maxwarn=self.args.maxwarn)
-        gmx.run_gmx_with_expect('mdrun -v', deffnm=f'{sample_main_name}_md')
+        gmx.run_gmx_with_expect('mdrun -v -ntomp 14', deffnm=f'{sample_main_name}_md')
 
     @staticmethod
     def plot_hist(xvg_path: str, png_path: str, title: str = None):
@@ -214,7 +214,7 @@ class pull(_simple_protein):
                 gmx.run_gmx_with_expect('grompp', f=mdps['pull'], c=f'{self.args.start_name}.gro', p='topol.top', r=f'{self.args.start_name}.gro', n='pull.ndx',
                                             t=f'{self.args.start_name}.cpt', o='pull.tpr', maxwarn=self.args.maxwarn)
                 # STEP 3: gmx mdrun -deffnm pull -pf pullf.xvg -px pullx.xvg
-                gmx.run_gmx_with_expect('mdrun -v', deffnm='pull', pf='pullf.xvg', px='pullx.xvg')
+                gmx.run_gmx_with_expect('mdrun -v -ntomp 14', deffnm='pull', pf='pullf.xvg', px='pullx.xvg')
                 gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pullx.xvg -o pullx.png -t "Pull X of {main_name}" -csv pullx.csv -ns')
                 gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pullf.xvg -o pullf.png -t "Pull F of {main_name}" -csv pullf.csv -ns')
             # STEP 4: calculate com-com distance v.s. time curve
