@@ -266,7 +266,8 @@ class pull(_simple_protein):
                                     o='pull_wham_pme.xvg', hist='pull_wham_hist.xvg', unit='kCal')
             # STEP 8: plot WHAM histogram and curve
             gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pull_wham_pme.xvg -o pull_wham_pme.png -t "WHAM PME of {main_name}" -csv pull_wham_pme.csv')
-            self.plot_hist('pull_wham_hist.xvg', 'pull_wham_hist.png')
+            self.plot_hist(str(protein_path.parent / 'pull_wham_hist.xvg'),
+                           str(protein_path.parent / 'pull_wham_hist.png'))
 
 
 class any_sample(pull):
@@ -364,7 +365,8 @@ class any_sample(pull):
                                 o=f'pull_wham_pme_{suffix}.xvg', hist=f'pull_wham_hist_{suffix}.xvg', unit='kCal')
         # STEP 8: plot WHAM histogram and curve
         gmx.run_command_with_expect(f'dit xvg_compare -c 1 -f pull_wham_pme_{suffix}.xvg -o pull_wham_pme_{suffix}.png -t "WHAM PME of {main_name}" -csv pull_wham_pme_{suffix}.csv')
-        self.plot_hist(f'pull_wham_hist_{suffix}.xvg', f'pull_wham_hist_{suffix}.png')
+        self.plot_hist(str(protein_path.parent / f'pull_wham_hist_{suffix}.xvg'),
+                       str(protein_path.parent / f'pull_wham_hist_{suffix}.png'))
 
 
 _str2func = {
