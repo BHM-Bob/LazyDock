@@ -71,6 +71,8 @@ class pull(_simple_protein):
                           help='npt mdp file, if is a file-path, will copy to working directory.')
         args.add_argument('--md-mdp', type = str, required=True,
                           help='production md mdp file, if is a file-path, will copy to working directory.')
+        args.add_argument('--mdrun-args', type = str, default="-v -ntomp 14 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
+                          help='args pass to mdrun command for production md, default is %(default)s.')
         args.add_argument('--maxwarn', type=int, default=0,
                           help='maxwarn for em,nvt,npt,md gmx grompp command, default is %(default)s.')
         
@@ -156,7 +158,7 @@ class pull(_simple_protein):
         gmx.run_gmx_with_expect('grompp', f=mdps['md'], c=f'{sample_main_name}_npt.gro',
                                 t=f'{sample_main_name}_npt.cpt', p='topol.top', r=f'{sample_main_name}_npt.gro', n='pull.ndx',
                                 o=f'{sample_main_name}_md.tpr', imd=f'{sample_main_name}_md.gro', maxwarn=self.args.maxwarn)
-        gmx.run_gmx_with_expect('mdrun -v -ntomp 14', deffnm=f'{sample_main_name}_md')
+        gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm=f'{sample_main_name}_md')
 
     @staticmethod
     def plot_hist(xvg_path: str, png_path: str, title: str = None):
