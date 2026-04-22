@@ -1,5 +1,5 @@
 {
-    "exclude": ["checkpoints", "config", "models/v*", "models/s0*", "data", "ablation_study"],
+    "exclude": [".trae", ".vscode", "build", "docs"],
 
 
     "typeCheckingMode": "basic",
@@ -19,5 +19,6 @@
     "reportOptionalMemberAccess": "none",
     "reportOptionalSubscript": "none",
     "reportOptionalCall": "none",
-    "reportGeneralTypeIssues": "none"
+    "reportGeneralTypeIssues": "none",
+    "reportPrivateImportUsage": "none"
 }
