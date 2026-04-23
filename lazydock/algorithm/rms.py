@@ -71,7 +71,11 @@ def fast_calc_rmsd_rotation(rot, A_flat, E0, N, backend: str = 'numpy'):
     quat = eigenvectors[:, max_idx]
     
     # 计算RMSD
-    rmsd = _backend.sqrt(max(0.0, 2.0 * (E0 - max_eigen) / N))
+    msd = 2.0 * (E0 - max_eigen) / N
+    if msd <= 0:
+        rmsd = 0
+    else:
+        rmsd = _backend.sqrt(msd)
     
     if rot is None:
         return rmsd
