@@ -75,6 +75,8 @@ class pull(_simple_protein):
                           help='args pass to mdrun command for production md, default is %(default)s.')
         args.add_argument('--maxwarn', type=int, default=0,
                           help='maxwarn for em,nvt,npt,md gmx grompp command, default is %(default)s.')
+        args.add_argument('--skip-exist-wham', action='store_true', default=False,
+                          help='if pull_wham_pme.png exists, skip the task, default is %(default)s.')
         
     def process_args(self):
         super().process_args()
@@ -197,6 +199,10 @@ class pull(_simple_protein):
             protein_path = Path(protein_path).resolve()
             main_name = protein_path.stem
             gmx = Gromacs(working_dir=str(protein_path.parent))
+            # check if pull_wham_pme.png exists, if yes, skip
+            if self.args.skip_exist_wham and (protein_path.parent / 'pull_wham_pme.png').exists():
+                put_log(f'{protein_path} already done with pull_wham_pme.png, skip this task.')
+                continue
             # prepare gmx env and mdp files
             mdps = self.get_mdp(protein_path.parent, mdp_names)
             # check if md.tpr exists, if yes, skip STEP 1 ~ 3
