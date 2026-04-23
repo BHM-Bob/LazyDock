@@ -4,6 +4,8 @@ LastEditors: BHM-Bob 2262029386@qq.com
 LastEditTime: 2025-04-02 19:59:50
 Description: 
 '''
+from typing import List, Optional
+
 import numpy as np
 from MDAnalysis import AtomGroup, Universe
 from tqdm import tqdm
@@ -15,8 +17,9 @@ else:
 
 
 def get_aligned_coords(u: Universe, ag: AtomGroup, start: int, step: int, stop: int,
-                       ref_coords: np.ndarray = None, backend: str = "numpy",
-                       verbose: bool = True, return_rmsd: bool = False) -> np.ndarray:
+                       ref_coords: Optional[np.ndarray] = None, backend: str = "numpy",
+                       verbose: bool = True, return_rmsd: bool = False,
+                       return_rot: bool = False) -> List[np.ndarray]:
     """
     Align the coordinates of an AtomGroup to a reference coordinates array.
     
@@ -37,10 +40,13 @@ def get_aligned_coords(u: Universe, ag: AtomGroup, start: int, step: int, stop: 
         
     Returns
     -------
-    Tuple[np.ndarray, np.ndarray]: ([n_frames, n_atoms, 3], [n_frames, n_atoms, 3])
+    List[np.ndarray, np.ndarray]: ([n_frames, n_atoms, 3], [n_frames, n_atoms, 3])
         The original and aligned coordinates array.
     OR 
-    Tuple[np.ndarray, Tuple[np.ndarray, np.ndarray]]: ([n_frames, n_atoms, 3], ([n_frames, n_atoms, 3], [n_frames,]))
+    - return_rmsd: True
+    append rmsd to the return list
+    - return_rot: True
+    append Rs to the return list
     """
     sum_frames = (len(u.trajectory) if stop is None else stop) - start
     coords = []
@@ -70,6 +76,10 @@ def get_aligned_coords(u: Universe, ag: AtomGroup, start: int, step: int, stop: 
     else:
         refs = ref_coords.repeat(coords.shape[0], 1, 1)
     # do fit as MDAnalysis.align.AlignTraj._single_frame, it use _fit_to
+    aligned_coords, rmsd, Rs = batch_fit_to(coords, refs, backend=backend, return_rot=True)
+    pack = [ori_coords, aligned_coords]
     if return_rmsd:
-        return ori_coords, batch_fit_to(coords, refs, backend=backend)
-    return ori_coords, batch_fit_to(coords, refs, backend=backend)[0]
+        pack.append(rmsd)
+    if return_rot:
+        pack.append(Rs)
+    return pack
