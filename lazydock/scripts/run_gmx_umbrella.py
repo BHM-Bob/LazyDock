@@ -102,8 +102,10 @@ class pull(_simple_protein):
         res_min, res_max = self.get_index_range(res_idx)
         pull_range_str, res_range_str = f"{pull_min+1}-{pull_max}", f"{res_min+1}-{res_max}"
         # make restrain index file for pull and restrain chain
-        groups = gmx.get_groups('npt.tpr')
-        gmx.run_gmx_with_expect('make_ndx', f=str(protein_path.parent / 'npt.tpr'), o='pull.ndx',
+        ## make pull.ndx based on tc_index.ndx, to include complex group
+        ndx = 'tc_index.ndx' if (protein_path.parent / 'tc_index.ndx').exists() else None
+        groups = gmx.get_groups('npt.tpr', ndx)
+        gmx.run_gmx_with_expect('make_ndx', f=str(protein_path.parent / 'npt.tpr'), o='pull.ndx', n=ndx,
                                 expect_actions=[{'>': f'a {pull_range_str}\r'}, {'>': f'name {len(groups)} PULL_Chain\r'},
                                                 {'>': f'a {res_range_str}\r'}, {'>': f'name {len(groups)+1} RESTRAIN_Chain\r'},
                                                 {'>': 'q\r'}])
