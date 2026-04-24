@@ -90,6 +90,8 @@ class protein(_simple_protein):
 
 
 class complex(_simple_complex):
+    # inherit from simple_complex
+    # include special equilibration method
     HELP = _simple_complex.HELP.replace('protein', 'complex')
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
@@ -102,6 +104,10 @@ class complex(_simple_complex):
                 action.required = False
         return args
         
+    def main_process(self):
+        # pass self, so will call methods of simple_complex
+        # which include special equilibration process
+        return protein.main_process(self)
 
 
 
