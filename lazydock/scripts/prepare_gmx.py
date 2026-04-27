@@ -202,7 +202,7 @@ the program will use the ff-dir in sub-directory.')
                 return 
         if self.args.max_step >= 5 and (not os.path.exists(opath_str) or not os.path.exists(opath_mol2)) and os.path.exists(cgenff_path):
             for file_name, content in opts_file(cgenff_path, 'r', way='zip').items():  # pyright: ignore[reportAttributeAccessIssue]
-                opts_file(cgenff_path.parent / file_name.replace('4_', '5_'), 'wb', data=content)
+                opts_file(cgenff_path.parent / file_name.replace('4_', '5_'), 'w', way='str', data=content)
         # STEP 6: transfer str file to top and gro file by cgenff_charmm2gmx.py
         ipath_str, ipath_mol2, opath_itp = opath_str, opath_mol2, str(main_path.parent / f'lig.itp')
         # check and copy ff-dir
