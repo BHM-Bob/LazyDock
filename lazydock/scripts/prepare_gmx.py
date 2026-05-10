@@ -106,9 +106,10 @@ class protein(Command):
                 print(seqs)
                 cmd.reinitialize()
                 for chain_i, chain_name in enumerate(chains):
-                    if self.args.n_term[chain_i] == 'auto' or self.args.c_term[chain_i] == 'auto':
+                    n_term, c_term = self.args.n_term[chain_i], self.args.c_term[chain_i]
+                    if n_term == 'auto' or c_term == 'auto':
                         seq = seqs[chain_name]
-                        if self.args.n_term[chain_i] == 'auto' and seq[0] == 'M':
+                        if n_term == 'auto' and seq[0] == 'M':
                             n_term = '1'
                         else:
                             n_term = '0'
@@ -414,9 +415,6 @@ class complex_sobtop(complex):
         return args
     
     def main_process(self):
-        # allocate browser for CGenFF
-        if not self.args.disable_browser:
-            self.browser = self.get_login_browser(str(self.args.dir))
         # get complex paths
         if os.path.isdir(self.args.dir):
             complexs_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.complex_name)
@@ -429,7 +427,6 @@ class complex_sobtop(complex):
             prepare_complex_with_sobtop(complex_path, self.args.ff_dir,
                                         self.args.receptor_chain_name, self.args.ligand_chain_name,
                                         self.args.pdb2gmx_args, self.args.n_term, self.args.c_term)
-
 
 
 _str2func = {
