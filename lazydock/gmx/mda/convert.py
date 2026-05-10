@@ -69,7 +69,22 @@ class FakeAtomGroup(PDBWriter):
 
 
 class PDBConverter(PDBWriter):
-    def __init__(self, ag: MDAnalysis.AtomGroup, reindex: bool = False):
+    def __init__(self, ag: MDAnalysis.AtomGroup, reindex: bool = False,
+                 idx_ltruncate: int = 5, resi_ltruncate: int = 4):
+        """if change idx_ltruncate, resi_ltruncate, you also need to set
+        PDBConverter.fmt, original is
+        fmt = {
+        'ATOM': (
+            "ATOM  {serial:5d} {name:<4s}{altLoc:<1s}{resName:<4s}"
+            "{chainID:1s}{resSeq:4d}{iCode:1s}"
+            "   {pos[0]:8.3f}{pos[1]:8.3f}{pos[2]:8.3f}{occupancy:6.2f}"
+            "{tempFactor:6.2f}      {segID:<4s}{element:>2s}{charge:2s}\n"),
+        'HETATM': (
+            "HETATM{serial:5d} {name:<4s}{altLoc:<1s}{resName:<4s}"
+            "{chainID:1s}{resSeq:4d}{iCode:1s}"
+            "   {pos[0]:8.3f}{pos[1]:8.3f}{pos[2]:8.3f}{occupancy:6.2f}"
+            "{tempFactor:6.2f}      {segID:<4s}{element:>2s}{charge:2s}\n"), ...
+        """
         # 增加类型检查和多进程支持
         if not isinstance(ag, FakeAtomGroup):
             ag = FakeAtomGroup(ag, reindex)
@@ -78,6 +93,8 @@ class PDBConverter(PDBWriter):
         # 保持父类初始化参数
         self.convert_units = False
         self._reindex = reindex
+        self.idx_ltruncate = idx_ltruncate
+        self.resi_ltruncate = resi_ltruncate
         self.pdbfile = FakeIOWriter()
 
         # 初始化计数器
@@ -125,8 +142,8 @@ class PDBConverter(PDBWriter):
                 record_types[chainIDs == chain] = rec_type
 
         # 预生成格式化数据
-        serials = np.vectorize(util.ltruncate_int)(fag.ids, 5)
-        resSeqs = np.vectorize(util.ltruncate_int)(fag.resids, 4)
+        serials = np.vectorize(util.ltruncate_int)(fag.ids, self.idx_ltruncate)
+        resSeqs = np.vectorize(util.ltruncate_int)(fag.resids, self.resi_ltruncate)
         elements = np.char.upper(fag.elements)
         charges = self.check_charges(fag)
         
