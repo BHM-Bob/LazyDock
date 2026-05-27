@@ -4,7 +4,7 @@
         "mbapy>=0.11.2",
         "pygame",
         "nicegui",
-        "openbabel-wheel",
+        "openbabel>=3.2.0",
         "networkx>=3",
         "DuIvyTools>=0.6.0",
         "toml",
