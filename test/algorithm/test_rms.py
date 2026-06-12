@@ -1,16 +1,16 @@
 import unittest
-from pathlib import Path
 
 import numpy as np
 import torch
-from lazydock.algorithm.rms import (batch_calc_rmsd_rotational_matrix, batch_rmsd,
-                                    calc_rms_rotational_matrix, fit_to, batch_fit_to,
-                                    inner_product, rmsd)
-from mbapy_lite.file import opts_file
 from MDAnalysis import Universe
 from MDAnalysis.analysis.align import _fit_to as fit_to_mda
 from MDAnalysis.analysis.align import rotation_matrix as rotation_matrix_mda
 from MDAnalysis.analysis.rms import rmsd as rmsd_mda
+
+from lazydock.algorithm.rms import (batch_calc_rmsd_rotational_matrix,
+                                    batch_fit_to, batch_rmsd,
+                                    calc_rms_rotational_matrix, fit_to,
+                                    inner_product, rmsd)
 
 
 class TestRMSDAPIs(unittest.TestCase):
@@ -18,8 +18,7 @@ class TestRMSDAPIs(unittest.TestCase):
     def setUpClass(cls):
         """Load test trajectory data once for all tests"""
         # Modify paths according to your test data location
-        paths = opts_file(Path(__file__).parent.parent.parent / 'data_tmp/test_config.json', way='json')['test_rms']
-        cls.u = Universe(paths['top_path'], paths['traj_path'])
+        cls.u = Universe('data_tmp/MD/traj1/pull.tpr', 'data_tmp/MD/traj1/pull.xtc')
         cls.ag = cls.u.select_atoms('protein and name CA')
         cls.ref_coords = []
         cls.mobile_coords = []
@@ -210,8 +209,7 @@ class TestFitAPIs(unittest.TestCase):
     def setUpClass(cls):
         """Load test trajectory data once for all tests"""
         # Modify paths according to your test data location
-        paths = opts_file(Path(__file__).parent.parent.parent / 'data_tmp/test_config.json', way='json')['test_rms']
-        cls.u = Universe(paths['top_path'], paths['traj_path'])
+        cls.u = Universe('data_tmp/MD/traj1/pull.tpr', 'data_tmp/MD/traj1/pull.xtc')
         cls.ag = cls.u.select_atoms('protein and name CA')
         cls.ref_com = cls.ag.center_of_geometry()
         cls.ref_coords = cls.ag.positions.copy().astype(np.float64)
