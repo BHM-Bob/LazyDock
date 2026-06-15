@@ -25,8 +25,8 @@ from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension
 from tqdm import tqdm
 
-from lazydock.scripts._script_utils_ import (Command, clean_path,
-                                             process_batch_dir_lst)
+from lazydock.scripts._script_utils_ import (Command, check_file_num_paried,
+                                             clean_path, process_batch_dir_lst)
 
 
 class AmberRunner(Command):
@@ -326,33 +326,35 @@ class simple_md(AmberRunner):
     def process_args(self):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
     
-    def get_input_files(self, working_dir: Path) -> Optional[Tuple[Path, Path]]:
-        """获取输入文件"""
-        # 查找prmtop文件
-        if '*' in self.args.prmtop_name:
-            prmtop_paths = list(working_dir.glob(self.args.prmtop_name))
-        else:
-            prmtop_paths = [working_dir / self.args.prmtop_name]
+    def check_prmtop_inpcrd(self, batch_dir: Path) -> Tuple[List[str], List[str]]:
+        """检查prmtop和inpcrd文件是否配对，类似于ana_gmx的check_top_traj"""
+        prmtop_paths = get_paths_with_extension(
+            batch_dir,
+            [os.path.split(self.args.prmtop_name)[-1]],
+            name_substr=self.args.prmtop_name
+        )
+        inpcrd_paths = get_paths_with_extension(
+            batch_dir,
+            [os.path.split(self.args.inpcrd_name)[-1]],
+            name_substr=self.args.inpcrd_name
+        )
         
-        if not prmtop_paths or not prmtop_paths[0].exists():
-            put_err(f'no prmtop file found in {working_dir}')
-            return None
+        invalid_roots = check_file_num_paried(prmtop_paths, inpcrd_paths)
+        if invalid_roots:
+            put_err(f"The number of prmtop and inpcrd files is not equal, please check the input files.\n"
+                   f"invalid roots: {invalid_roots}", _exit=True)
         
-        prmtop = prmtop_paths[0]
-        
-        # 查找inpcrd文件
-        if '*' in self.args.inpcrd_name:
-            inpcrd_paths = list(working_dir.glob(self.args.inpcrd_name))
-        else:
-            inpcrd_paths = [working_dir / self.args.inpcrd_name]
-        
-        if not inpcrd_paths or not inpcrd_paths[0].exists():
-            put_err(f'no inpcrd file found in {working_dir}')
-            return None
-        
-        inpcrd = inpcrd_paths[0]
-        
-        return prmtop, inpcrd
+        return prmtop_paths, inpcrd_paths
+    
+    def find_tasks(self) -> List[Tuple[Path, Path, Path]]:
+        """查找所有任务，返回(prmtop_path, inpcrd_path, working_dir)列表"""
+        tasks = []
+        for batch_dir in self.args.batch_dir:
+            prmtop_paths, inpcrd_paths = self.check_prmtop_inpcrd(batch_dir)
+            for prmtop_path, inpcrd_path in zip(prmtop_paths, inpcrd_paths):
+                working_dir = Path(prmtop_path).parent
+                tasks.append((Path(prmtop_path), Path(inpcrd_path), working_dir))
+        return tasks
     
     def create_min1_mdin(self) -> str:
         """创建能量最小化第1步的mdin文件"""
@@ -608,35 +610,30 @@ class simple_md(AmberRunner):
         return False
     
     def main_process(self):
-        # 处理每个batch目录
-        for batch_dir in self.args.batch_dir:
-            put_log(f'processing batch directory: {batch_dir}')
+        """批量处理所有目录中的prmtop/inpcrd文件对"""
+        # 查找所有任务
+        tasks = self.find_tasks()
+        put_log(f'found {len(tasks)} task(s).')
+        
+        if not tasks:
+            put_err('no tasks found, exit.')
+            return
+        
+        # 运行所有任务
+        bar = tqdm(total=len(tasks), desc='Running MD')
+        for prmtop_path, inpcrd_path, working_dir in tasks:
+            wdir_repr = os.path.relpath(working_dir, self.args.batch_dir[0] if self.args.batch_dir else '.')
+            bar.set_description(f"{wdir_repr}: {prmtop_path.name} and {inpcrd_path.name}")
             
-            # 获取所有子目录
-            subdirs = [d for d in batch_dir.iterdir() if d.is_dir()]
+            # 运行指定步骤
+            for step in range(self.args.start_step, self.args.end_step + 1):
+                if not self.run_step(step, prmtop_path, inpcrd_path, working_dir):
+                    put_err(f'step {step} failed for {prmtop_path}, stop.')
+                    break
+            else:
+                put_log(f'successfully completed all steps for {prmtop_path}')
             
-            if not subdirs:
-                # 如果没有子目录，尝试直接处理batch_dir
-                subdirs = [batch_dir]
-            
-            for working_dir in tqdm(subdirs, total=len(subdirs)):
-                put_log(f'processing: {working_dir}')
-                
-                # 获取输入文件
-                input_files = self.get_input_files(working_dir)
-                if input_files is None:
-                    put_err(f'failed to get input files in {working_dir}, skip.')
-                    continue
-                
-                prmtop, inpcrd = input_files
-                
-                # 运行指定步骤
-                for step in range(self.args.start_step, self.args.end_step + 1):
-                    if not self.run_step(step, prmtop, inpcrd, working_dir):
-                        put_err(f'step {step} failed in {working_dir}, stop.')
-                        break
-                else:
-                    put_log(f'successfully completed all steps in {working_dir}')
+            bar.update(1)
 
 
 class continue_md(AmberRunner):
