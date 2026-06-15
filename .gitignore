@@ -139,3 +139,6 @@ data_tmp
 
 # study code
 stu
+
+# dev docs
+docs/dev/
