@@ -16,6 +16,54 @@ from pymol import cmd
 from lazydock.config import GlobalConfig
 from lazydock.gmx.run import Gromacs
 from lazydock.pml.align_to_axis import align_pose_to_axis
+from lazydock.pml.utils import get_seq
+
+
+def get_term_expect_acts(ipath: str, n_term: Union[str, List[str]], c_term: Union[str, List[str]],
+                         chain_names: List[str] = None) -> List[Dict[str, str]]:
+    """
+    根据受体PDB文件和n_term/c_term参数生成pdb2gmx的expect_acts列表。
+    
+    Args:
+        ipath: 受体PDB文件路径
+        n_term: N端类型，可以是'auto'、'0'、'1'或列表
+        c_term: C端类型，可以是'auto'、'0'、'1'或列表
+        chain_names: 指定的链名列表，如果为None则自动检测所有链
+    
+    Returns:
+        expect_acts列表，用于gmx.run_gmx_with_expect
+    """
+    cmd.reinitialize()
+    cmd.load(ipath, 'protein')
+    chains = cmd.get_chains('protein') if chain_names is None else chain_names
+    seqs = {chain: get_seq(f'protein and chain {chain}') for chain in chains}
+    
+    # 确保n_term和c_term是列表
+    if isinstance(n_term, str):
+        n_term = [n_term]
+    if isinstance(c_term, str):
+        c_term = [c_term]
+    
+    # 如果只有一个值但有多条链，复制到每条链
+    if len(n_term) == 1 and len(chains) > 1:
+        n_term = n_term * len(chains)
+    if len(c_term) == 1 and len(chains) > 1:
+        c_term = c_term * len(chains)
+    
+    expect_acts = []
+    for chain_i, chain_name in enumerate(chains):
+        n_val, c_val = n_term[chain_i], c_term[chain_i]
+        # 处理auto逻辑
+        if n_val == 'auto' or c_val == 'auto':
+            seq = seqs[chain_name]
+            if n_val == 'auto':
+                n_val = '1' if seq[0] == 'M' else '0'
+            if c_val == 'auto':
+                c_val = '1' if seq[-1] == 'M' else '0'
+        expect_acts.append({'None': f'{n_val}\r'})
+        expect_acts.append({'None': f'{c_val}\r'})
+    
+    return expect_acts
 
 
 def insert_content(content: str, before: str, new_content: str):
@@ -175,9 +223,8 @@ def prepare_complex_with_sobtop(complex_path: str, ff_dir: str, rec_chain: str, 
     ## convert pdb to gro
     if not os.path.exists(opath_rgro):
         expect_acts = [{'dihedrals)': '1\r'}, {'None': '1\r'}]
-        # assign n-term and c-term to expect_acts.
-        expect_acts.append({'None': f'{n_term}\r'})
-        expect_acts.append({'None': f'{c_term}\r'})
+        term_acts = get_term_expect_acts(ipath, n_term, c_term, [rec_chain])
+        expect_acts.extend(term_acts)
         # run pdb2gmx
         gmx.run_gmx_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {pdb2gmx}', expect_acts)
     if not os.path.exists(opath_rgro):
@@ -199,6 +246,7 @@ def prepare_complex_with_sobtop(complex_path: str, ff_dir: str, rec_chain: str, 
 
 
 __all__ = [
+    'get_term_expect_acts',
     'insert_content',
     'fix_name_in_mol2',
     'prepare_ff_dir',

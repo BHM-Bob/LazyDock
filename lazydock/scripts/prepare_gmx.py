@@ -99,26 +99,8 @@ class protein(Command):
             ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}.gro')
             if not os.path.exists(opath_rgro):
                 expect_acts = [{'dihedrals)': '1\r'}, {'None': '1\r'}]
-                # assign n-term and c-term to expect_acts.
-                cmd.load(ipath, 'protein')
-                chains = cmd.get_chains('protein')
-                seqs = {chain: get_seq(f'protein and chain {chain}') for chain in chains}
-                print(seqs)
-                cmd.reinitialize()
-                for chain_i, chain_name in enumerate(chains):
-                    n_term, c_term = self.args.n_term[chain_i], self.args.c_term[chain_i]
-                    if n_term == 'auto' or c_term == 'auto':
-                        seq = seqs[chain_name]
-                        if n_term == 'auto' and seq[0] == 'M':
-                            n_term = '1'
-                        else:
-                            n_term = '0'
-                        if self.args.c_term[chain_i] == 'auto' and seq[-1] == 'M':
-                            c_term = '1'
-                        else:
-                            c_term = '0'
-                    expect_acts.append({'None': f'{n_term}\r'})
-                    expect_acts.append({'None': f'{c_term}\r'})
+                term_acts = get_term_expect_acts(ipath, self.args.n_term, self.args.c_term)
+                expect_acts.extend(term_acts)
                 # run pdb2gmx
                 gmx.run_gmx_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}', expect_acts)
 
@@ -359,8 +341,11 @@ class complex(ligand):
             # STEP 7: Prepare the Protein Topology
             ipath, opath_rgro = opath_r, str(complex_path.parent / f'{complex_path.stem}_receptor.gro')
             if self.args.max_step >= 7 and (not os.path.exists(opath_rgro)):
-                gmx.run_gmx_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}',
-                                            [{'dihedrals)': '1\r'}, {'None': '1\r'}, {'None': f'{self.args.n_term}\r'}, {'None': f'{self.args.c_term}\r'}])
+                expect_acts = [{'dihedrals)': '1\r'}, {'None': '1\r'}]
+                term_acts = get_term_expect_acts(ipath, self.args.n_term, self.args.c_term,
+                                                  [self.args.receptor_chain_name])
+                expect_acts.extend(term_acts)
+                gmx.run_gmx_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}', expect_acts)
             # STEP 8: Prepare the Ligand Topology
             opath_lgro = str(complex_path.parent / 'lig.gro')
             if self.args.max_step >= 8 and (not os.path.exists(opath_lgro)):
