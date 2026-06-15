@@ -14,7 +14,10 @@ STEPS (黄金标准5步法):
 """
 import argparse
 import os
+import re
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -22,7 +25,8 @@ from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension
 from tqdm import tqdm
 
-from lazydock.scripts._script_utils_ import Command, clean_path, process_batch_dir_lst
+from lazydock.scripts._script_utils_ import (Command, clean_path,
+                                             process_batch_dir_lst)
 
 
 class AmberRunner(Command):
@@ -47,6 +51,105 @@ class AmberRunner(Command):
                 return binary
         return 'pmemd.cuda'  # 默认
     
+    def parse_mdinfo(self, mdinfo_path: Path) -> Optional[Dict]:
+        """解析pmemd的.mdinfo文件，获取进度信息"""
+        if not mdinfo_path.exists():
+            return None
+        
+        try:
+            content = mdinfo_path.read_text()
+            info = {}
+            
+            # 解析总步数 (NSTEP)
+            nstep_match = re.search(r'NSTEP\s*=\s*(\d+)', content)
+            if nstep_match:
+                info['current_step'] = int(nstep_match.group(1))
+            
+            # 解析时间 (TIME)
+            time_match = re.search(r'TIME\s*\(PS\)\s*=\s*([\d.]+)', content)
+            if time_match:
+                info['time_ps'] = float(time_match.group(1))
+            
+            # 解析温度 (TEMP)
+            temp_match = re.search(r'TEMP\s*\(K\)\s*=\s*([\d.]+)', content)
+            if temp_match:
+                info['temperature'] = float(temp_match.group(1))
+            
+            # 解析压力 (PRESS)
+            press_match = re.search(r'PRESS\s*=\s*([-\d.]+)', content)
+            if press_match:
+                info['pressure'] = float(press_match.group(1))
+            
+            # 解析总能量 (ETOT)
+            etot_match = re.search(r'ETOT\s*=\s*([-\d.]+)', content)
+            if etot_match:
+                info['total_energy'] = float(etot_match.group(1))
+            
+            # 解析性能信息 (ns/day)
+            perf_match = re.search(r'ns/day\s*=\s*([\d.]+)', content)
+            if perf_match:
+                info['ns_per_day'] = float(perf_match.group(1))
+            
+            return info
+        except Exception:
+            return None
+    
+    def monitor_progress(self, mdinfo_path: Path, total_steps: int, 
+                         interval: int = 30, desc: str = "MD"):
+        """监控模拟进度，使用tqdm显示进度条"""
+        # 创建tqdm进度条
+        pbar = tqdm(total=total_steps, desc=desc, unit="steps", 
+                    bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}')
+        
+        last_step = 0
+        
+        while True:
+            time.sleep(interval)
+            
+            # 检查mdinfo文件是否存在
+            if not mdinfo_path.exists():
+                # 检查模拟是否已经结束（通过检查rst文件）
+                rst_file = mdinfo_path.with_suffix('.rst')
+                if rst_file.exists():
+                    # 模拟完成，更新到100%
+                    pbar.n = total_steps
+                    pbar.refresh()
+                    pbar.close()
+                    break
+                continue
+            
+            info = self.parse_mdinfo(mdinfo_path)
+            if info is None:
+                continue
+            
+            current_step = info.get('current_step', 0)
+            if current_step == 0 or current_step <= last_step:
+                continue
+            
+            # 更新进度条
+            pbar.n = current_step
+            
+            # 构建postfix信息
+            postfix_parts = []
+            if 'temperature' in info:
+                postfix_parts.append(f"T={info['temperature']:.1f}K")
+            # 压力为0.0时不显示（NVT步骤）
+            if 'pressure' in info and abs(info['pressure']) > 0.01:
+                postfix_parts.append(f"P={info['pressure']:.1f}bar")
+            if 'ns_per_day' in info:
+                postfix_parts.append(f"{info['ns_per_day']:.1f}ns/day")
+            
+            if postfix_parts:
+                pbar.set_postfix_str(" | ".join(postfix_parts))
+            
+            pbar.refresh()
+            last_step = current_step
+            
+            # 如果已经完成，退出监控
+            if current_step >= total_steps:
+                pbar.close()
+                break
+    
     def run_pmemd(self, mdin_file: Path, prmtop: Path, inpcrd: Path,
                   output_prefix: str, ref_crd: Optional[Path] = None,
                   working_dir: Optional[Path] = None) -> bool:
@@ -70,15 +173,38 @@ class AmberRunner(Command):
         
         # 添加轨迹输出（非最小化）
         mdin_content = mdin_file.read_text()
-        if 'imin = 0' in mdin_content or 'imin=0' in mdin_content:
+        is_minimization = 'imin = 1' in mdin_content or 'imin=1' in mdin_content
+        
+        if not is_minimization:
             cmd_parts.extend(['-x', str(working_dir / f'{output_prefix}.nc')])
             cmd_parts.extend(['-inf', str(working_dir / f'{output_prefix}.mdinfo')])
         
         cmd = ' '.join(cmd_parts)
         put_log(f'running: {cmd}')
         
+        # 对于非最小化步骤，启动进度监控线程
+        monitor_thread = None
+        if not is_minimization:
+            # 从mdin文件中提取nstlim
+            nstlim_match = re.search(r'nstlim\s*=\s*(\d+)', mdin_content)
+            if nstlim_match:
+                total_steps = int(nstlim_match.group(1))
+                mdinfo_path = working_dir / f'{output_prefix}.mdinfo'
+                # 从output_prefix提取步骤描述 (e.g., "step03_heat" -> "heat")
+                step_desc = output_prefix.split('_')[-1] if '_' in output_prefix else output_prefix
+                monitor_thread = threading.Thread(
+                    target=self.monitor_progress,
+                    args=(mdinfo_path, total_steps, 30, step_desc),
+                    daemon=True
+                )
+                monitor_thread.start()
+        
         result = subprocess.run(cmd, shell=True, capture_output=True, 
                                text=True, cwd=str(working_dir))
+        
+        # 等待监控线程结束
+        if monitor_thread is not None:
+            monitor_thread.join(timeout=5)
         
         if result.returncode != 0:
             put_err(f'pmemd failed: {result.stderr}')
@@ -94,9 +220,12 @@ class AmberRunner(Command):
         return mdin_path
 
 
-class simple_protein(AmberRunner):
+class simple_md(AmberRunner):
     """
-    run simple protein Amber simulation (黄金标准5步法)
+    run simple Amber MD simulation (黄金标准5步法)
+    
+    适用于蛋白质、配体或复合物系统。
+    Amber使用Langevin动力学(ntt=3)，不需要像GROMACS那样定义温度耦合组。
     
     STEPS:
     1. Minimization with restraints (约束溶质)
@@ -108,7 +237,10 @@ class simple_protein(AmberRunner):
     """
     
     HELP = """
-    run simple protein Amber simulation (黄金标准5步法)
+    run simple Amber MD simulation (黄金标准5步法)
+    
+    适用于蛋白质、配体或复合物系统。
+    Amber使用Langevin动力学(ntt=3)，不需要像GROMACS那样定义温度耦合组。
     
     STEPS:
     1. Minimization with restraints (约束溶质)
@@ -366,89 +498,111 @@ class simple_protein(AmberRunner):
  /
 """
     
+    STEP_NAMES = {
+        1: 'min1',
+        2: 'min2',
+        3: 'heat',
+        4: 'npt1',
+        5: 'npt2',
+        6: 'md'
+    }
+    
+    def get_step_filename(self, step: int, suffix: str = 'in') -> str:
+        """获取步骤文件名，格式为 stepXX_name.suffix"""
+        name = self.STEP_NAMES.get(step, f'step{step}')
+        return f'step{step:02d}_{name}.{suffix}'
+    
+    def get_step_rst_file(self, step: int, working_dir: Path) -> Path:
+        """获取步骤的rst文件路径"""
+        return working_dir / self.get_step_filename(step, 'rst')
+    
     def run_step(self, step: int, prmtop: Path, inpcrd: Path, 
                  working_dir: Path) -> bool:
         """运行指定步骤"""
         put_log(f'running step {step}...')
         
+        # 获取步骤文件名
+        mdin_file = self.get_step_filename(step, 'in')
+        output_prefix = f'step{step:02d}_{self.STEP_NAMES.get(step, f"step{step}")}'
+        
         if step == 1:
             # Minimization step 1: with restraints
-            mdin = self.write_mdin(working_dir, 'min1.in', self.create_min1_mdin())
-            rst_file = working_dir / 'min1.rst'
+            mdin = self.write_mdin(working_dir, mdin_file, self.create_min1_mdin())
+            rst_file = self.get_step_rst_file(step, working_dir)
             if rst_file.exists():
                 put_log(f'{rst_file} already exists, skip step 1.')
                 return True
-            return self.run_pmemd(mdin, prmtop, inpcrd, 'min1', 
+            return self.run_pmemd(mdin, prmtop, inpcrd, output_prefix, 
                                  ref_crd=inpcrd, working_dir=working_dir)
         
         elif step == 2:
             # Minimization step 2: without restraints
-            mdin = self.write_mdin(working_dir, 'min2.in', self.create_min2_mdin())
-            rst_file = working_dir / 'min2.rst'
+            mdin = self.write_mdin(working_dir, mdin_file, self.create_min2_mdin())
+            rst_file = self.get_step_rst_file(step, working_dir)
             if rst_file.exists():
                 put_log(f'{rst_file} already exists, skip step 2.')
                 return True
-            inpcrd_step2 = working_dir / 'min1.rst'
+            inpcrd_step2 = self.get_step_rst_file(1, working_dir)
             if not inpcrd_step2.exists():
-                put_err(f'min1.rst not found, cannot run step 2')
+                put_err(f'{inpcrd_step2} not found, cannot run step 2')
                 return False
-            return self.run_pmemd(mdin, prmtop, inpcrd_step2, 'min2',
+            return self.run_pmemd(mdin, prmtop, inpcrd_step2, output_prefix,
                                  working_dir=working_dir)
         
         elif step == 3:
             # Heating: 0K -> 300K with restraints
-            mdin = self.write_mdin(working_dir, 'heat.in', self.create_heat_mdin())
-            rst_file = working_dir / 'heat.rst'
+            mdin = self.write_mdin(working_dir, mdin_file, self.create_heat_mdin())
+            rst_file = self.get_step_rst_file(step, working_dir)
             if rst_file.exists():
                 put_log(f'{rst_file} already exists, skip step 3.')
                 return True
-            inpcrd_step3 = working_dir / 'min2.rst'
+            inpcrd_step3 = self.get_step_rst_file(2, working_dir)
             if not inpcrd_step3.exists():
-                put_err(f'min2.rst not found, cannot run step 3')
+                put_err(f'{inpcrd_step3} not found, cannot run step 3')
                 return False
-            return self.run_pmemd(mdin, prmtop, inpcrd_step3, 'heat',
+            return self.run_pmemd(mdin, prmtop, inpcrd_step3, output_prefix,
                                  ref_crd=inpcrd_step3, working_dir=working_dir)
         
         elif step == 4:
             # NPT step 1: with weak restraints
-            mdin = self.write_mdin(working_dir, 'npt1.in', self.create_npt1_mdin())
-            rst_file = working_dir / 'npt1.rst'
+            mdin = self.write_mdin(working_dir, mdin_file, self.create_npt1_mdin())
+            rst_file = self.get_step_rst_file(step, working_dir)
             if rst_file.exists():
                 put_log(f'{rst_file} already exists, skip step 4.')
                 return True
-            inpcrd_step4 = working_dir / 'heat.rst'
+            inpcrd_step4 = self.get_step_rst_file(3, working_dir)
             if not inpcrd_step4.exists():
-                put_err(f'heat.rst not found, cannot run step 4')
+                put_err(f'{inpcrd_step4} not found, cannot run step 4')
                 return False
-            return self.run_pmemd(mdin, prmtop, inpcrd_step4, 'npt1',
+            return self.run_pmemd(mdin, prmtop, inpcrd_step4, output_prefix,
                                  ref_crd=inpcrd_step4, working_dir=working_dir)
         
         elif step == 5:
             # NPT step 2: without restraints
-            mdin = self.write_mdin(working_dir, 'npt2.in', self.create_npt2_mdin())
-            rst_file = working_dir / 'npt2.rst'
+            mdin = self.write_mdin(working_dir, mdin_file, self.create_npt2_mdin())
+            rst_file = self.get_step_rst_file(step, working_dir)
             if rst_file.exists():
                 put_log(f'{rst_file} already exists, skip step 5.')
                 return True
-            inpcrd_step5 = working_dir / 'npt1.rst'
+            inpcrd_step5 = self.get_step_rst_file(4, working_dir)
             if not inpcrd_step5.exists():
-                put_err(f'npt1.rst not found, cannot run step 5')
+                put_err(f'{inpcrd_step5} not found, cannot run step 5')
                 return False
-            return self.run_pmemd(mdin, prmtop, inpcrd_step5, 'npt2',
+            return self.run_pmemd(mdin, prmtop, inpcrd_step5, output_prefix,
                                  working_dir=working_dir)
         
         elif step == 6:
             # Production MD
-            mdin = self.write_mdin(working_dir, 'md.in', self.create_md_mdin())
-            rst_file = working_dir / 'md.rst'
+            mdin = self.write_mdin(working_dir, mdin_file, self.create_md_mdin())
+            rst_file = self.get_step_rst_file(step, working_dir)
             if rst_file.exists():
                 put_log(f'{rst_file} already exists, skip step 6.')
                 return True
-            inpcrd_step6 = working_dir / 'npt2.rst'
+            inpcrd_step6 = self.get_step_rst_file(5, working_dir)
             if not inpcrd_step6.exists():
-                put_err(f'npt2.rst not found, cannot run step 6')
+                put_err(f'{inpcrd_step6} not found, cannot run step 6')
                 return False
-            return self.run_pmemd(mdin, prmtop, inpcrd_step6, 'md',
+            return self.run_pmemd(mdin, prmtop, inpcrd_step6, output_prefix,
                                  working_dir=working_dir)
         
         return False
@@ -591,27 +745,27 @@ class continue_md(AmberRunner):
 def main():
     parser = argparse.ArgumentParser(description='Amber MD simulation runner')
     subparsers = parser.add_subparsers(dest='command', help='commands')
-    
-    # simple_protein command
-    simple_protein_parser = subparsers.add_parser('simple_protein', 
-                                                   help='run simple protein simulation')
-    simple_protein.make_args(simple_protein_parser)
-    
+
+    # simple_md command (renamed from simple_protein)
+    simple_md_parser = subparsers.add_parser('simple_md',
+                                              help='run simple MD simulation (protein/ligand/complex)')
+    simple_md.make_args(simple_md_parser)
+
     # continue_md command
     continue_md_parser = subparsers.add_parser('continue_md',
                                                help='continue a previous MD simulation')
     continue_md.make_args(continue_md_parser)
-    
+
     args = parser.parse_args()
-    
-    if args.command == 'simple_protein':
-        cmd = simple_protein(args)
+
+    if args.command == 'simple_md':
+        cmd = simple_md(args)
     elif args.command == 'continue_md':
         cmd = continue_md(args)
     else:
         parser.print_help()
         return
-    
+
     cmd.excute()
 
 
