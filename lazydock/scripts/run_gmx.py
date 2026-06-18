@@ -284,7 +284,7 @@ class simple_complex(simple_protein):
         args.add_argument('--lig-posres', type=str, default='POSRES',
                           help='ligand position restraint symbol, default is %(default)s.')
         args.add_argument('--tc-groups', type=str, default='auto',
-                          help='tc-grps to select, so could set tc-grps = Protein_JZ4 Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.')
+                          help='tc-grps to select, so could set tc-grps = Protein_LIG Water_and_ions to achieve "Protein Non-Protein" effect., default is %(default)s.')
         return args
         
     def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
