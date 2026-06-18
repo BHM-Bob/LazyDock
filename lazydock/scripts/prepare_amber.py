@@ -21,6 +21,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -52,21 +53,29 @@ class AmberCommand(Command):
         self.pdb4amber_bin = self._find_executable('pdb4amber')
     
     def _find_executable(self, name: str) -> str:
-        """查找Amber可执行文件，优先在AmberTools路径中查找"""
-        # 首先在AmberTools路径中查找
+        """查找Amber可执行文件，优先在当前 Python 环境/Conda 环境中查找"""
+        search_paths = []
+
+        # 尝试来自 CONDA_PREFIX 的路径
         if self.amber_tools_home:
-            tool_path = Path(self.amber_tools_home) / 'bin' / name
+            search_paths.append(Path(self.amber_tools_home) / 'bin' / name)
+
+        # 尝试当前 Python 解释器所在的环境
+        python_prefix = Path(sys.executable).resolve().parent.parent
+        search_paths.append(python_prefix / 'bin' / name)
+        search_paths.append(Path(sys.executable).resolve().parent / name)
+
+        # 尝试 AMBERHOME
+        if self.amber_home:
+            search_paths.append(Path(self.amber_home) / 'bin' / name)
+
+        for tool_path in search_paths:
             if tool_path.exists():
                 return str(tool_path)
-        
-        # 然后在AMBERHOME中查找
-        if self.amber_home:
-            amber_path = Path(self.amber_home) / 'bin' / name
-            if amber_path.exists():
-                return str(amber_path)
-        
+
         # 最后使用PATH中的命令
-        return name
+        found = shutil.which(name)
+        return found if found else name
     
     def run_command(self, cmd: str, cwd: Optional[str] = None, 
                     check: bool = True, capture_output: bool = True) -> subprocess.CompletedProcess:
