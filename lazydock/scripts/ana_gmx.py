@@ -819,7 +819,7 @@ class RRCS(mmpbsa):
     def plot_diag_vs_frame(scores: np.ndarray, top_path: Path):
         # determine the n
         diags = np.stack([np.diag(score, k=-1) for score in scores], axis=0).T
-        fig, ax = plt.subplots(figsize=(12, 6))
+        _, ax = plt.subplots(figsize=(12, 6))
         sns.heatmap(diags, cmap='viridis', cbar_kws={'label': r'RRCS'}, xticklabels=1000, ax=ax)
         ax.set_aspect('auto')
         plt.xlabel('Frames', fontsize=16, weight='bold')
@@ -834,7 +834,7 @@ class RRCS(mmpbsa):
     def plot_lines(scores: np.ndarray, top_path: Path, ag_gro: AtomGroup):
         def _set_vertical_title(ax, text, pos):
             """设置垂直Y轴标题的辅助函数"""
-            t = ax.yaxis.set_label_coords(*pos)
+            ax.yaxis.set_label_coords(*pos)
             ax.set_ylabel(text, 
                         rotation=90,
                         labelpad=25,
@@ -987,7 +987,7 @@ class RRCS(mmpbsa):
         pool.close()
 
 
-def run_porcupine(top_path: str, traj_path: str, start: int = 0, stop: int = None, step: int = 1):
+def run_porcupine(top_path: str, traj_path: str, start: int = 0, stop: int = None, step: int = 1): # type: ignore
     from pymol import cmd
     cmd.reinitialize()
     u = Universe(top_path, traj_path)
