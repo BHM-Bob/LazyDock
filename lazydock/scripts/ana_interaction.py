@@ -209,7 +209,7 @@ class simple_analysis(Command):
                     if input('continue? (y/n)') != 'y':
                         exit(1)
                 else:
-                    return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:{'\n'.join(self.invalid_roots)}")
+                    return put_err('The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:'+'\n'.join(self.invalid_roots))
             for r_path, l_path in zip(r_paths, l_paths):
                 self.tasks.append((r_path, l_path, self.args.method, self.args.mode))
         else:
