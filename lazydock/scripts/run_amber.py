@@ -94,8 +94,56 @@ class AmberRunner(Command):
         except Exception:
             return None
     
+    def parse_gamd_log(self, gamd_log_path: Path) -> Optional[Dict]:
+        """解析GaMD的gamd.log文件最后一行，获取boost能量和力权重信息
+        
+        gamd.log格式（每行8列）：
+        ntwx  total_nstep  Unboosted-Potential-Energy  Unboosted-Dihedral-Energy
+        Total-Force-Weight  Dihedral-Force-Weight  Boost-Energy-Potential  Boost-Energy-Dihedral
+        """
+        if not gamd_log_path.exists():
+            return None
+        
+        try:
+            # 读取文件最后几行，找到最后一个数据行
+            with open(gamd_log_path, 'rb') as f:
+                # 从文件末尾向前读取
+                f.seek(0, 2)
+                file_size = f.tell()
+                if file_size == 0:
+                    return None
+                # 读取最后2KB足够获取最后一行
+                read_size = min(file_size, 2048)
+                f.seek(file_size - read_size)
+                tail_content = f.read().decode('utf-8', errors='ignore')
+            
+            lines = tail_content.strip().split('\n')
+            # 从后往前找第一个非注释、非空的数据行
+            for line in reversed(lines):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split()
+                if len(parts) >= 8:
+                    try:
+                        return {
+                            'total_nstep': int(parts[1]),
+                            'unboosted_potential': float(parts[2]),
+                            'unboosted_dihedral': float(parts[3]),
+                            'total_force_weight': float(parts[4]),
+                            'dihedral_force_weight': float(parts[5]),
+                            'boost_energy_potential': float(parts[6]),
+                            'boost_energy_dihedral': float(parts[7]),
+                        }
+                    except (ValueError, IndexError):
+                        continue
+            return None
+        except Exception:
+            return None
+
     def monitor_progress(self, mdinfo_path: Path, total_steps: int, 
-                         interval: int = 30, desc: str = "MD"):
+                         interval: int = 30, desc: str = "MD",
+                         gamd_log_path: Optional[Path] = None):
         """监控模拟进度，使用tqdm显示进度条"""
         # 创建tqdm进度条
         pbar = tqdm(total=total_steps, desc=desc, unit="steps", 
@@ -136,6 +184,28 @@ class AmberRunner(Command):
             # 压力为0.0时不显示（NVT步骤）
             if 'pressure' in info and abs(info['pressure']) > 0.01:
                 postfix_parts.append(f"P={info['pressure']:.1f}bar")
+            
+            # GaMD专属指标
+            if gamd_log_path is not None:
+                gamd_info = self.parse_gamd_log(gamd_log_path)
+                if gamd_info is not None:
+                    bP = gamd_info['boost_energy_potential']
+                    bD = gamd_info['boost_energy_dihedral']
+                    fwP = gamd_info['total_force_weight']
+                    fwD = gamd_info['dihedral_force_weight']
+                    gamd_parts = []
+                    if bP > 0.01:
+                        gamd_parts.append(f"bP={bP:.1f}")
+                    if bD > 0.01:
+                        gamd_parts.append(f"bD={bD:.1f}")
+                    # force weight 低于0.9时显示，提示boost力不完整
+                    if fwP < 0.9:
+                        gamd_parts.append(f"fwP={fwP:.2f}")
+                    if fwD < 0.9:
+                        gamd_parts.append(f"fwD={fwD:.2f}")
+                    if gamd_parts:
+                        postfix_parts.append(" ".join(gamd_parts))
+            
             if 'ns_per_day' in info:
                 postfix_parts.append(f"{info['ns_per_day']:.1f}ns/day")
             
@@ -192,9 +262,13 @@ class AmberRunner(Command):
                 mdinfo_path = working_dir / f'{output_prefix}.mdinfo'
                 # 从output_prefix提取步骤描述 (e.g., "step03_heat" -> "heat")
                 step_desc = output_prefix.split('_')[-1] if '_' in output_prefix else output_prefix
+                # 检测是否为GaMD模拟，如果是则监控gamd.log
+                is_gamd = 'igamd' in mdin_content and re.search(r'igamd\s*=\s*[1-9]', mdin_content)
+                gamd_log_path = working_dir / 'gamd.log' if is_gamd else None
                 monitor_thread = threading.Thread(
                     target=self.monitor_progress,
                     args=(mdinfo_path, total_steps, 30, step_desc),
+                    kwargs={'gamd_log_path': gamd_log_path},
                     daemon=True
                 )
                 monitor_thread.start()
@@ -216,7 +290,7 @@ class AmberRunner(Command):
                    content: str) -> Path:
         """写入mdin文件"""
         mdin_path = working_dir / filename
-        mdin_path.write_text(content)
+        mdin_path.write_text(content.rstrip() + "\n")
         return mdin_path
 
 
@@ -636,6 +710,382 @@ class simple_md(AmberRunner):
             bar.update(1)
 
 
+class gamd_md(AmberRunner):
+    """
+    run GaMD simulation using Amber pmemd
+
+    Supports a two-stage GaMD workflow:
+    1. GaMD equilibration to collect boost statistics and ramp up the boost
+    2. GaMD production with fixed boost parameters
+    """
+
+    HELP = """
+    run GaMD simulation using Amber pmemd
+
+    Supports a two-stage GaMD workflow:
+    1. GaMD equilibration to collect boost statistics and ramp up the boost
+    2. GaMD production with fixed boost parameters
+
+    NOTE: The input file must be a restart containing velocities obtained from
+    a standard Amber equilibration workflow such as simple_md NPT equilibration.
+    """
+
+    def __init__(self, args, printf=print):
+        super().__init__(args, printf)
+
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '-bd', '--batch-dir', type=str, nargs='+', default=['.'],
+                          help='dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.')
+        args.add_argument('-n', '--prmtop-name', type=str, default='*.prmtop',
+                          help='prmtop file name pattern. Default is %(default)s.')
+        args.add_argument('-c', '--inpcrd-name', type=str, default='*.inpcrd',
+                          help='inpcrd file name pattern. Default is %(default)s.')
+
+        args.add_argument('--eq-nstlim', type=int, default=3000000,
+                          help='number of steps for GaMD equilibration. Default is %(default)s.')
+        args.add_argument('--prod-nstlim', type=int, default=100000000,
+                          help='number of steps for GaMD production MD. Default is %(default)s.')
+        args.add_argument('--ntcmd', type=int, default=1000000,
+                          help='number of steps for GaMD equilibration statistics collection. Default is %(default)s.')
+        args.add_argument('--ieqdtd', type=int, default=None,
+                          help='DEPRECATED: use --nteb instead. If set, mapped to nteb as fallback.')
+        args.add_argument('--nteb', type=int, default=1000000,
+                          help='number of steps for GaMD equilibration boost application. Default is %(default)s.')
+        args.add_argument('--ntave', type=int, default=None,
+                          help='GaMD averaging interval, must divide ntcmd and nteb. Default is chosen automatically.')
+        args.add_argument('--ntcmdprep', type=int, default=None,
+                          help='GaMD conventional MD prep steps before statistics collection. Default is ntcmd/4 when not set.')
+        args.add_argument('--ntebprep', type=int, default=None,
+                          help='GaMD boost prep steps before biased MD. Default is nteb/4 when not set.')
+        args.add_argument('--igamd', type=int, default=3,
+                          choices=[1, 2, 3, 4],
+                          help='GaMD boost type: 1=dihedral, 2=dual, 3=dual hybrid. Default is %(default)s.')
+        args.add_argument('--sigma0P', type=float, default=3.0,
+                          help='GaMD total potential sigma threshold. Default is %(default)s.')
+        args.add_argument('--sigma0D', type=float, default=3.0,
+                          help='GaMD dihedral potential sigma threshold. Default is %(default)s.')
+        args.add_argument('--ntp', type=int, default=1,
+                          choices=[0, 1, 2],
+                          help='pressure coupling flag for GaMD runs. Default is %(default)s.')
+        args.add_argument('--barostat', type=int, default=2,
+                          choices=[1, 2],
+                          help='barostat type for NPT GaMD runs. Default is %(default)s.')
+        args.add_argument('--cut', type=float, default=10.0,
+                          help='nonbonded cutoff distance (Angstrom). Default is %(default)s.')
+        args.add_argument('--dt', type=float, default=0.002,
+                          help='time step (ps). Default is %(default)s.')
+        args.add_argument('--prod-temp0', type=float, default=300.0,
+                          help='target temperature for GaMD production. Default is %(default)s.')
+        args.add_argument('--prod-ntpr', type=int, default=50000,
+                          help='energy output frequency for GaMD production MD. Default is %(default)s.')
+        args.add_argument('--prod-ntwx', type=int, default=50000,
+                          help='coordinate output frequency for GaMD production MD. Default is %(default)s.')
+        args.add_argument('--prod-ntwr', type=int, default=5000000,
+                          help='restart file output frequency for GaMD production MD. Default is %(default)s.')
+        args.add_argument('--start-phase', type=str, default='equil',
+                          choices=['equil', 'prod'],
+                          help='start from which GaMD phase: equil or prod. Default is %(default)s.')
+        args.add_argument('--end-phase', type=str, default='prod',
+                          choices=['equil', 'prod'],
+                          help='end at which GaMD phase: equil or prod. Default is %(default)s.')
+        return args
+
+    def process_args(self):
+        self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
+
+        if self.args.nteb is None:
+            if self.args.ieqdtd is not None:
+                put_log(f'--ieqdtd is deprecated, use --nteb instead. Mapping ieqdtd={self.args.ieqdtd} to nteb.')
+                self.args.nteb = self.args.ieqdtd
+            else:
+                self.args.nteb = 1000000
+        if self.args.ntave is None:
+            self.args.ntave = 100000 if self.args.ntcmd >= 100000 and self.args.nteb >= 100000 else 1
+        if self.args.ntcmdprep is None:
+            self.args.ntcmdprep = max(1, self.args.ntcmd // 4)
+        if self.args.ntebprep is None:
+            self.args.ntebprep = max(1, self.args.nteb // 4)
+
+        if self.args.ntcmd <= 0:
+            put_err('ntcmd must be positive.', _exit=True)
+        if self.args.nteb <= 0:
+            put_err('nteb must be positive.', _exit=True)
+        if self.args.ntave <= 0:
+            put_err('ntave must be positive.', _exit=True)
+        if self.args.ntcmd % self.args.ntave != 0:
+            put_err('ntcmd must be a multiple of ntave.', _exit=True)
+        if self.args.nteb % self.args.ntave != 0:
+            put_err('nteb must be a multiple of ntave.', _exit=True)
+        if not (0 <= self.args.ntcmdprep <= self.args.ntcmd):
+            put_err('ntcmdprep must be between 0 and ntcmd.', _exit=True)
+        if not (0 <= self.args.ntebprep <= self.args.nteb):
+            put_err('ntebprep must be between 0 and nteb.', _exit=True)
+
+    def check_prmtop_inpcrd(self, batch_dir: Path) -> Tuple[List[str], List[str]]:
+        """检查prmtop和inpcrd文件是否配对"""
+        prmtop_paths = get_paths_with_extension(
+            batch_dir,
+            [os.path.split(self.args.prmtop_name)[-1]],
+            name_substr=self.args.prmtop_name
+        )
+        inpcrd_paths = get_paths_with_extension(
+            batch_dir,
+            [os.path.split(self.args.inpcrd_name)[-1]],
+            name_substr=self.args.inpcrd_name
+        )
+
+        invalid_roots = check_file_num_paried(prmtop_paths, inpcrd_paths)
+        if invalid_roots:
+            put_err(f"The number of prmtop and inpcrd files is not equal, please check the input files.\n"
+                   f"invalid roots: {invalid_roots}", _exit=True)
+
+        return prmtop_paths, inpcrd_paths
+
+    def find_tasks(self) -> List[Tuple[Path, Path, Path]]:
+        """查找所有任务，返回(prmtop_path, inpcrd_path, working_dir)列表"""
+        tasks = []
+        for batch_dir in self.args.batch_dir:
+            prmtop_paths, inpcrd_paths = self.check_prmtop_inpcrd(batch_dir)
+            for prmtop_path, inpcrd_path in zip(prmtop_paths, inpcrd_paths):
+                working_dir = Path(prmtop_path).parent
+                tasks.append((Path(prmtop_path), Path(inpcrd_path), working_dir))
+        return tasks
+
+    def get_phase_filename(self, phase: str, suffix: str = 'in') -> str:
+        return f'gamd_{phase}.{suffix}'
+
+    def get_phase_rst_file(self, phase: str, working_dir: Path) -> Path:
+        return working_dir / f'gamd_{phase}.rst'
+
+    def create_gamd_equil_mdin(self) -> str:
+        """创建GaMD预平衡mdin文件"""
+        return f"""GaMD Equilibration: collect stats and ramp boost
+ &cntrl
+     imin = 0,
+     irest = 1,
+     ntx = 5,
+   nstlim = {self.args.eq_nstlim},
+   dt = {self.args.dt},
+   ntc = 2,
+   ntf = 2,
+   cut = {self.args.cut},
+   ntb = 2,
+   ntp = {self.args.ntp},
+   pres0 = 1.0,
+   taup = 2.0,
+   temp0 = {self.args.prod_temp0},
+   ntt = 3,
+   gamma_ln = 2.0,
+   ntr = 0,
+   iwrap = 1,
+   ntpr = 5000,
+   ntwx = 5000,
+   ntwr = 500000,
+   ioutfm = 1,
+   ig = -1,
+   igamd = {self.args.igamd},
+   iE = 1,
+   irest_gamd = 0,
+   ntcmd = {self.args.ntcmd},
+   ntcmdprep = {self.args.ntcmdprep},
+   nteb = {self.args.nteb},
+   ntebprep = {self.args.ntebprep},
+   ntave = {self.args.ntave},
+   sigma0P = {self.args.sigma0P},
+   sigma0D = {self.args.sigma0D},
+ /"""
+
+    def create_gamd_prod_mdin(self) -> str:
+        """创建GaMD生产模拟mdin文件"""
+        return f"""GaMD Production Run
+ &cntrl
+   imin = 0,
+   irest = 1,
+   ntx = 5,
+   nstlim = {self.args.prod_nstlim},
+   dt = {self.args.dt},
+   ntc = 2,
+   ntf = 2,
+   cut = {self.args.cut},
+   ntb = 2,
+   ntp = {self.args.ntp},
+   pres0 = 1.0,
+   taup = 2.0,
+   temp0 = {self.args.prod_temp0},
+   ntt = 3,
+   gamma_ln = 2.0,
+   ntr = 0,
+   iwrap = 1,
+   ntpr = {self.args.prod_ntpr},
+   ntwx = {self.args.prod_ntwx},
+   ntwr = {self.args.prod_ntwr},
+   ioutfm = 1,
+   ig = -1,
+   igamd = {self.args.igamd},
+   iE = 1,
+   irest_gamd = 1,
+   ntcmd = 0,
+   nteb = 0,
+   ntave = {self.args.ntave},
+   sigma0P = {self.args.sigma0P},
+   sigma0D = {self.args.sigma0D},
+ /"""
+
+    def _check_velocities_with_pmemd(self, prmtop: Path, inpcrd: Path, working_dir: Path) -> Tuple[bool, str]:
+        """Run a lightweight pmemd check to determine if the input restart contains velocities.
+        Returns (has_velocities, pmemd_stderr).
+        This writes a tiny mdin and runs pmemd; if pmemd errors with "could not find enough velocities" we return False.
+        """
+        check_mdin = """Check velocities
+ &cntrl
+   imin = 0,
+   irest = 1,
+   ntx = 5,
+   nstlim = 0,
+   ntpr = 0,
+   ntwx = 0,
+   ntwr = 0,
+ /
+"""
+        mdin_path = working_dir / 'gamd_check_vel.in'
+        mdin_path.write_text(check_mdin.rstrip() + "\n")
+
+        cmd_parts = [self.pmemd_bin, '-O', '-i', str(mdin_path), '-o', str(working_dir / 'gamd_check_vel.out'),
+                     '-p', str(prmtop), '-c', str(inpcrd)]
+        result = subprocess.run(cmd_parts, capture_output=True, text=True, cwd=str(working_dir))
+        stderr = (result.stderr or '') + (result.stdout or '')
+        if result.returncode == 0:
+            return True, stderr
+        # detect missing velocities message
+        if 'could not find enough velocities' in stderr.lower() or 'i could not find enough velocities' in stderr.lower():
+            return False, stderr
+        # unknown failure - return False and include stderr for diagnostics
+        return False, stderr
+
+    def has_velocities(self, prmtop: Path, inpcrd: Path, working_dir: Path) -> bool:
+        """Heuristic check whether the given coordinate/restart file contains velocities.
+        Uses a lightweight pmemd invocation to probe for velocities. Returns True if velocities present.
+        """
+        try:
+            ok, stderr = self._check_velocities_with_pmemd(prmtop, inpcrd, working_dir)
+            if ok:
+                return True
+            # if pmemd indicated missing velocities, return False
+            if 'could not find enough velocities' in stderr.lower() or 'i could not find enough velocities' in stderr.lower():
+                return False
+            # otherwise conservatively treat as False and log message
+            put_log(f'pmemd velocity-check returned non-zero exit but no explicit missing-velocity message. stderr: {stderr[:200]}')
+            return False
+        except Exception as e:
+            put_log(f'exception while checking velocities: {e}')
+            return False
+
+    def check_gamd_equil_quality(self, working_dir: Path) -> bool:
+        """Check GaMD equilibration output quality by parsing the final boost parameters.
+        Returns True if quality is acceptable, False if boost is too weak (warning only, not fatal).
+        """
+        equil_out = working_dir / 'gamd_equil.out'
+        if not equil_out.exists():
+            put_log(f'GaMD equilibration output not found: {equil_out}, skip quality check.')
+            return True
+
+        try:
+            import re
+            content = equil_out.read_text()
+            # Find the last "GaMD updated parameters" lines for kP and kD
+            kp_matches = re.findall(
+                r'GaMD updated parameters: step,VmaxP,VminP,VavgP,sigmaVP,k0P,kP,EthreshP\s*=\s*\d+\s+[\d\-\.\s]+\s+(\d+\.\d+)\s+(\d+\.\d+)',
+                content)
+            kd_matches = re.findall(
+                r'GaMD updated parameters: step,VmaxD,VminD,VavgD,sigmaVD,k0D,kD,EthreshD\s*=\s*\d+\s+[\d\-\.\s]+\s+(\d+\.\d+)\s+(\d+\.\d+)',
+                content)
+
+            if kp_matches:
+                last_k0P, last_kP = kp_matches[-1]
+                last_k0P, last_kP = float(last_k0P), float(last_kP)
+                if last_kP < 1e-4:
+                    put_err(f'GaMD equilibration produced very weak total-potential boost (kP={last_kP:.6f}, k0P={last_k0P:.4f}). '
+                            f'This means GaMD will have almost no acceleration on the total potential energy. '
+                            f'Consider: (1) using igamd=2 (dihedral-only boost), or '
+                            f'(2) adjusting sigma0P, or '
+                            f'(3) increasing ntcmd for better statistics.',
+                            _exit=False)
+                else:
+                    put_log(f'GaMD equilibration boost quality: kP={last_kP:.6f}, k0P={last_k0P:.4f}')
+
+            if kd_matches:
+                last_k0D, last_kD = kd_matches[-1]
+                last_k0D, last_kD = float(last_k0D), float(last_kD)
+                if last_kD < 1e-4:
+                    put_err(f'GaMD equilibration produced very weak dihedral boost (kD={last_kD:.6f}, k0D={last_k0D:.4f}). '
+                            f'Consider adjusting sigma0D or increasing ntcmd.',
+                            _exit=False)
+                else:
+                    put_log(f'GaMD equilibration boost quality: kD={last_kD:.6f}, k0D={last_k0D:.4f}')
+
+            return True
+        except Exception as e:
+            put_log(f'exception while checking GaMD equilibration quality: {e}')
+            return True
+
+
+    def run_phase(self, phase: str, prmtop: Path, inpcrd: Path, working_dir: Path) -> bool:
+        mdin = self.write_mdin(working_dir, self.get_phase_filename(phase),
+                               self.create_gamd_equil_mdin() if phase == 'equil' else self.create_gamd_prod_mdin())
+        output_prefix = f'gamd_{phase}'
+        rst_file = self.get_phase_rst_file(phase, working_dir)
+        if rst_file.exists():
+            put_log(f'{rst_file} already exists, skip GaMD {phase} phase.')
+            return True
+
+        if phase == 'equil':
+            run_inpcrd = inpcrd
+            if not self.has_velocities(prmtop, run_inpcrd, working_dir):
+                put_err('Input restart file lacks velocities. Provide a restart from simple_md NPT equilibration (for example step05_npt2.rst or later).', _exit=False)
+                return False
+        else:
+            equil_rst = self.get_phase_rst_file('equil', working_dir)
+            if not equil_rst.exists():
+                put_err(f'GaMD equilibration restart not found: {equil_rst}. Run equil first or place the restart file in the working directory.')
+                return False
+            run_inpcrd = equil_rst
+            if not self.has_velocities(prmtop, run_inpcrd, working_dir):
+                put_err('GaMD equilibration restart lacks velocities required for production. Provide a restart with velocities generated by simple_md NPT equilibration or a previous MD run.', _exit=False)
+                return False
+            # Check equilibration quality before production
+            self.check_gamd_equil_quality(working_dir)
+
+        return self.run_pmemd(mdin, prmtop, run_inpcrd, output_prefix, working_dir=working_dir)
+
+    def main_process(self):
+        tasks = self.find_tasks()
+        put_log(f'found {len(tasks)} GaMD task(s).')
+
+        if not tasks:
+            put_err('no tasks found, exit.')
+            return
+
+        phase_order = ['equil', 'prod']
+        start_index = phase_order.index(self.args.start_phase)
+        end_index = phase_order.index(self.args.end_phase)
+        if start_index > end_index:
+            put_err('start-phase must be earlier than or equal to end-phase.', _exit=True)
+        run_phases = phase_order[start_index:end_index + 1]
+
+        bar = tqdm(total=len(tasks), desc='Running GaMD')
+        for prmtop_path, inpcrd_path, working_dir in tasks:
+            wdir_repr = os.path.relpath(working_dir, self.args.batch_dir[0] if self.args.batch_dir else '.')
+            bar.set_description(f"{wdir_repr}: {prmtop_path.name} and {inpcrd_path.name}")
+            for phase in run_phases:
+                if not self.run_phase(phase, prmtop_path, inpcrd_path, working_dir):
+                    put_err(f'GaMD {phase} phase failed for {prmtop_path}, stop.')
+                    break
+            else:
+                put_log(f'successfully completed GaMD phases {run_phases} for {prmtop_path}')
+            bar.update(1)
+
+
 class continue_md(AmberRunner):
     """
     continue a previous Amber MD simulation
@@ -739,7 +1189,7 @@ class continue_md(AmberRunner):
             put_err(f'failed to continue MD: {self.args.output_prefix}')
 
 
-def main():
+def main(sys_args: List[str] = None):
     parser = argparse.ArgumentParser(description='Amber MD simulation runner')
     subparsers = parser.add_subparsers(dest='command', help='commands')
 
@@ -753,12 +1203,19 @@ def main():
                                                help='continue a previous MD simulation')
     continue_md.make_args(continue_md_parser)
 
-    args = parser.parse_args()
+    # gamd_md command
+    gamd_md_parser = subparsers.add_parser('gamd_md',
+                                           help='run GaMD simulation with Amber pmemd')
+    gamd_md.make_args(gamd_md_parser)
+
+    args = parser.parse_args(sys_args)
 
     if args.command == 'simple_md':
         cmd = simple_md(args)
     elif args.command == 'continue_md':
         cmd = continue_md(args)
+    elif args.command == 'gamd_md':
+        cmd = gamd_md(args)
     else:
         parser.print_help()
         return
