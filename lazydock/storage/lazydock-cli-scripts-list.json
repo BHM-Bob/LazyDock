@@ -150,5 +150,13 @@
         "exec_names": ["run_amber", "run-amber"],
         "brief": "AMBER molecular run tools.",
         "detailed": "AMBER molecular run tools."
+    },
+    "ana_amber":
+    {
+        "name": "ana_amber",
+        "script name": "ana_amber",
+        "exec_names": ["ana_amber", "ana-amber"],
+        "brief": "AMBER molecular analysis tools.",
+        "detailed": "AMBER molecular analysis tools."
     }
 }
