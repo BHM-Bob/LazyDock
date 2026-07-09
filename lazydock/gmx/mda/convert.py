@@ -4,17 +4,11 @@ LastEditors: BHM-Bob 2262029386@qq.com
 LastEditTime: 2025-04-01 20:08:24
 Description: 
 '''
-import warnings
 from typing import Dict
 
 import MDAnalysis
 import numpy as np
-from mbapy_lite.base import put_err
-from mbapy_lite.web_utils.task import TaskPool
-from MDAnalysis import AtomGroup, Universe
-from MDAnalysis.coordinates.base import IOBase
 from MDAnalysis.coordinates.PDB import PDBWriter
-from MDAnalysis.exceptions import NoDataError
 from MDAnalysis.lib import util
 
 
@@ -66,6 +60,47 @@ class FakeAtomGroup(PDBWriter):
         if reindex or not hasattr(ag, 'ids'):
             return np.arange(1, len(ag)+1, dtype=np.int32)
         return ag.ids.astype(np.int32)
+
+    def __len__(self):
+        return len(self.ids)
+
+    @classmethod
+    def _from_arrays(cls, **kwargs):
+        """直接从属性数组构造 FakeAtomGroup，绕过 __init__。"""
+        obj = object.__new__(cls)
+        for attr_name, attr_value in kwargs.items():
+            setattr(obj, attr_name, attr_value)
+        return obj
+
+    def __getitem__(self, mask):
+        """支持 atoms[mask] 索引，返回新的 FakeAtomGroup。
+
+        支持的索引类型：
+        - 单个整数：返回长度为 1 的 FakeAtomGroup
+        - numpy bool 一维数组：按 True 位置筛选
+        - 整数数组/列表：按序号取原子
+        - 切片：取区间
+        """
+        if isinstance(mask, (int, np.integer)):
+            idx = np.array([mask], dtype=np.int64)
+        else:
+            idx = mask
+        indexed = {
+            'positions':   self.positions[idx],
+            'resnames':    self.resnames[idx],
+            'chainIDs':    self.chainIDs[idx],
+            'resids':      self.resids[idx],
+            'names':       self.names[idx],
+            'elements':    self.elements[idx],
+            'altLocs':     self.altLocs[idx],
+            'occupancies': self.occupancies[idx],
+            'tempfactors': self.tempfactors[idx],
+            'segids':      self.segids[idx],
+            'charges':     self.charges[idx],
+            'icodes':      self.icodes[idx],
+            'ids':         self.ids[idx],
+        }
+        return self._from_arrays(**indexed)
 
 
 class PDBConverter(PDBWriter):
