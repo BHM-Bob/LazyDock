@@ -87,7 +87,7 @@ class simple_protein(Command):
                           help='args pass to genion command, default is %(default)s.')
         args.add_argument('--em-args', type = str, default="-v",
                           help='args pass to mdrun command for energy minimization, default is %(default)s.')  
-        args.add_argument('--mdrun-args', type = str, default="-v -ntomp 14 -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu",
+        args.add_argument('--mdrun-args', type = str, default="-v",
                           help='args pass to mdrun command for production md, default is %(default)s.')
         args.add_argument('--genion-groups', type=str, default="SOL",
                           help='Select a continuous group of solvent molecules, default is %(default)s.')
