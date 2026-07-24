@@ -1,7 +1,7 @@
 '''
 Date: 2025-01-16 10:08:37
 LastEditors: BHM-Bob 2262029386@qq.com
-LastEditTime: 2025-08-19 20:33:02
+LastEditTime: 2026-01-12 12:32:36
 Description: 
 '''
 import argparse
@@ -19,6 +19,14 @@ import MDAnalysis as mda
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.cm import ScalarMappable
+from mbapy_lite.base import put_err, put_log
+from mbapy_lite.file import opts_file
+from mbapy_lite.plot import save_show
+from mbapy_lite.web_utils.task import TaskPool
+from MDAnalysis.analysis import align, dihedrals, gnm, helix_analysis
+from tqdm import tqdm
+
 from lazydock.algorithm.rms import batch_fit_to, batch_rmsd, pairwise_rmsd
 from lazydock.gmx.mda.align import get_aligned_coords
 from lazydock.gmx.mda.gnm import (calcu_closeContactGNMAnalysis,
@@ -27,13 +35,6 @@ from lazydock.gmx.mda.utils import filter_atoms_by_chains
 from lazydock.scripts._script_utils_ import (clean_path, excute_command,
                                              process_batch_dir_lst)
 from lazydock.scripts.ana_gmx import mmpbsa
-from matplotlib.cm import ScalarMappable
-from mbapy_lite.base import put_err, put_log
-from mbapy_lite.file import opts_file
-from mbapy_lite.plot import save_show
-from mbapy_lite.web_utils.task import TaskPool
-from MDAnalysis.analysis import align, dihedrals, gnm, helix_analysis
-from tqdm import tqdm
 
 
 def smv(arr: np.ndarray, w: int = 50):
@@ -91,10 +92,9 @@ class elastic(mmpbsa):
     
     def process_args(self):
         super().process_args()
-        if self.__class__.__name__ == 'elastic':
-            self.pool = TaskPool('process', self.args.n_workers).start()
     
     def fast_calcu(self, u: mda.Universe, args: argparse.ArgumentParser):
+        self.pool = TaskPool('process', self.args.n_workers, report_error=True).start()
         start, step, stop = args.begin_frame, args.traj_step, args.end_frame
         ag, v, t = u.select_atoms(args.select), [], []
         if args.chains is not None:
@@ -122,6 +122,7 @@ class elastic(mmpbsa):
         # gether results
         for t_i in t:
             v.append(self.pool.query_task(t_i, True, 999)[0])
+        self.pool.close(1)
         return np.array(t), np.array(v)
     
     def calcu(self, u: mda.Universe, args: argparse.ArgumentParser):
@@ -166,8 +167,6 @@ class elastic(mmpbsa):
             wdir = Path(wdir).resolve()
             self.analysis(u, wdir, self.args)
             bar.update(1)
-        if self.pool:
-            self.pool.close(1)
         bar.close()
 
 
@@ -449,9 +448,9 @@ class pca(elastic):
                 if j > 0:
                     ax.set_yticks([])
                 # 绘制散点（核心优化参数）
-                sc = ax.scatter(df[pc_columns[j]], df[pc_columns[i]],
-                                c=time, cmap=cmap, marker='.', alpha=0.8, linewidths=0,
-                                rasterized=True) # 启用栅格化加速
+                ax.scatter(df[pc_columns[j]], df[pc_columns[i]],
+                           c=time, cmap=cmap, marker='.', alpha=0.8, linewidths=0,
+                           rasterized=True) # 启用栅格化加速
                 # 添加坐标标签
                 if i == n-1:
                     ax.set_xlabel(pc_columns[j], labelpad=5, fontsize=16, weight='bold')
