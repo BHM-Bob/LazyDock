@@ -14,8 +14,8 @@ from lazydock.pml.interaction_utils import sort_func, bond_length_score
 from lazydock.utils import uuid4
 from mbapy_lite.base import put_err
 from mbapy_lite.web import TaskPool
-from plip.exchange.report import BindingSiteReport
-from plip.structure.preparation import PDBComplex
+from fplip.exchange.report import BindingSiteReport
+from fplip.structure.preparation import PDBComplex
 from pymol import cmd
 from tqdm import tqdm
 
@@ -24,7 +24,7 @@ def get_atom_level_interactions(mol, receptor_chain: str, ligand_chain: str, mod
     """
     """
     interactions = {}
-    for ligand, interaction in mol.interaction_sets.items():
+    for _, interaction in mol.interaction_sets.items():
         info = BindingSiteReport(interaction)
         mode_dict = {
             'Hydrophobic Interactions': [info.hydrophobic_features, info.hydrophobic_info],
@@ -143,7 +143,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
             all_interactions[ligand] = run_plip_analysis(cmd.get_pdbstr(sele_complex), receptor_chain, ligand_chain, mode, cutoff)
         cmd.delete(sele_complex) # this do not delete receptor and ligand, only complex
         # wait for taskpool
-        while taskpool is not None and taskpool.count_waiting_tasks() > 0:
+        while taskpool is not None and taskpool.count_waiting_tasks() > 0: # type: ignore
             time.sleep(0.1)
     # merge interactions by res
     for ligand in all_interactions:
