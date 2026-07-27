@@ -23,7 +23,8 @@ from lazydock.gmx.thirdparty.cgenff_charmm2gmx import run_transform
 from lazydock.gmx.thirdparty.sort_mol2_bonds import sort_bonds
 from lazydock.pml.align_to_axis import align_pose_to_axis
 from lazydock.pml.utils import get_seq
-from lazydock.scripts._script_utils_ import Command, clean_path
+from lazydock.scripts._script_utils_ import (Command, make_args_and_excute,
+                                             process_batch_dir_lst)
 from lazydock.web.cgenff import get_login_browser as _get_login_browser
 from lazydock.web.cgenff import get_result_from_CGenFF
 
@@ -37,11 +38,11 @@ class protein(Command):
     1. prepare protein topology.
     """
     def __init__(self, args, printf = print):
-        super().__init__(args, printf)
+        super().__init__(args, printf, iter_run_arg=['dir'])
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type = str, default='.',
+        args.add_argument('-d', '--dir', type = str, nargs='+', default=['.'],
                           help='protein directory. Default is %(default)s.')
         args.add_argument('-n', '--protein-name', type = str,
                           help='protein file name in each sub-directory.')
@@ -58,7 +59,7 @@ class protein(Command):
         return args
     
     def process_args(self):
-        self.args.dir = clean_path(self.args.dir)
+        self.args.dir = process_batch_dir_lst(self.args.dir)
         # if term's len is 1 but get more than 1 chain num, copy terms.
         if len(self.args.n_term) == 1 and self.args.chain_num > 1:
             self.args.n_term = self.args.n_term * self.args.chain_num
@@ -125,7 +126,7 @@ class ligand(protein):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type = str, default='.',
+        args.add_argument('-d', '--dir', type = str, nargs='+', default=['.'],
                           help='protein directory. Default is %(default)s.')
         args.add_argument('-n', '--ligand-name', type = str,
                           help='protein file name in each sub-directory.')
@@ -141,7 +142,7 @@ the program will use the ff-dir in sub-directory.')
         return args
 
     def process_args(self):
-        self.args.dir = clean_path(self.args.dir)
+        self.args.dir = process_batch_dir_lst(self.args.dir)
 
     @staticmethod
     def get_login_browser(download_dir: str):
@@ -267,7 +268,7 @@ class complex(ligand):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type = str, default='.',
+        args.add_argument('-d', '--dir', type = str, nargs='+', default=['.'],
                           help='complex directory. Default is %(default)s.')
         args.add_argument('-n', '--complex-name', type = str,
                           help='complex name in each sub-directory.')
@@ -290,7 +291,7 @@ class complex(ligand):
         return args
     
     def process_args(self):
-        self.args.dir = clean_path(self.args.dir)
+        self.args.dir = process_batch_dir_lst(self.args.dir)
         if self.args.max_step < 1:
             return put_err('max step should be greater or equal to 1.', _exit=True)
         
@@ -381,7 +382,7 @@ class complex_sobtop(complex):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '--dir', type = str, default='.',
+        args.add_argument('-d', '--dir', type = str, nargs='+', default=['.'],
                           help='complex directory. Default is %(default)s.')
         args.add_argument('-n', '--complex-name', type = str,
                           help='complex name in each sub-directory.')
@@ -422,15 +423,7 @@ _str2func = {
 }
 
 def main(sys_args: List[str] = None):
-    args_paser = argparse.ArgumentParser(description = 'tools for GROMACS.')
-    subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
-
-    for n in _str2func:
-        _str2func[n].make_args(subparsers.add_parser(n, description=_str2func[n].HELP, aliases=[n.replace('_', '-')]))
-
-    args = args_paser.parse_args(sys_args)
-    if args.sub_command in _str2func:
-        _str2func[args.sub_command](args).excute()
+    make_args_and_excute('tools for GROMACS.', _str2func, sys_args)
 
 
 if __name__ == "__main__":
