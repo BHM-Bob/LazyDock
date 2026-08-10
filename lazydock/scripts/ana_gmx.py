@@ -682,7 +682,8 @@ class interaction(simple_analysis, mmpbsa):
         suffix = self.args.suffix
         print(f'find {len(self.tasks)} tasks.')
         # run tasks
-        pool = TaskPool('process', self.args.n_workers).start()
+        pool = TaskPool('process', self.args.n_workers,
+                        mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
         bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
