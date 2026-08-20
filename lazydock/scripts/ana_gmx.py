@@ -70,7 +70,7 @@ class trjconv(Command):
         
     def main_process(self):
         # get complex paths
-        complexs_path = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.main_name)
+        complexs_path = get_paths_with_extension(self.args.batch_dir, [self.args.main_name], name_substr=self.args.main_name)
         put_log(f'get {len(complexs_path)} task(s)')
         pool = TaskPool('threads', self.args.n_workers).start()
         exp_acts = []
@@ -122,7 +122,7 @@ class make_ndx(trjconv):
         
     def main_process(self):
         # get complex paths
-        complexs_path = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.main_name)
+        complexs_path = get_paths_with_extension(self.args.batch_dir, [self.args.main_name], name_substr=self.args.main_name)
         put_log(f'get {len(complexs_path)} task(s)')
         # process each complex
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
