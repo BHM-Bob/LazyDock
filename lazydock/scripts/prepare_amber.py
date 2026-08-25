@@ -30,7 +30,7 @@ from mbapy_lite.file import get_paths_with_extension
 from pymol import cmd
 from tqdm import tqdm
 
-from lazydock.scripts._script_utils_ import Command, clean_path
+from lazydock.scripts._script_utils_ import Command, clean_path, make_args_and_excute
 
 
 class AmberCommand(Command):
@@ -768,35 +768,14 @@ quit
             put_log(f'successfully prepared: {complex_path}')
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Amber system preparation')
-    subparsers = parser.add_subparsers(dest='command', help='commands')
-    
-    # protein command
-    protein_parser = subparsers.add_parser('protein', help='prepare protein')
-    protein.make_args(protein_parser)
-    
-    # ligand command
-    ligand_parser = subparsers.add_parser('ligand', help='prepare ligand')
-    ligand.make_args(ligand_parser)
-    
-    # complex command
-    complex_parser = subparsers.add_parser('complex', help='prepare complex')
-    complex.make_args(complex_parser)
-    
-    args = parser.parse_args()
-    
-    if args.command == 'protein':
-        cmd = protein(args)
-    elif args.command == 'ligand':
-        cmd = ligand(args)
-    elif args.command == 'complex':
-        cmd = complex(args)
-    else:
-        parser.print_help()
-        return
-    
-    cmd.excute()
+_str2func = {
+    'protein': protein,
+    'ligand': ligand,
+    'complex': complex,
+}
+
+def main(sys_args: List[str] = None):
+    make_args_and_excute('tools for AMBER.', _str2func, sys_args)
 
 
 if __name__ == '__main__':
