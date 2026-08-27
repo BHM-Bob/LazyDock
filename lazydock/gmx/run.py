@@ -16,12 +16,13 @@ from mbapy_lite.game import BaseInfo
 
 
 class Gromacs(BaseInfo):
-    def __init__(self, call_name: str = 'gmx', working_dir: str = '.'):
+    def __init__(self, call_name: str = 'gmx', working_dir: str = '.', gpu_ids: List[int] = None):
         super().__init__()
         self.call_name = call_name
         self.working_dir = os.path.abspath(working_dir)
         self.wdir = Path(self.working_dir).resolve()
         self.task_uid = uuid4().hex[:4]
+        self.gpu_ids = gpu_ids or [0]
         
     def kwargs2cmd(self, kwargs: Dict[str, str]):
         fmt_kwgs = {}
