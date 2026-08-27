@@ -9,12 +9,15 @@ import os
 import re
 import shutil
 import time
+import threading
+from queue import Queue
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-from mbapy_lite.base import put_err, put_log
+from mbapy_lite.base import put_err, put_log, split_list
 from mbapy_lite.file import get_paths_with_extension, opts_file
+from mbapy_lite.web_utils.task import TaskPool
 from pymol import cmd
 from tqdm import tqdm
 
@@ -54,6 +57,7 @@ class simple_protein(Command):
     def __init__(self, args, printf=print):
         super().__init__(args, printf, ['batch_dir'])
         self.indexs = {}
+        self.mono_lock = threading.Lock()
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
@@ -85,10 +89,8 @@ class simple_protein(Command):
                           help='args pass to solvate command, default is %(default)s.')
         args.add_argument('--genion-args', type = str, default="-pname NA -nname CL -neutral",
                           help='args pass to genion command, default is %(default)s.')
-        args.add_argument('--em-args', type = str, default="-v",
-                          help='args pass to mdrun command for energy minimization, default is %(default)s.')  
-        args.add_argument('--mdrun-args', type = str, default="-v",
-                          help='args pass to mdrun command for production md, default is %(default)s.')
+        args.add_argument('--mdrun-args', type = str, default="-v -ntmpi 1 -ntomp 14",
+                          help='args pass to mdrun command for each mdrun, default is %(default)s.')
         args.add_argument('--genion-groups', type=str, default="SOL",
                           help='Select a continuous group of solvent molecules, default is %(default)s.')
         args.add_argument('--potential-groups', type=str, default="11 0",
@@ -101,6 +103,12 @@ class simple_protein(Command):
                           help='groups to plot density, default is %(default)s.')
         args.add_argument('--maxwarn', type=int, default=0,
                           help='maxwarn for em,nvt,npt,md gmx grompp command, default is %(default)s.')
+        args.add_argument('--gpus', type=int, nargs='+', default=[0],
+                          help='GPU devices used for batch run, default is %(default)s.')
+        args.add_argument('--n-task-per-gpu', type=float, default=1,
+                          help='number of tasks per gpu, 0.5 means 2 GPUs per task, 2 means 2 tasks per GPU, default is %(default)s.')
+        args.add_argument('--monopolize-em', action='store_true', default=False,
+                          help='only run enenrgy minimization once a time for entire batch, default is %(default)s.')
         return args
 
     def process_args(self):
@@ -147,7 +155,8 @@ class simple_protein(Command):
         # STEP 1: editconf -f protein.gro -o protein_newbox.gro -c -d 1.0 -bt cubic
         if self.args.auto_box:
             # get shift from first editconf
-            _, box_size = self.get_box(protein_path, self.args.auto_box_padding)
+            with self.mono_lock: # use mono lock to avoid parallel access to pymol
+                _, box_size = self.get_box(protein_path, self.args.auto_box_padding)
             manual_box_cmd = f'-box {" ".join(map(lambda x: f"{x:.2f}", box_size))}'
             editconf_args = self.args.editconf_args.replace('-d 1.2 -bt dodecahedron', ' ') + manual_box_cmd
             _, log_path = gmx.run_gmx_with_expect(f'editconf {editconf_args}', f=f'{main_name}.gro', o=f'{main_name}_newbox_tmp.gro', enable_log=True)
@@ -156,8 +165,9 @@ class simple_protein(Command):
             # get solvated box from first solvate
             shutil.copy(protein_path.parent / 'topol.top', protein_path.parent / 'topol_tmp.top')
             gmx.run_gmx_with_expect(f'solvate {self.args.solvate_args}', cp=f'{main_name}_newbox_tmp.gro', o=f'{main_name}_solv_tmp.gro', p='topol_tmp.top')
-            solv_center, solv_size = self.get_box(protein_path.parent / f'{main_name}_solv_tmp.gro', self.args.auto_box_padding, 'resn SOL')
-            prot_center, _ = self.get_box(protein_path.parent / f'{main_name}_newbox_tmp.gro', self.args.auto_box_padding)
+            with self.mono_lock: # use mono lock to avoid parallel access to pymol
+                solv_center, solv_size = self.get_box(protein_path.parent / f'{main_name}_solv_tmp.gro', self.args.auto_box_padding, 'resn SOL')
+                prot_center, _ = self.get_box(protein_path.parent / f'{main_name}_newbox_tmp.gro', self.args.auto_box_padding)
             put_log(f'protein box size: {box_size}, tmp solvated box size: {solv_size}, protein center: {prot_center}, tmp solvated center: {solv_center}, shift: {shift}')
             # calculate new box center
             box_center = [s+(x1-x2)+s2 for s, x1, x2, s2 in zip(shift, solv_center, prot_center, self.args.auto_box_shift)]
@@ -183,22 +193,28 @@ class simple_protein(Command):
                                     expect_settings={'start_timeout': 600})
         
     def energy_minimization(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        GPU_IDS_STR = ','.join(map(str, gmx.gpu_ids))
         # STEP 5: grompp -f minim.mdp -c protein_solv_ions.gro -p topol.top -o em.tpr
         gmx.run_gmx_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro',
                                     p='topol.top', o='em.tpr', maxwarn=self.args.maxwarn)
         # STEP 6: mdrun -v -deffnm em
-        gmx.run_gmx_with_expect(f'mdrun {self.args.em_args}', deffnm='em')
+        if self.args.monopolize_em:
+            with self.mono_lock:
+                gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='em', gpu_id=GPU_IDS_STR)
+        else:
+            gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='em', gpu_id=GPU_IDS_STR)
         # STEP 7: energy -f em.edr -o potential.xvg
         gmx.run_gmx_with_expect('energy', f='em.edr', o='potential.xvg',
                                     expect_actions=[{'line or a zero.': f'{self.args.potential_groups}\r'}])
         os.system(f'cd "{protein_path.parent}" && dit xvg_compare -c 1 -f potential.xvg -o potential.png -t "EM Potential of {main_name}" -csv {main_name}_potential.csv -ns')
         
     def equilibration(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        GPU_IDS_STR = ','.join(map(str, gmx.gpu_ids))
         # STEP 8: grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
         gmx.run_gmx_with_expect('grompp', f=mdps['nvt'], c='em.gro', r='em.gro', p='topol.top',
                                     o='nvt.tpr', n=self.indexs.get('nvt', None), maxwarn=self.args.maxwarn)
-        # STEP 9: mdrun -deffnm nvt
-        gmx.run_gmx_with_expect('mdrun', deffnm='nvt', v=True)
+        # STEP 9: mdrun -deffnm nvt -gpu_id GPU_IDS
+        gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='nvt', gpu_id=GPU_IDS_STR)
         # STEP 10: energy -f nvt.edr -o temperature.xvg
         gmx.run_gmx_with_expect('energy', f='nvt.edr', o='temperature.xvg',
                                     expect_actions=[{'line or a zero.': f'{self.args.temperature_groups}\r'}])
@@ -206,8 +222,8 @@ class simple_protein(Command):
         # STEP 11: grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -o npt.tpr
         gmx.run_gmx_with_expect('grompp', f=mdps['npt'], c='nvt.gro', r='nvt.gro', t='nvt.cpt',
                                     p='topol.top', o='npt.tpr', n=self.indexs.get('npt', None), maxwarn=self.args.maxwarn)
-        # STEP 12: mdrun -deffnm npt
-        gmx.run_gmx_with_expect('mdrun', deffnm='npt', v=True)
+        # STEP 12: mdrun -deffnm npt -gpu_id GPU_IDS
+        gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='npt', gpu_id=GPU_IDS_STR)
         # STEP 13: energy -f npt.edr -o pressure.xvg
         gmx.run_gmx_with_expect('energy', f='npt.edr', o='pressure.xvg',
                                     expect_actions=[{'line or a zero.': f'{self.args.pressure_groups}\r'}])
@@ -218,11 +234,12 @@ class simple_protein(Command):
         os.system(f'cd "{protein_path.parent}" && dit xvg_compare -c 1 -f density.xvg -o density.png -smv -ws 10 -t "NPT Density of {main_name}" -csv {main_name}_density.csv -ns')
         
     def production_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        GPU_IDS_STR = ','.join(map(str, gmx.gpu_ids))
         # STEP 15: grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
         gmx.run_gmx_with_expect('grompp', f=mdps['md'], c='npt.gro', t='npt.cpt', p='topol.top',
                                     o='md.tpr', imd='md.gro', n=self.indexs.get('md', None), maxwarn=self.args.maxwarn)
-        # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
-        gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='md')
+        # STEP 16: mdrun -v -ntomp 4 -deffnm md -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu -gpu_id GPU_IDS
+        gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='md', gpu_id=GPU_IDS_STR)
 
     def sleep_until_start_time(self):
         if self.args.start_time is not None:
@@ -234,9 +251,31 @@ class simple_protein(Command):
                 time.sleep(1)
             return True
         return False
+    
+    def perform_single_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        # STEP 1 ~ 4: make box, solvate, ions
+        self.make_box(protein_path, main_name, gmx, mdps)
+        # STEP 5 ~ 7: energy minimization
+        self.energy_minimization(protein_path, main_name, gmx, mdps)
+        # STEP 8 ~ 14: equilibration
+        self.equilibration(protein_path, main_name, gmx, mdps)
+        # STEP 15 ~ 16: production md
+        self.production_md(protein_path, main_name, gmx, mdps)
+        
+    def device_holder_worker(self, gmx: Gromacs, n_task_per_gpu: int, task_queue: Queue):
+        pool = TaskPool('threads', int(n_task_per_gpu) if n_task_per_gpu >= 1 else 1, report_error=True).start()
+        while True:
+            task = task_queue.get()
+            if task is None:
+                break
+            protein_path, main_name = task
+            mdps = self.get_mdp(protein_path.parent)
+            new_gmx = Gromacs(working_dir=str(protein_path.parent), gpu_ids=gmx.gpu_ids)
+            pool.add_task(None, self.perform_single_md, protein_path, main_name, new_gmx, mdps)
+            pool.wait_till_free()
+        pool.close(1)
 
     def main_process(self):
-        # get protein paths
         if os.path.isdir(self.args.batch_dir):
             proteins_path = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.protein_name)
         else:
@@ -250,6 +289,15 @@ class simple_protein(Command):
             put_log(f'Warning: can not find mdp files in abspath: {", ".join(missing_names)}, skip.')
         # sleep until start time
         self.sleep_until_start_time()
+        # init task managers
+        n_manager = len(self.args.gpus) if self.args.n_task_per_gpu >= 1 else int(len(self.args.gpus) * self.args.n_task_per_gpu)
+        pool = TaskPool('threads', n_manager, report_error=True).start()
+        task_queue = Queue()
+        gmx_lst = [Gromacs(gpu_ids=ids) for ids in split_list(self.args.gpus, len(self.args.gpus) // n_manager, False)]
+        [pool.add_task(None, self.device_holder_worker, gmx, self.args.n_task_per_gpu, task_queue) for gmx in gmx_lst]
+        print(f'init {n_manager} task managers, each with {self.args.n_task_per_gpu} tasks per gpu.')
+        for i, gmx in enumerate(gmx_lst):
+            print(f'manager {i} with {gmx.gpu_ids}')
         # process each complex
         for protein_path in tqdm(proteins_path, total=len(proteins_path)):
             protein_path = Path(protein_path).resolve()
@@ -258,18 +306,10 @@ class simple_protein(Command):
             if os.path.exists(protein_path.parent / 'md.tpr'):
                 put_log(f'{protein_path} already done with md.tpr, skip.')
                 continue
-            # prepare gmx env and mdp files
-            gmx = Gromacs(working_dir=str(protein_path.parent))
-            mdps = self.get_mdp(protein_path.parent)
-            # STEP 1 ~ 4: make box, solvate, ions
-            self.make_box(protein_path, main_name, gmx, mdps)
-            # STEP 5 ~ 7: energy minimization
-            self.energy_minimization(protein_path, main_name, gmx, mdps)
-            # STEP 8 ~ 14: equilibration
-            self.equilibration(protein_path, main_name, gmx, mdps)
-            # STEP 15 ~ 16: production md
-            self.production_md(protein_path, main_name, gmx, mdps)
-            
+            task_queue.put((protein_path, main_name))
+            pool.wait_till(lambda: task_queue.empty())
+        pool.close(1)
+
     
 class simple_complex(simple_protein):
     HELP = simple_protein.HELP.replace('protein', 'complex')
