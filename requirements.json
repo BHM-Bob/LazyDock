@@ -12,7 +12,7 @@
     ],
     "all":
     [
-        "compas",
+        "compas>=2.8.0",
         "md-davis",
         "fplip>=1.1.0",
         "lazydock_md_task>=0.2.1"
