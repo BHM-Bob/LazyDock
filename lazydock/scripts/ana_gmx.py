@@ -462,6 +462,8 @@ class mmpbsa(simple):
                               help=f"gmx_MMPBSA output file name, such as MMPBSA_FINAL_RESULTS")
             args.add_argument('-np', '--np', type = int, required=True,
                               help=f"npi np argument for gmx_MMPBSA")
+            args.add_argument('-ph', '--placeholder', default=None, type=str,
+                            help='detect and write MMPBSA_PLACEHOLDER file for distribute analysis, avoid duplicate analysis. default is %(default)s.')
         args.add_argument('-top', '--top-name', type = str, default='md.tpr',
                           help="topology file name in each sub-folder, default is %(default)s.")
         args.add_argument('-traj', '--traj-name', type = str, default='md_center.xtc',
@@ -474,8 +476,8 @@ class mmpbsa(simple):
                           help='ligand chain name, such as "LIG".')
         args.add_argument('-F', '--force', default=False, action='store_true',
                           help='force to re-run the analysis, default is %(default)s.')
-        args.add_argument('-ph', '--placeholder', default=None, type=str,
-                          help='detect and write MMPBSA_PLACEHOLDER file for distribute analysis, avoid duplicate analysis. default is %(default)s.')
+        args.add_argument('-nw', '--n-workers', type=int, default=1,
+                          help='number of workers to parallel. Default is %(default)s.')
         return args
         
     def get_complex_atoms_index(self, u: Universe):
@@ -490,6 +492,48 @@ class mmpbsa(simple):
     
     def get_index_range(self, idx: np.ndarray):
         return idx.argmax(), idx.shape[0] - idx[::-1].argmax()
+    
+    @staticmethod
+    def get_atom_ranges(idx: np.ndarray) -> List[Tuple[int, int]]:
+        """
+        Split a boolean array into consecutive True-segment ranges [start, end).
+        Supports the case that receptor/ligand atoms are interleaved in topology,
+        e.g. ligand chain sits between two receptor chains.
+        """
+        ranges, start = [], None
+        for i in range(idx.shape[0] + 1):
+            if i < idx.shape[0] and idx[i]:
+                if start is None:
+                    start = i
+            elif start is not None:
+                ranges.append((start, i))
+                start = None
+        return ranges
+    
+    @staticmethod
+    def _fmt_ndx_block(indices: np.ndarray) -> str:
+        """Format 1-based atom indices into a gromacs ndx block (15 indices per line)."""
+        lines = []
+        for i in range(0, indices.size, 15):
+            lines.append(''.join(f'{idx:8d}' for idx in indices[i:i + 15]).rstrip())
+        return '\n'.join(lines)
+    
+    def write_mmpbsa_ndx(self, wdir: str, rec_idx: np.ndarray, lig_idx: np.ndarray, ndx_name: str = 'mmpbsa.ndx'):
+        """
+        Write index file with two groups: group 0 (MMPBSA_Receptor) and group 1 (MMPBSA_Ligand).
+        Atom indices are written directly from boolean masks, thus supports the case that
+        receptor/ligand atoms are interleaved in topology (multi-chain with ligand sandwiched).
+        Return True on success, False if receptor or ligand group is empty.
+        """
+        rec_atoms, lig_atoms = np.where(rec_idx)[0] + 1, np.where(lig_idx)[0] + 1
+        if rec_atoms.size == 0 or lig_atoms.size == 0:
+            put_err(f"receptor ({self.args.receptor_chain_name}) or ligand ({self.args.ligand_chain_name}) atoms not found.")
+            return False
+        ndx_content = (f'[ MMPBSA_Receptor ]\n{self._fmt_ndx_block(rec_atoms)}\n\n'
+                       f'[ MMPBSA_Ligand ]\n{self._fmt_ndx_block(lig_atoms)}\n')
+        opts_file(os.path.join(wdir, ndx_name), 'w', way='str', data=ndx_content)
+        put_log(f"receptor atoms: {rec_atoms.size}, ligand atoms: {lig_atoms.size}, write {ndx_name}.")
+        return True
     
     def check_top_traj(self, bdir = None):
         bdir = bdir or self.args.batch_dir
@@ -506,61 +550,64 @@ class mmpbsa(simple):
             tasks.append((r_path, l_path))
         return tasks
     
+    def perform_analysis(self, top_path, traj_path, args):
+        wdir = os.path.dirname(top_path)
+        # check results
+        if os.path.exists(os.path.join(wdir, self.args.output+'.csv')) and not self.args.force:
+            put_log(f"{self.args.output}.csv already exists, skip.")
+            return
+        # check placeholder
+        if self.args.placeholder and os.path.exists(os.path.join(wdir, self.args.placeholder)):
+            put_log(f"{self.args.placeholder} already exists, skip.")
+            return
+        # write placeholder
+        if self.args.placeholder:
+            opts_file(os.path.join(wdir, self.args.placeholder), 'w', way='str', data=wdir)
+        # get receptor and ligand atoms index (supports interleaved chains, e.g. ligand between two receptor chains)
+        put_log(f'loading {traj_path}')
+        u = Universe(top_path, traj_path)
+        rec_idx, lig_idx = self.get_complex_atoms_index(u)
+        rec_ranges, lig_ranges = self.get_atom_ranges(rec_idx), self.get_atom_ranges(lig_idx)
+        put_log(f"receptor ranges: {rec_ranges}, ligand ranges: {lig_ranges}.")
+        # write index file for receptor and ligand directly, both group numbers are 0-based 0/1
+        gmx = Gromacs(working_dir=wdir)
+        if not self.write_mmpbsa_ndx(gmx.working_dir, rec_idx, lig_idx):
+            if self.args.placeholder:
+                os.remove(os.path.join(wdir, self.args.placeholder))
+            return
+        # check MMPBSA parameters input file
+        if not os.path.exists(os.path.join(wdir, self.args.input)):
+            if os.path.exists(self.args.input):
+                input_name = os.path.basename(self.args.input)
+                shutil.copy(self.args.input, os.path.join(wdir, input_name))
+            else:
+                put_err(f"input file {self.args.input} not exists, skip.")
+                if self.args.placeholder:
+                    os.remove(os.path.join(wdir, self.args.placeholder))
+                return
+        else:
+            input_name = self.args.input
+        # call gmx_MMPBSA
+        cmd_str = f'gmx_MMPBSA -O -i {input_name} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.ndx -cg 0 1 -cp topol.top -o {self.args.output}.dat -eo {self.args.output}.csv -nogui'
+        os.system(f'cd "{gmx.working_dir}" && mpirun -np {self.args.np} {cmd_str}')
+        
     def main_process(self):
         # load origin dfs from data file
         self.top_paths, self.traj_paths = self.check_top_traj()
         self.tasks = self.find_tasks()
         print(f'find {len(self.tasks)} tasks.')
         # run tasks
+        pool = TaskPool('threads', self.args.n_workers, report_error=True).start()
         bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
             wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
             bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
-            # check results
-            if os.path.exists(os.path.join(wdir, self.args.output+'.csv')) and not self.args.force:
-                put_log(f"{self.args.output}.csv already exists, skip.")
-                bar.update(1)
-                continue
-            # check placeholder
-            if self.args.placeholder and os.path.exists(os.path.join(wdir, self.args.placeholder)):
-                put_log(f"{self.args.placeholder} already exists, skip.")
-                bar.update(1)
-                continue
-            # write placeholder
-            if self.args.placeholder:
-                opts_file(os.path.join(wdir, self.args.placeholder), 'w', way='str', data=wdir)
-            # get receptor and ligand atoms index range
-            u = Universe(top_path, traj_path)
-            rec_idx, lig_idx = self.get_complex_atoms_index(u)
-            rec_min, rec_max = self.get_index_range(rec_idx)
-            lig_min, lig_max = self.get_index_range(lig_idx)
-            rec_range_str, lig_range_str = f"{rec_min+1}-{rec_max}", f"{lig_min+1}-{lig_max}"
-            # make index file for receptor and ligand
-            gmx = Gromacs(working_dir=wdir)
-            gmx.run_gmx_with_expect('make_ndx', f=os.path.basename(top_path), o='mmpbsa_tmp.ndx',
-                                    expect_actions=[{'>': 'q\r'}])
-            sum_groups = opts_file(os.path.join(gmx.working_dir, 'mmpbsa_tmp.ndx')).count(']')
-            gmx.run_gmx_with_expect('make_ndx', f=os.path.basename(top_path), o='mmpbsa.ndx',
-                                    expect_actions=[{'>': f'a {rec_range_str}\r'}, {'>': f'name {sum_groups} MMPBSA_Receptor\r'},
-                                                    {'>': f'a {lig_range_str}\r'}, {'>': f'name {sum_groups+1} MMPBSA_Ligand\r'},
-                                                    {'>': 'q\r'}])
-            # check MMPBSA parameters input file
-            if not os.path.exists(os.path.join(wdir, self.args.input)):
-                if os.path.exists(self.args.input):
-                    input_name = os.path.basename(self.args.input)
-                    shutil.copy(self.args.input, os.path.join(wdir, input_name))
-                else:
-                    put_err(f"input file {self.args.input} not exists, skip.")
-                    if self.args.placeholder:
-                        os.remove(os.path.join(wdir, self.args.placeholder))
-                    continue
-            else:
-                input_name = self.args.input
-            # call gmx_MMPBSA
-            cmd_str = f'gmx_MMPBSA -O -i {input_name} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.ndx -cg {sum_groups} {sum_groups+1} -cp topol.top -o {self.args.output}.dat -eo {self.args.output}.csv -nogui'
-            os.system(f'cd "{gmx.working_dir}" && mpirun -np {self.args.np} {cmd_str}')
+            pool.add_task(None, self.perform_analysis, top_path, traj_path, copy.deepcopy(self.args))
+            pool.wait_till_free()
             bar.update(1)
+        pool.wait_till_free()
+        pool.close(1)
     
     
 def run_pdbstr_interaction_analysis(fake_ag: FakeAtomGroup, receptor_chain: List[str], ligand_chain: str,
@@ -619,8 +666,6 @@ class interaction(simple_analysis, mmpbsa):
                           help='skip plot. Default is %(default)s.')
         args.add_argument('--ref-res', type = str, default='',
                           help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
-        args.add_argument('-nw', '--n-workers', type=int, default=4,
-                          help='number of workers to parallel. Default is %(default)s.')
         args.add_argument('-b', '--begin-frame', type=int, default=1,
                           help='First frame to start the analysis. Default is %(default)s.')
         args.add_argument('-e', '--end-frame', type=int, default=None,
