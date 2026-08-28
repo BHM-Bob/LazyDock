@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 import shutil
 from pathlib import Path
@@ -203,6 +204,8 @@ class simple(trjconv):
                           help='delete the exist analysis result, default is %(default)s.')
         args.add_argument('--task-suffix', type = str, default='',
                           help='suffix of task, default is %(default)s.')
+        args.add_argument('-nw', '--num-workers', type = int, default=1,
+                          help='number of workers, default is %(default)s.')
         return args
         
     @staticmethod
@@ -384,53 +387,61 @@ class simple(trjconv):
         save_show(os.path.join(gmx.working_dir, f'{main_name}_PDF.png'), 600, show=False)
         plt.close(fig)
         
+    def perform_analysis(self, complex_path, args):
+        top_name, trj_name = args.main_name, args.traj_name
+        gmx = Gromacs(working_dir=str(complex_path.parent))
+        gmx.task_uid = args.task_suffix
+        main_name = complex_path.stem
+        if (complex_path.parent / top_name).exists() and (complex_path.parent / trj_name).exists():
+            put_log(f'Perform analysis for {main_name}.tpr and {main_name}_center.xtc.')
+        else:
+            put_err(f'{top_name} or {trj_name} not exists in {complex_path.parent}, skip.')
+            return
+        # copy DIT.mplstyle file to working directory
+        if args.dit_style and os.path.exists(args.dit_style):
+            shutil.copy(args.dit_style, str(complex_path.parent))
+        # perform analysis
+        if 'rms' in args.methods:
+            self.rms(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.rms_group,
+                    force=args.force, delete=args.delete)
+        if 'rmsf' in args.methods:
+            self.rmsf(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.rms_group,
+                    force=args.force, delete=args.delete)
+        if 'gyrate' in args.methods:
+            self.gyrate(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.rms_group,
+                        force=args.force, delete=args.delete)
+        if 'hbond' in args.methods:
+            self.hbond(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.hbond_group,
+                    force=args.force, delete=args.delete)
+        if 'sasa' in args.methods:
+            self.sasa(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.sasa_group,
+                    force=args.force, delete=args.delete)
+        if 'covar' in args.methods:
+            self.covar(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.eigenval_group,
+                    xmax=args.eigenval_xmax, force=args.force, delete=args.delete)
+        if 'dssp' in args.methods:
+            self.dssp(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.dssp_group,
+                    num=args.dssp_num, clear=args.dssp_clear, force=args.force, delete=args.delete)
+        # perform free energy landscape by MD-DaVis
+        if 'FEL' in args.methods:
+            self.free_energy_landscape(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, force=args.force, delete=args.delete)
+        # plot PDF
+        if 'PDF' in args.methods:
+            self.plot_PDF(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, force=args.force, delete=args.delete)
+        
+        
     def main_process(self):
         # get complex paths
         complexs_path = get_paths_with_extension(self.args.batch_dir, self.args.main_type, name_substr=self.args.main_name)
         put_log(f'get {len(complexs_path)} task(s)')
-        top_name, trj_name = self.args.main_name, self.args.traj_name
+        pool = TaskPool('threads', self.args.num_workers).start()
         # process each complex
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
             complex_path = Path(complex_path).resolve()
-            gmx = Gromacs(working_dir=str(complex_path.parent))
-            gmx.task_uid = self.args.task_suffix
-            main_name = complex_path.stem
-            if (complex_path.parent / top_name).exists() and (complex_path.parent / trj_name).exists():
-                put_log(f'Perform analysis for {main_name}.tpr and {main_name}_center.xtc.')
-            else:
-                put_err(f'{top_name} or {trj_name} not exists in {complex_path.parent}, skip.')
-                continue
-            # copy DIT.mplstyle file to working directory
-            if self.args.dit_style and os.path.exists(self.args.dit_style):
-                shutil.copy(self.args.dit_style, str(complex_path.parent))
-            # perform analysis
-            if 'rms' in self.args.methods:
-                self.rms(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=self.args.index, group=self.args.rms_group,
-                        force=self.args.force, delete=self.args.delete)
-            if 'rmsf' in self.args.methods:
-                self.rmsf(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=self.args.index, group=self.args.rms_group,
-                        force=self.args.force, delete=self.args.delete)
-            if 'gyrate' in self.args.methods:
-                self.gyrate(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=self.args.index, group=self.args.rms_group,
-                            force=self.args.force, delete=self.args.delete)
-            if 'hbond' in self.args.methods:
-                self.hbond(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=self.args.index, group=self.args.hbond_group,
-                        force=self.args.force, delete=self.args.delete)
-            if 'sasa' in self.args.methods:
-                self.sasa(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=self.args.index, group=self.args.sasa_group,
-                        force=self.args.force, delete=self.args.delete)
-            if 'covar' in self.args.methods:
-                self.covar(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=self.args.index, group=self.args.eigenval_group,
-                        xmax=self.args.eigenval_xmax, force=self.args.force, delete=self.args.delete)
-            if 'dssp' in self.args.methods:
-                self.dssp(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=self.args.index, group=self.args.dssp_group,
-                        num=self.args.dssp_num, clear=self.args.dssp_clear, force=self.args.force, delete=self.args.delete)
-            # perform free energy landscape by MD-DaVis
-            if 'FEL' in self.args.methods:
-                self.free_energy_landscape(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, force=self.args.force, delete=self.args.delete)
-            # plot PDF
-            if 'PDF' in self.args.methods:
-                self.plot_PDF(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, force=self.args.force, delete=self.args.delete)
+            pool.add_task(None, self.perform_analysis, complex_path, copy.deepcopy(self.args))
+            pool.wait_till_free()
+        pool.wait_till_free()
+        pool.close(1)
             
             
 class mmpbsa(simple):
