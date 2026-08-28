@@ -20,9 +20,10 @@ from pymol import cmd
 from tqdm import tqdm
 
 
-def get_atom_level_interactions(mol, receptor_chain: str, ligand_chain: str, mode: List[str], cutoff: float = 4.):
+def get_atom_level_interactions(mol, receptor_chain: Union[str, List[str]], ligand_chain: str, mode: List[str], cutoff: float = 4.):
     """
     """
+    receptor_chain = set(receptor_chain)
     interactions = {}
     for _, interaction in mol.interaction_sets.items():
         info = BindingSiteReport(interaction)
@@ -51,7 +52,7 @@ def get_atom_level_interactions(mol, receptor_chain: str, ligand_chain: str, mod
                     dist_term = 'CENTDIST'
                 dist_idx = find_idx_fn(dist_term)
                 rec_res, lig_res, dist = value[rec_idx:rec_idx+3], value[lig_idx:lig_idx+3], float(value[dist_idx])
-                if dist <= cutoff and rec_res[-1] == receptor_chain and lig_res[-1] == ligand_chain:
+                if dist <= cutoff and rec_res[-1] in receptor_chain and lig_res[-1] == ligand_chain:
                     interactions[name].append((rec_res, lig_res, dist))
     return interactions
 

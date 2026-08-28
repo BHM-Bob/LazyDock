@@ -466,9 +466,11 @@ class mmpbsa(simple):
                           help="topology file name in each sub-folder, default is %(default)s.")
         args.add_argument('-traj', '--traj-name', type = str, default='md_center.xtc',
                           help="trajectory file name in each sub-folder, default is %(default)s.")
-        args.add_argument('--receptor-chain-name', type = str, required=True,
-                          help='receptor chain name, such as "A".')
-        args.add_argument('--ligand-chain-name', type = str, required=True,
+        args.add_argument('-rc', '--receptor-chain-name', type = str, nargs='+', default=None,
+                          help='receptor chain name, such as "A". Can be multiple chains. If not given, will be others except ligand chain.')
+        args.add_argument('-ec', '--exclude-chain-name', type = str, nargs='+', default=None,
+                          help='exclude chain name, such as "P". Used when rec chain is None.')
+        args.add_argument('-lc', '--ligand-chain-name', type = str, required=True,
                           help='ligand chain name, such as "LIG".')
         args.add_argument('-F', '--force', default=False, action='store_true',
                           help='force to re-run the analysis, default is %(default)s.')
@@ -477,9 +479,13 @@ class mmpbsa(simple):
         return args
         
     def get_complex_atoms_index(self, u: Universe):
-        rec_idx = u.atoms.chainIDs == self.args.receptor_chain_name
+        if self.args.receptor_chain_name is None:
+            self.args.receptor_chain_name = list(set(u.atoms.chainIDs) - set([self.args.ligand_chain_name]) - set(self.args.exclude_chain_name))
+        else:
+            self.args.receptor_chain_name = list(set(self.args.receptor_chain_name))
+        rec_idx = np.isin(u.atoms.chainIDs, self.args.receptor_chain_name)
         lig_idx = u.atoms.chainIDs == self.args.ligand_chain_name
-        put_log(f"receptor atoms: {rec_idx.sum()}, ligand atoms: {lig_idx.sum()}.")
+        put_log(f"receptor ({self.args.receptor_chain_name}) atoms: {rec_idx.sum()}, ligand ({self.args.ligand_chain_name}) atoms: {lig_idx.sum()}.")
         return rec_idx, lig_idx
     
     def get_index_range(self, idx: np.ndarray):
@@ -557,12 +563,13 @@ class mmpbsa(simple):
             bar.update(1)
     
     
-def run_pdbstr_interaction_analysis(fake_ag: FakeAtomGroup, receptor_chain: str, ligand_chain: str,
+def run_pdbstr_interaction_analysis(fake_ag: FakeAtomGroup, receptor_chain: List[str], ligand_chain: str,
                                     method: str, mode: str, cutoff: float, hydrogen_atom_only: bool,
                                     alter_chain: Dict[str,str] = None, alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None):
     pdbstr = PDBConverter(fake_ag).fast_convert(alter_chain=alter_chain, alter_res=alter_res, alter_atm=alter_atm)
     if method == 'pymol':
-        inter = calcu_pdbstr_interaction(f'chain {receptor_chain}', f'chain {ligand_chain}', pdbstr, mode, cutoff, hydrogen_atom_only)
+        inter = calcu_pdbstr_interaction(' or '.join([f'chain {chain}' for chain in receptor_chain]),
+                                         f'chain {ligand_chain}', pdbstr, mode, cutoff, hydrogen_atom_only)
     elif method == 'plip':
         mode = check_support_mode(mode)
         inter = run_plip_analysis(pdbstr, receptor_chain, ligand_chain, mode, cutoff)
@@ -589,7 +596,7 @@ class interaction(simple_analysis, mmpbsa):
         args.add_argument('--suffix', type = str, default='',
                           help='suffix for output file name, default is %(default)s.')
         args.add_argument('--alter-receptor-chain', type = str, default=None,
-                          help='alter receptor chain name from topology to user-define, such as "A".')
+                          help='alter receptor chain name from topology to user-define, such as "A". Not work when rec chain is multiple or None.')
         args.add_argument('--alter-ligand-chain', type = str, default=None,
                           help='alter ligand chain name from topology to user-define, such as "Z".')
         args.add_argument('--alter-ligand-res', type = str, default=None,
@@ -654,7 +661,8 @@ class interaction(simple_analysis, mmpbsa):
         print(f'Loading trajectory {traj_path} ...')
         u, u2 = Universe(top_path, traj_path), Universe(gro_path)
         u.atoms.residues.resids = u2.atoms.residues.resids
-        rec_idx, lig_idx = self.get_complex_atoms_index(u)
+        rec_idx, lig_idx = self.get_complex_atoms_index(u) # this will assign rec chain if is None
+        self.args.alter_receptor_chain = self.args.receptor_chain_name # assign alter_receptor_chain
         if rec_idx.sum() == 0 or lig_idx.sum() == 0:
             return put_err(f"no atoms found in receptor or ligand, skip.", (None, None))
         complex_ag = u.atoms[rec_idx | lig_idx]
