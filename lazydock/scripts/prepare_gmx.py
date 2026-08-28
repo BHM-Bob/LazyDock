@@ -276,7 +276,7 @@ class complex(ligand):
                           help='complex name in each sub-directory.')
         args.add_argument('--max-step', type = int, default=9,
                           help='max step to do. Default is %(default)s.')
-        args.add_argument('-rc', '--receptor-chain-name', type = str,
+        args.add_argument('-rc', '--receptor-chain-name', type = str, nargs='+',
                           help='receptor chain name.')
         args.add_argument('-lc', '--ligand-chain-name', type = str,
                           help='ligand chain name.')
@@ -298,10 +298,10 @@ class complex(ligand):
             return put_err('max step should be greater or equal to 1.', _exit=True)
         
     @staticmethod
-    def extract_receptor_ligand(ipath: str, receptor_chain_name: str, ligand_chain_name: str, opath_r: str, opath_l: str):
+    def extract_receptor_ligand(ipath: str, receptor_chain_name: List[str], ligand_chain_name: str, opath_r: str, opath_l: str):
         cmd.load(ipath, 'complex')
         for mol, opath, chain in zip(['receptor', 'ligand'], [opath_r, opath_l], [receptor_chain_name, ligand_chain_name]):
-            if cmd.select(mol, f'complex and chain {chain}') == 0:
+            if cmd.select(mol, f'complex and (' + ' or '.join([f'chain {c}' for c in chain]) + ')') == 0:
                 put_err(f'{mol} chain {chain} has zero atom in {ipath}, skip this complex.')
                 return False
             else:
@@ -346,7 +346,7 @@ class complex(ligand):
             if self.args.max_step >= 7 and (not os.path.exists(opath_rgro)):
                 expect_acts = [{'dihedrals)': '1\r'}, {'None': '1\r'}]
                 term_acts = get_term_expect_acts(ipath, self.args.n_term, self.args.c_term,
-                                                  [self.args.receptor_chain_name])
+                                                  self.args.receptor_chain_name)
                 expect_acts.extend(term_acts)
                 gmx.run_gmx_with_expect(f'pdb2gmx -f {Path(ipath).name} -o {Path(opath_rgro).name} {self.args.pdb2gmx_args}', expect_acts)
             # STEP 8: Prepare the Ligand Topology
