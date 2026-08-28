@@ -53,7 +53,7 @@ class protein(Command):
         args.add_argument('--c-term', type = str, default='0', nargs='+',
                           help='C-Term type for gmx pdb2gmx, if "auto", will be 1 if is MET, else 0. Default is %(default)s.')
         args.add_argument('--chain-num', type=int, default=1,
-                          help='number of chains in the protein. Default is %(default)s.')
+                          help='number of chains in the protein, -1 means all chains. Default is %(default)s.')
         args.add_argument('--pdb2gmx-args', type = str, default="-ter -ignh",
                           help='args pass to pdb2gmx command, default is %(default)s.')
         return args
@@ -66,6 +66,8 @@ class protein(Command):
         if len(self.args.c_term) == 1 and self.args.chain_num > 1:
             self.args.c_term = self.args.c_term * self.args.chain_num
         # check if n-term or c-term's length is correct.
+        if self.args.chain_num == -1:
+            return
         if not (1 <= len(self.args.n_term) <= self.args.chain_num) or not  (1 <= len(self.args.c_term) <= self.args.chain_num):
             put_err(f'n-term or c-term length should be 1 or {self.args.chain_num}, skip.')
             exit(1)
