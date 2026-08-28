@@ -10,9 +10,13 @@ import os
 from pathlib import Path
 from typing import List
 
-from mbapy_lite.base import put_err
+from mbapy_lite.base import put_err, put_log
+from mbapy_lite.file import get_paths_with_extension
+from mbapy_lite.web_utils.task import TaskPool
+from pymol import cmd
+from tqdm import tqdm
 
-from lazydock.scripts._script_utils_ import Command, excute_command
+from lazydock.scripts._script_utils_ import Command, excute_command, process_batch_dir_lst
 
 
 class smiles2pdb(Command):
@@ -76,11 +80,63 @@ class seq2pdb(smiles2pdb):
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
         self.transfer_method = self.Chem.MolFromFASTA
+        
+        
+class cif2pdb(Command):
+    HELP = """"""
+    def __init__(self, args, printf=print):
+        super().__init__(args, printf, ['batch_dir'])
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '--batch-dir', type=str, nargs='+', default=['.'],
+                          help="dir which contains many sub-folders, each sub-folder contains input files, default is %(default)s.")
+        args.add_argument('-n', '--main-name', type=str, required=True,
+                          help='file in each sub-directory, such as model.cif.')
+        args.add_argument('--new-name', type=str, default=None,
+                          help='new name of the pdb, such as complex.pdb, default is %(default)s.')
+        args.add_argument('--suffix', type=str, default=None,
+                          help='suffix of the output pdb, such as _transfer, default is %(default)s.')
+
+    def process_args(self):
+        self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
+        if self.args.new_name:
+            self.new_name_fn = self.new_name
+        elif self.args.suffix:
+            self.new_name_fn = self.add_suffix
+        else:
+            self.new_name_fn = self.only_pdb
+        
+    @staticmethod
+    def only_pdb(cif_path: Path, *args, **kwargs):
+        return cif_path.with_suffix('.pdb')
+    
+    @staticmethod
+    def add_suffix(cif_path: Path, suffix: str, *args, **kwargs):
+        return cif_path.with_suffix(f'{suffix}.pdb')
+    
+    @staticmethod
+    def new_name(cif_path: Path, new_name: str, *args, **kwargs):
+        return cif_path.with_name(f'{new_name}').with_suffix('.pdb')
+        
+    def main_process(self):
+        # get complex paths
+        cif_paths = get_paths_with_extension(self.args.batch_dir, [self.args.main_name], name_substr=self.args.main_name)
+        put_log(f'get {len(cif_paths)} task(s)')
+        # process each
+        for cif_path in tqdm(cif_paths, total=len(cif_paths)):
+            cif_path = Path(cif_path).resolve()
+            cmd.reinitialize()
+            cmd.set('connect_mode', 4)
+            cmd.set('pdb_conect_all', 'on')
+            cmd.load(str(cif_path))
+            cmd.save(str(self.new_name_fn(cif_path, suffix=self.args.suffix, new_name=self.args.new_name)))
 
 
 _str2func = {
     'smiles2pdb': smiles2pdb,
     'seq2pdb': seq2pdb,
+    'cif2pdb': cif2pdb,
 }
 
 
