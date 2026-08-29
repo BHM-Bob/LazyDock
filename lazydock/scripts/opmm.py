@@ -13,6 +13,7 @@ import pandas as pd
 from mbapy_lite.base import put_err
 from mbapy_lite.file import get_paths_with_extension
 from mbapy_lite.web import TaskPool
+from pymol import cmd
 from tqdm import tqdm
 
 from lazydock.opmm.relax import ForceFieldMinimizer
@@ -66,6 +67,8 @@ class relax(Command):
                           help='Batch directory path. default: current directory.')
         args.add_argument('-n', '--name', type=str, default='',
                           help='pdb file name substring. default: empty.')
+        args.add_argument('-relax', '--relax-chain', type=str, nargs='+', default=None,
+                          help='Relaxed chain. If given, will set restrain-chain to others.')
         args.add_argument('-rc', '--restrain-chain', type=str, nargs='+', default=[],
                           help='Chain ID to restrain. default: empty.')
         args.add_argument('-it', '--max-iter', type=int, default=1000,
@@ -103,7 +106,7 @@ class relax(Command):
             return
         
         # 检查是否有约束链
-        if not self.args.restrain_chain:
+        if not self.args.restrain_chain and not self.args.relax_chain:
             self.printf("Warning: No restrain chain specified. Using empty list.")
         
         # parallel
@@ -113,7 +116,11 @@ class relax(Command):
         # Process each PDB file
         for pdb_path in tqdm(pdb_paths, desc='Relaxing structures'):
             output_path = pdb_path.replace('.pdb', f'{self.args.output_suffix}.pdb')
-            
+            if self.args.relax_chain:
+                cmd.reinitialize()
+                cmd.load(pdb_path)
+                all_chains = cmd.get_chains('all')
+                self.args.restrain_chain = list(set(all_chains) - set(self.args.relax_chain))
             if self.args.n_workers > 1:
                 pool.add_task(pdb_path, _relax_worker, pdb_path, output_path,
                                                      self.args.restrain_chain, self.args.stiffness,
