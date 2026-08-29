@@ -27,6 +27,8 @@ def _relax_worker(pdb_path: str, output_path: str, chain: str, stiffness: float,
     # 映射constraints字符串到OpenMM对象
     if constraints == 'hbond':
         constraints_obj = openmm_app.HBonds
+    elif constraints == 'all':
+        constraints_obj = openmm_app.AllBonds
     elif constraints == 'none' or constraints is None:
         constraints_obj = None
     else:
@@ -81,8 +83,8 @@ class relax(Command):
                           choices=['CUDA', 'CPU'],
                           help='Platform for computation. default: CUDA.')
         args.add_argument('-c', '--constraints', type=str, default='hbond',
-                          choices=['hbond', 'none'],
-                          help='Constraints type: hbond (HBonds) or none (None). default: hbond.')
+                          choices=['hbond', 'all', 'none'],
+                          help='Constraints type: hbond (HBonds), all (All Bonds) or none (None). default: hbond.')
         args.add_argument('-rb', '--restrain-backbone', action='store_true', default=False,
                           help='Restrain backbone atoms. default: False.')
         args.add_argument('-o', '--output-suffix', type=str, default='_relaxed',
