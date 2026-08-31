@@ -119,6 +119,14 @@
         "brief": "Rosetta tools.",
         "detailed": "Rosetta tools."
     },
+    "opmm":
+    {
+        "name": "opmm",
+        "script name": "opmm",
+        "exec_names": ["opmm", "openmm"],
+        "brief": "OpenMM tools.",
+        "detailed": "OpenMM tools."
+    },
     "prepare_gmx_umbrella":
     {
         "name": "prepare_gmx_umbrella",
