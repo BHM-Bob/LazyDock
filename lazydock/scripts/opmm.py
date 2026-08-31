@@ -23,7 +23,7 @@ from openmm import app as openmm_app
 
 def _relax_worker(pdb_path: str, output_path: str, chain: str, stiffness: float, 
                  max_iter: int, tolerance: int, platform: str, constraints: str, 
-                 restrain_backbone: bool):
+                 restrain_backbone: bool, cyclic_chains: list = None):
     # 映射constraints字符串到OpenMM对象
     if constraints == 'hbond':
         constraints_obj = openmm_app.HBonds
@@ -39,7 +39,8 @@ def _relax_worker(pdb_path: str, output_path: str, chain: str, stiffness: float,
         max_iterations=max_iter,
         tolerance=tolerance,
         platform=platform,
-        constraints=constraints_obj  # pyright: ignore[reportArgumentType]
+        constraints=constraints_obj,  # pyright: ignore[reportArgumentType]
+        cyclic_chains=cyclic_chains,
     )
     
     with open(pdb_path, 'r') as f:
@@ -89,6 +90,9 @@ class relax(Command):
                           help='Restrain backbone atoms. default: False.')
         args.add_argument('-o', '--output-suffix', type=str, default='_relaxed',
                           help='Output PDB file suffix. default: _relaxed.')
+        args.add_argument('--cyclic-chains', type=str, nargs='+', default=None,
+                          help='Cyclic peptide chains to keep the head-tail peptide bond during relaxation, '
+                               'e.g. --cyclic-chains P, default is %(default)s.')
         args.add_argument('-nw', '--n-workers', type=int, default=1,
                           help='Number of workers. default: 1.')
         return args
@@ -128,19 +132,22 @@ class relax(Command):
                                                      self.args.restrain_chain, self.args.stiffness,
                                                      self.args.max_iter, self.args.tolerance,
                                                      self.args.platform, self.args.constraints,
-                                                     self.args.restrain_backbone)
+                                                     self.args.restrain_backbone,
+                                                     self.args.cyclic_chains)
                 pool.wait_till_free()
             else:
                 # 单线程处理
                 try:
                     _relax_worker(pdb_path, output_path, self.args.restrain_chain, 
                                  self.args.stiffness, self.args.max_iter, self.args.tolerance,
-                                 self.args.platform, self.args.constraints, self.args.restrain_backbone)
+                                 self.args.platform, self.args.constraints, self.args.restrain_backbone,
+                                 self.args.cyclic_chains)
                     self.printf(f"Successfully relaxed: {pdb_path} -> {output_path}")
                 except Exception as e:
                     self.printf(f"Error processing {pdb_path}: {str(e)}")
         
         if self.args.n_workers > 1:
+            pool.wait_till_all_done()
             pool.close(1)
 
 

@@ -3,6 +3,7 @@ import io
 import logging
 import os
 import time
+from types import SimpleNamespace
 from typing import List, Optional, Union
 
 import openmm
@@ -16,7 +17,9 @@ LENGTH = unit.nanometer  # pyright: ignore[reportAttributeAccessIssue]
 
 class ForceFieldMinimizer(object):
 
-    def __init__(self, stiffness=10.0, max_iterations=0, tolerance=10, platform='CUDA', constraints=openmm_app.HBonds):
+    def __init__(self, stiffness=10.0, max_iterations=0, tolerance=10, platform='CUDA', constraints=openmm_app.HBonds,
+                 cyclic_chains: Optional[List[str]] = None,
+                 cyclic_bond_len: float = 0.134, cyclic_bond_stiffness: float = 3e5):
         super().__init__()
         self.stiffness = stiffness * ENERGY/(LENGTH ** 2) # coefficient for restraints force, unit: kJ*mol^-1*nm^-2  # pyright: ignore[reportOperatorIssue]
         self.max_iterations = max_iterations
@@ -24,6 +27,11 @@ class ForceFieldMinimizer(object):
         assert platform in ('CUDA', 'CPU')
         self.platform = platform
         self.constraints = constraints
+        # 环肽支持: 对 cyclic_chains 中的链, 在 PDBFixer 补全后缝接首尾肽键,
+        # 并加 CustomBondForce 保护该环化键, 避免最小化时断链
+        self.cyclic_chains = list(cyclic_chains or [])
+        self.cyclic_bond_len = cyclic_bond_len  # nm, 环化键平衡长(酰胺 C-N ~1.34A)
+        self.cyclic_bond_stiffness = cyclic_bond_stiffness  # kJ/mol/nm^2
 
     def _fix(self, pdb_str):
         fixer = pdbfixer.PDBFixer(pdbfile=io.StringIO(pdb_str))
@@ -39,17 +47,83 @@ class ForceFieldMinimizer(object):
         openmm_app.PDBFile.writeFile(fixer.topology, fixer.positions, out_handle, keepIds=True)
         return out_handle.getvalue()
 
+    def _sew_cyclic_chains(self, pdb_str: str, cyclic_chains: List[str]):
+        """在 PDBFixer 补全后的 PDB 上缝接环化链首尾肽键:
+        删除每条链尾残基的 OXT 与首残基 N 端多余 H(保留1个酰胺NH), 并 addBond(首N, 尾C).
+        返回 (topology, positions, bonded_chain_ids)."""
+        pdb = openmm_app.PDBFile(io.StringIO(pdb_str))
+        modeller = openmm_app.Modeller(pdb.topology, pdb.positions)
+        bonded_chains = []
+        for chain_id in cyclic_chains:
+            chain = next((c for c in modeller.topology.chains() if c.id == chain_id), None)
+            if chain is None:
+                continue
+            resis = list(chain.residues())
+            if len(resis) < 2:
+                continue
+            names_f = {a.name: a for a in resis[0].atoms()}
+            names_l = {a.name: a for a in resis[-1].atoms()}
+            if 'N' not in names_f or 'C' not in names_l:
+                continue
+            # 首删尾残基 OXT(线性C端残留) 与 首残基N端多余H(环化后N是酰胺N, 只保留1个H)
+            to_delete = []
+            if 'OXT' in names_l:
+                to_delete.append(names_l['OXT'])
+            for hk in ('H1', 'H2', 'H3'):
+                if hk in names_f:
+                    to_delete.append(names_f[hk])
+            if to_delete:
+                modeller.delete(to_delete)
+            bonded_chains.append(chain_id)
+        # delete 后 topology 重建, 需重新定位原子再加键
+        for chain_id in bonded_chains:
+            chain = next((c for c in modeller.topology.chains() if c.id == chain_id), None)
+            if chain is None:
+                continue
+            resis = list(chain.residues())
+            names_f = {a.name: a for a in resis[0].atoms()}
+            names_l = {a.name: a for a in resis[-1].atoms()}
+            if 'N' in names_f and 'C' in names_l:
+                modeller.topology.addBond(names_f['N'], names_l['C'])
+        return modeller.topology, modeller.positions, bonded_chains
+
     def _get_pdb_string(self, topology, positions):
         with io.StringIO() as f:
             openmm_app.PDBFile.writeFile(topology, positions, f, keepIds=True)
             return f.getvalue()
-        
-    def _minimize(self, pdb_str: str, restrain_chain: Optional[Union[str, List[str]]] = None,
-                  restrain_backbone: bool = False):
-        pdb = openmm_app.PDBFile(io.StringIO(pdb_str))
 
+    def _add_cyclic_bond_force(self, system, topology):
+        """对每条环化链的首N-尾C 加 CustomBondForce 键势, 保护环化键"""
+        if not (self.cyclic_chains and self.cyclic_bond_stiffness > 0):
+            return
+        cbf = openmm.CustomBondForce('0.5*k*(r-r0)^2')
+        cbf.addGlobalParameter('k', self.cyclic_bond_stiffness)
+        cbf.addGlobalParameter('r0', self.cyclic_bond_len)
+        n_added = 0
+        for chain_id in self.cyclic_chains:
+            chain = next((c for c in topology.chains() if c.id == chain_id), None)
+            if chain is None:
+                continue
+            resis = list(chain.residues())
+            if len(resis) < 2:
+                continue
+            names_f = {a.name: a for a in resis[0].atoms()}
+            names_l = {a.name: a for a in resis[-1].atoms()}
+            if 'N' in names_f and 'C' in names_l:
+                cbf.addBond(names_f['N'].index, names_l['C'].index)
+                n_added += 1
+        if n_added:
+            system.addForce(cbf)
+
+    def _minimize_pdb(self, pdb, restrain_chain: Optional[Union[str, List[str]]] = None,
+                      restrain_backbone: bool = False):
         force_field = openmm_app.ForceField("charmm36.xml") # referring to http://docs.openmm.org/latest/userguide/application/02_running_sims.html
-        system = force_field.createSystem(pdb.topology, constraints=self.constraints)
+        # 环肽的跨残基环化键在残基模板之外, 需忽略外部键匹配检查
+        ignore_external = bool(self.cyclic_chains)
+        system = force_field.createSystem(pdb.topology, constraints=self.constraints,
+                                          ignoreExternalBonds=ignore_external)
+        # 环化键保护
+        self._add_cyclic_bond_force(system, pdb.topology)
 
         # Add constraints to restrain_chain
         restrain_chain = restrain_chain or []
@@ -59,7 +133,7 @@ class ForceFieldMinimizer(object):
             force.addGlobalParameter("k", self.stiffness)
             for p in ["x0", "y0", "z0"]:
                 force.addPerParticleParameter(p)
-            
+
             for i, a in enumerate(pdb.topology.atoms()):
                 if a.residue.chain.id in restrain_chain and (not restrain_backbone or a.name in restrain_name):
                     force.addParticle(i, pdb.positions[i])
@@ -86,7 +160,12 @@ class ForceFieldMinimizer(object):
         ret["min_pdb"] = self._get_pdb_string(simulation.topology, state.getPositions())
 
         return ret['min_pdb'], ret
-    
+
+    def _minimize(self, pdb_str: str, restrain_chain: Optional[Union[str, List[str]]] = None,
+                  restrain_backbone: bool = False):
+        pdb = openmm_app.PDBFile(io.StringIO(pdb_str))
+        return self._minimize_pdb(pdb, restrain_chain, restrain_backbone)
+
     def _add_energy_remarks(self, pdb_str, ret):
         pdb_lines = pdb_str.splitlines()
         pdb_lines.insert(1, "REMARK   1  FINAL ENERGY:   {:.3f} KCAL/MOL".format(ret['efinal']))
@@ -99,7 +178,13 @@ class ForceFieldMinimizer(object):
                 pdb_str = f.read()
 
         pdb_fixed = self._fix(pdb_str)
-        pdb_min, ret = self._minimize(pdb_fixed, restrain_chain, restrain_backbone)
+        if self.cyclic_chains:
+            # 缝接环化链, 用内存拓扑传递, 避免字符串往返丢失 addBond 键
+            topology, positions, _bonded = self._sew_cyclic_chains(pdb_fixed, self.cyclic_chains)
+            pdb_like = SimpleNamespace(topology=topology, positions=positions)
+            pdb_min, ret = self._minimize_pdb(pdb_like, restrain_chain, restrain_backbone)
+        else:
+            pdb_min, ret = self._minimize(pdb_fixed, restrain_chain, restrain_backbone)
         pdb_min = self._add_energy_remarks(pdb_min, ret)
         if out_path and os.path.exists(out_path):
             with open(out_path, 'w') as f:
