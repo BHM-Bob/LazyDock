@@ -158,5 +158,13 @@
         "exec_names": ["ana_amber", "ana-amber"],
         "brief": "AMBER molecular analysis tools.",
         "detailed": "AMBER molecular analysis tools."
+    },
+    "check_structure":
+    {
+        "name": "check structure",
+        "script name": "check_structure",
+        "exec_names": ["check-structure", "check_structure"],
+        "brief": "Check PDB structure for atom clashes and covalent bond length errors using OpenBabel.",
+        "detailed": "Check PDB structure for atom clashes (OpenBabel vdw radii) and covalent bond length errors (OpenBabel equilibrium bond lengths). Support batch directories, chain filtering and JSON output."
     }
 }
