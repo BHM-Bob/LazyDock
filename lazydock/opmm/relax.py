@@ -65,11 +65,18 @@ class ForceFieldMinimizer(object):
             names_l = {a.name: a for a in resis[-1].atoms()}
             if 'N' not in names_f or 'C' not in names_l:
                 continue
-            # 首删尾残基 OXT(线性C端残留) 与 首残基N端多余H(环化后N是酰胺N, 只保留1个H)
+            # 首删尾残基 OXT(线性C端残留) 与 首残基N端多余H.
+            # 环化后 N 的成键状态取决于首残基类型:
+            #   PRO: N 是亚胺(N连CD+CA+前残基C), 无H -> 删全部端H
+            #   其他: N 是酰胺(NH), 保留 1 个端H -> 删 2 个多余的
             to_delete = []
             if 'OXT' in names_l:
                 to_delete.append(names_l['OXT'])
-            for hk in ('H1', 'H2', 'H3'):
+            if resis[0].name == 'PRO':
+                h_keys = ('H', 'H2', 'H1', 'H3')
+            else:
+                h_keys = ('H1', 'H2', 'H3')
+            for hk in h_keys:
                 if hk in names_f:
                     to_delete.append(names_f[hk])
             if to_delete:
