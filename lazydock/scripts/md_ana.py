@@ -10,16 +10,19 @@ import warnings
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-from Bio import BiopythonDeprecationWarning
-from matplotlib.ticker import FuncFormatter
+try:
+    from Bio import BiopythonDeprecationWarning
+    warnings.simplefilter('ignore', BiopythonDeprecationWarning)
+except ImportError:
+    pass
 
-warnings.simplefilter('ignore', BiopythonDeprecationWarning)
 import matplotlib.pyplot as plt
 import MDAnalysis as mda
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.cm import ScalarMappable
+from matplotlib.ticker import FuncFormatter
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import opts_file
 from mbapy_lite.plot import save_show
