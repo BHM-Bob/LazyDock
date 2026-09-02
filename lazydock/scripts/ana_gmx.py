@@ -94,8 +94,8 @@ class trjconv(Command):
                           'trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc',
                           n=self.args.index, pbc=self.args.pbc, ur=self.args.ur, center=True,
                           expect_actions=exp_acts, expect_settings={'timeout': 10})
-            time.sleep(5) # delay for 5 seconds, avoid `expect` conflicts
             pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 1)
+        pool.wait_till_all_done()
         pool.close(1)
 
 
@@ -440,7 +440,7 @@ class simple(trjconv):
             complex_path = Path(complex_path).resolve()
             pool.add_task(None, self.perform_analysis, complex_path, copy.deepcopy(self.args))
             pool.wait_till_free()
-        pool.wait_till_free()
+        pool.wait_till_all_done()
         pool.close(1)
             
             
@@ -606,7 +606,7 @@ class mmpbsa(simple):
             pool.add_task(None, self.perform_analysis, top_path, traj_path, copy.deepcopy(self.args))
             pool.wait_till_free()
             bar.update(1)
-        pool.wait_till_free()
+        pool.wait_till_all_done()
         pool.close(1)
     
     
