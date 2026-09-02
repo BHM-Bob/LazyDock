@@ -116,8 +116,7 @@ class relax(Command):
             self.printf("Warning: No restrain chain specified. Using empty list.")
         
         # parallel
-        if self.args.n_workers > 1:
-            pool = TaskPool('process', self.args.n_workers, report_error=True).start()
+        pool = TaskPool('process', self.args.n_workers, report_error=True).start()
         
         # Process each PDB file
         for pdb_path in tqdm(pdb_paths, desc='Relaxing structures'):
@@ -127,28 +126,15 @@ class relax(Command):
                 cmd.load(pdb_path)
                 all_chains = cmd.get_chains('all')
                 self.args.restrain_chain = list(set(all_chains) - set(self.args.relax_chain))
-            if self.args.n_workers > 1:
-                pool.add_task(pdb_path, _relax_worker, pdb_path, output_path,
-                                                     self.args.restrain_chain, self.args.stiffness,
-                                                     self.args.max_iter, self.args.tolerance,
-                                                     self.args.platform, self.args.constraints,
-                                                     self.args.restrain_backbone,
-                                                     self.args.cyclic_chains)
-                pool.wait_till_free()
-            else:
-                # 单线程处理
-                try:
-                    _relax_worker(pdb_path, output_path, self.args.restrain_chain, 
-                                 self.args.stiffness, self.args.max_iter, self.args.tolerance,
-                                 self.args.platform, self.args.constraints, self.args.restrain_backbone,
-                                 self.args.cyclic_chains)
-                    self.printf(f"Successfully relaxed: {pdb_path} -> {output_path}")
-                except Exception as e:
-                    self.printf(f"Error processing {pdb_path}: {str(e)}")
-        
-        if self.args.n_workers > 1:
-            pool.wait_till_all_done()
-            pool.close(1)
+            pool.add_task(pdb_path, _relax_worker, pdb_path, output_path,
+                                                    self.args.restrain_chain, self.args.stiffness,
+                                                    self.args.max_iter, self.args.tolerance,
+                                                    self.args.platform, self.args.constraints,
+                                                    self.args.restrain_backbone,
+                                                    self.args.cyclic_chains)
+            pool.wait_till_free()
+        pool.wait_till_all_done()
+        pool.close(1)
 
 
 _str2func = {
