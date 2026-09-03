@@ -23,7 +23,7 @@ from lazydock.pyrt.relax import relax_pdb
 from lazydock.scripts._script_utils_ import Command, excute_command
 
 
-class cacl_energy(Command):
+class calc_energy(Command):
     def __init__(self, args, printf=print):
         super().__init__(args, printf, ['batch_dir'])
         # init pyrosetta
@@ -85,7 +85,7 @@ def _relax_worker(pdb_path: str, output_path: str, chain: Union[str, List[str]],
     return pdb_path, output_path, energy_0, energy_1
 
 
-class relax(cacl_energy):
+class relax(calc_energy):
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
     
@@ -138,7 +138,7 @@ class relax(cacl_energy):
 
 
 _str2func = {
-    'calc-energy': cacl_energy,
+    'calc-energy': calc_energy,
     'relax': relax,
 }
 
