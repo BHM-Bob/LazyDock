@@ -8,8 +8,20 @@ from pyrosetta.rosetta.protocols.analysis import InterfaceAnalyzerMover
 from lazydock.pyrt.pose_utils import load_pose
 
 
+PYRT_ENERGY_KEYS = ['complex_normalized', 'dG_cross', 'dG_cross/dSASAx100', 'dG_separated',
+                    'dG_separated/dSASAx100', 'dSASA_hphobic', 'dSASA_int', 'dSASA_polar',
+                    'delta_unsatHbonds', 'hbond_E_fraction', 'hbonds_int', 'nres_all',
+                    'nres_int', 'packstat', 'per_residue_energy_int', 'sc_value',
+                    'side1_normalized', 'side1_score', 'side2_normalized', 'side2_score',
+                    'fa_atr', 'fa_rep', 'fa_sol', 'fa_intra_rep', 'fa_intra_sol_xover4',
+                    'lk_ball_wtd', 'fa_elec', 'pro_close', 'hbond_sr_bb', 'hbond_lr_bb',
+                    'hbond_bb_sc', 'hbond_sc', 'dslf_fa13', 'omega', 'fa_dun', 'p_aa_pp',
+                    'yhh_planarity', 'ref', 'rama_prepro', 'total_score']
+
+
 def calcu_interface_energy(pdb: Union[str, Pose], receptor_chains: Union[str, List[str]],
-                           ligand_chains: Union[str, List[str]], scorefxn_name: str = 'ref2015') -> float:
+                           ligand_chains: Union[str, List[str]], scorefxn_name: str = 'ref2015',
+                           return_dict: bool = False) -> Union[float, dict]:
     """
     Calculate the interface energy between receptor and ligand using PyRosetta.
     
@@ -77,7 +89,7 @@ def calcu_interface_energy(pdb: Union[str, Pose], receptor_chains: Union[str, Li
     mover.set_pack_separated(True)
     mover.apply(pose)
     
-    return pose.scores['dG_separated']
+    return dict(pose.scores) if return_dict else pose.scores['dG_separated']
 
 
 def calcu_single_energy(pdb: Union[str, Pose], scorefxn_name: str = 'ref2015') -> float:

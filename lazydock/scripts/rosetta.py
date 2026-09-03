@@ -52,24 +52,25 @@ class calc_energy(Command):
     
     def main_process(self):
         pdb_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
-        df = pd.DataFrame(columns=['pdb_path', 'energy'])
+        df = None
         # parallel
-        if self.args.n_workers > 1:
-            pool = TaskPool('process', self.args.n_workers, report_error=True).start()
+        pool = TaskPool('process', self.args.n_workers, report_error=True).start()
         for pdb_path in tqdm(pdb_paths, desc='Calculating interface energy'):
-            if self.args.n_workers > 1:
-                pool.add_task(pdb_path, calcu_interface_energy, pdb_path,
-                              self.args.receptor_chain, self.args.ligand_chain, self.args.scorefxn_name)
-                pool.wait_till_free()
-            else:
-                energy = calcu_interface_energy(pdb_path, self.args.receptor_chain,
-                                                self.args.ligand_chain, self.args.scorefxn_name)
-                df.loc[len(df)] = [pdb_path, energy]
-        if self.args.n_workers > 1:
-            for pdb_path in tqdm(list(pool.tasks.keys()), desc='Querying results from TaskPool'):
-                df.loc[len(df)] = [pdb_path, pool.query_task(pdb_path, block=True, timeout=30)]
-            pool.close(1)
-        df.to_csv(self.args.output, index=False)
+            pool.add_task(pdb_path, calcu_interface_energy, pdb_path,
+                              self.args.receptor_chain, self.args.ligand_chain, self.args.scorefxn_name,
+                              return_dict=True)
+            pool.wait_till_free()
+        pool.wait_till_all_done()
+        for pdb_path in tqdm(list(pool.tasks.keys()), desc='Querying results from TaskPool'):
+            result = pool.query_task(pdb_path, block=True, timeout=30)
+            if not isinstance(result, dict):
+                put_err(f'{pdb_path}: {result}')
+            if df is None:
+                df = pd.DataFrame(columns=['path', 'rel_path'] + list(result.keys()))
+                df.set_index('path', inplace=True)
+            df.loc[pdb_path] = [os.path.relpath(pdb_path, self.args.batch_dir)] + list(result.values()) # type: ignore
+        pool.close(1)
+        df.to_csv(self.args.output, index=True)
 
 
 def _relax_worker(pdb_path: str, output_path: str, chain: Union[str, List[str]], max_iter: int, energy_chain: Union[str, List[str]]):
