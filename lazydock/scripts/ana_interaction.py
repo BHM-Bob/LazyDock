@@ -6,15 +6,18 @@ Description:
 '''
 import argparse
 import os
+import tempfile
 from pathlib import Path
 from typing import Callable, Dict, List, Set, Tuple
 
 import pandas as pd
+from mbapy.web_utils.task import TaskPool
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
 from pymol import cmd
 from tqdm import tqdm
 
+from lazydock.pml.adfr import get_pdbqtstr_from_pdbstr
 from lazydock.pml.autodock_utils import ADModel, DlgFile
 from lazydock.pml.interaction_utils import SUPPORTED_MODE as pml_mode
 from lazydock.pml.interaction_utils import \
@@ -25,12 +28,13 @@ from lazydock.pml.ligplus_interaction import \
 from lazydock.pml.plip_interaction import SUPPORTED_MODE as plip_mode
 from lazydock.pml.plip_interaction import \
     calcu_receptor_poses_interaction as calc_fn_plip
-from lazydock.scripts._script_utils_ import (Command, clean_path,
+from lazydock.scripts._script_utils_ import (Command, make_args_and_excute,
                                              process_batch_dir_lst)
 
 
 # TODO: change it to nargs
 class simple_analysis(Command):
+    HELP = """perform simple analysis on docking result"""
     METHODS: Dict[str, Tuple[Callable, List[str]]] = {'pymol': (calc_fn_pml, pml_mode),
                                                       'ligplus': (calc_fn_ligplus, ligplus_mode),
                                                       'plip': (calc_fn_plip, plip_mode)}
@@ -228,19 +232,114 @@ class simple_analysis(Command):
                                             self.args.hydrogen_atom_only, self.args.ref_res, self.args.suffix)
             bar.update(1)
 
+
+def vina_score_worker_fn(score_name: str, box_extend: float,
+                         complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str]):
+    """"total", "lig_inter", "flex_inter", "other_inter", "flex_intra", "lig_intra", "torsions", "-lig_intra"
+    """
+    from vina import Vina
+    
+    v = Vina(sf_name=score_name, cpu=1, verbosity=False)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cmd.reinitialize()
+        cmd.read_pdbstr(complex_pdbstr, 'complex')
+        if not receptor_chain:
+            receptor_chain = list(set(cmd.get_chains()) - set([ligand_chain]))
+        if not receptor_chain:
+            put_err(f'there is no other chain exclude ligand chain {ligand_chain}.')
+            return None
+        # set receptor
+        if cmd.select('receptor', f'complex and (' + ' or '.join([f'chain {c}' for c in receptor_chain]) + ')') == 0:
+            put_err(f'can not find receptor with chain {receptor_chain}')
+            return None
+        rec_path = os.path.join(tmpdir, 'receptor.pdbqt')
+        success, receptor_pdbqtstr = get_pdbqtstr_from_pdbstr(cmd.get_pdbstr('receptor'), 'prepare_receptor', '-r')
+        if not success:
+            put_err(f"Failed to prepare receptor_pdbqtstr: {receptor_pdbqtstr}")
+            return None
+        opts_file(rec_path, 'w', way='str', data=receptor_pdbqtstr)
+        v.set_receptor(rec_path)
+        # set ligand
+        if cmd.select('ligand', f'complex and chain {ligand_chain}') == 0:
+            put_err(f'can not find ligand with chain {ligand_chain}')
+            return None
+        success, ligand_pdbqtstr = get_pdbqtstr_from_pdbstr(cmd.get_pdbstr(f'chain {ligand_chain}'), 'prepare_ligand', '-l')
+        if not success:
+            put_err(f"Failed to prepare ligand_pdbqtstr: {ligand_pdbqtstr}")
+            return None
+        v.set_ligand_from_string(ligand_pdbqtstr)
+        # set grid; not bounding box, just box in axis
+        ([minX, minY, minZ],[maxX, maxY, maxZ]) = cmd.get_extent('ligand')
+        grid_center = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]
+        grid_size = [maxX - minX + box_extend*2, maxY - minY + box_extend*2, maxZ - minZ + box_extend*2]
+        v.compute_vina_maps(center=grid_center, box_size=grid_size, spacing=0.375)
+        # compute and retrun score
+        return v.score().tolist()
+
+
+class vina_score(Command):
+    HELP = """perform vina score on a complex.pdb file"""
+    def __init__(self, args: argparse.Namespace, printf=print) -> None:
+        super().__init__(args, printf, ['batch_dir'])
+        self.tasks = []
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
+                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
+        args.add_argument('-n', '--name', type = str, required=True,
+                          help="name for input complex file, such as `complex.pdb`.")
+        args.add_argument('-lc', '--ligand-chain', type = str, required=True,
+                          help=f"ligand chain.")
+        args.add_argument('-rc', '--receptor-chain', type = str, nargs='+', default=None,
+                          help="receptor chain, if not specified, will be others except ligand chain.")
+        args.add_argument('-sf', '--score-name', default='vina', choices=['vina', 'vinardo', 'ad4'],
+                          help='Score name for vina')
+        args.add_argument('-gb', '--grid-buffer', type = float, default=10,
+                          help='grid size buffer for grid box, will expand the grid box from ligand by buffer size, default is %(default)s.')
+        args.add_argument('-o', '--output', type = str, default='vina_score.csv',
+                          help="output file, default is %(default)s.")
+        args.add_argument('-nw', '--n-workers', type = int, default=1,
+                          help="number of workers, default is %(default)s.")
+        return args
+
+    def process_args(self):
+        # process IO
+        self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
+        
+    def main_process(self):
+        # search for pdb files
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        if not paths:
+            put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
+            return
+        # submit and run tasks parallel
+        pool = TaskPool('process', self.args.n_workers, report_error=True,
+                        mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
+        for path in tqdm(paths):
+            pool.add_task(path, vina_score_worker_fn, self.args.score_name, self.args.grid_buffer, opts_file(path),
+                          self.args.ligand_chain, self.args.receptor_chain)
+            pool.wait_till_free()
+        pool.wait_till_all_done()
+        # retrieve results
+        df = pd.DataFrame(columns=['path', 'rel_path',
+                                   "total", "lig_inter", "flex_inter", "other_inter",
+                                   "flex_intra", "lig_intra", "torsions", "-lig_intra"])
+        df.set_index('path', inplace=True)
+        # save results to csv
+        for path in paths:
+            df.loc[path] = [os.path.relpath(path, self.args.batch_dir)] + pool.query_task(path, True, 30) # type: ignore
+        df.to_csv(self.args.output, index=True)
+
+
 _str2func = {
     'simple-analysis': simple_analysis,
+    'vina-score': vina_score,
 }
 
 
 def main(sys_args: List[str] = None):
-    args_paser = argparse.ArgumentParser()
-    subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
-    simple_analysis_args = simple_analysis.make_args(subparsers.add_parser('simple-analysis', description='perform simple analysis on docking result'))
-
-    args = args_paser.parse_args(sys_args)
-    if args.sub_command in _str2func:
-        _str2func[args.sub_command](args).excute()
+    make_args_and_excute('tools for analyzing interaction', _str2func, sys_args)
 
 
 if __name__ == "__main__":
