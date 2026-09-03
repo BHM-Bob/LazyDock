@@ -23,7 +23,8 @@ from openmm import app as openmm_app
 
 def _relax_worker(pdb_path: str, output_path: str, chain: str, stiffness: float, 
                  max_iter: int, tolerance: int, platform: str, constraints: str, 
-                 restrain_backbone: bool, cyclic_chains: list = None):
+                 restrain_backbone: bool, cyclic_chains: list = None, device_index=None,
+                 disulfide_chains: list = None):
     # 映射constraints字符串到OpenMM对象
     if constraints == 'hbond':
         constraints_obj = openmm_app.HBonds
@@ -41,6 +42,8 @@ def _relax_worker(pdb_path: str, output_path: str, chain: str, stiffness: float,
         platform=platform,
         constraints=constraints_obj,  # pyright: ignore[reportArgumentType]
         cyclic_chains=cyclic_chains,
+        disulfide_chains=disulfide_chains,
+        device_index=device_index,
     )
     
     with open(pdb_path, 'r') as f:
@@ -93,8 +96,17 @@ class relax(Command):
         args.add_argument('--cyclic-chains', type=str, nargs='+', default=None,
                           help='Cyclic peptide chains to keep the head-tail peptide bond during relaxation, '
                                'e.g. --cyclic-chains P, default is %(default)s.')
+        args.add_argument('--disulfide-chains', type=str, nargs='+', default=None,
+                          help='Chains containing disulfide bonds to protect during relaxation '
+                               '(SG-SG bond via CHARMM36 DISU patch or CustomBondForce), '
+                               'e.g. --disulfide-chains P, default is %(default)s.')
         args.add_argument('-nw', '--n-workers', type=int, default=1,
                           help='Number of workers. default: 1.')
+        args.add_argument('--gpus', type=int, nargs='+', default=None,
+                          help='GPU device ids to use for parallel relaxation, e.g. --gpus 0 1, '
+                               'default is %(default)s (use default device).')
+        args.add_argument('--n-task-per-gpu', type=int, default=1,
+                          help='max number of concurrent tasks on one GPU, default is %(default)s.')
         return args
     
     def process_args(self):
@@ -118,20 +130,30 @@ class relax(Command):
         # parallel
         pool = TaskPool('process', self.args.n_workers, report_error=True).start()
         
+        # GPU 槽位: 把 --gpus 展开成 [g0 x n_task_per_gpu, g1 x n_task_per_gpu, ...],
+        # 任务按 index 轮询分配, 保证单卡可承载多个并发任务
+        gpu_slots = []
+        if self.args.gpus:
+            for g in self.args.gpus:
+                gpu_slots.extend([g] * max(1, self.args.n_task_per_gpu))
+        
         # Process each PDB file
-        for pdb_path in tqdm(pdb_paths, desc='Relaxing structures'):
+        for task_i, pdb_path in enumerate(tqdm(pdb_paths, desc='Relaxing structures')):
             output_path = pdb_path.replace('.pdb', f'{self.args.output_suffix}.pdb')
             if self.args.relax_chain:
                 cmd.reinitialize()
                 cmd.load(pdb_path)
                 all_chains = cmd.get_chains('all')
                 self.args.restrain_chain = list(set(all_chains) - set(self.args.relax_chain))
+            device_index = gpu_slots[task_i % len(gpu_slots)] if gpu_slots else None
             pool.add_task(pdb_path, _relax_worker, pdb_path, output_path,
                                                     self.args.restrain_chain, self.args.stiffness,
                                                     self.args.max_iter, self.args.tolerance,
                                                     self.args.platform, self.args.constraints,
                                                     self.args.restrain_backbone,
-                                                    self.args.cyclic_chains)
+                                                    self.args.cyclic_chains,
+                                                    device_index,
+                                                    self.args.disulfide_chains)
             pool.wait_till_free()
         pool.wait_till_all_done()
         pool.close(1)
