@@ -6,18 +6,17 @@ Description:
 '''
 import argparse
 import os
-import tempfile
 from pathlib import Path
 from typing import Callable, Dict, List, Set, Tuple
 
 import pandas as pd
-from mbapy.web_utils.task import TaskPool
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file
+from mbapy_lite.web_utils.task import TaskPool
 from pymol import cmd
 from tqdm import tqdm
 
-from lazydock.pml.adfr import get_pdbqtstr_from_pdbstr
+from lazydock.pml.adfr import calc_vina_score
 from lazydock.pml.autodock_utils import ADModel, DlgFile
 from lazydock.pml.interaction_utils import SUPPORTED_MODE as pml_mode
 from lazydock.pml.interaction_utils import \
@@ -80,8 +79,8 @@ class simple_analysis(Command):
         if isinstance(self.args.mode, str) and self.args.mode not in all_modes:
             put_err(f"Unsupported mode: {self.args.mode}, supported mode: {simple_analysis.METHODS[self.args.method][1]}, exit.", _exit=True)
         elif isinstance(self.args.mode, list) and any(m not in all_modes for m in self.args.mode):
-            unsuuported_mode = [m for m in self.args.mode if m not in all_modes]
-            put_err(f"the mode you input has unsupported item(s): {unsuuported_mode}, supported mode: {simple_analysis.METHODS[self.args.method][1]}, exit.", _exit=True)
+            unsupported = [m for m in self.args.mode if m not in all_modes]
+            put_err(f"the mode you input has unsupported item(s): {unsupported}, supported mode: {simple_analysis.METHODS[self.args.method][1]}, exit.", _exit=True)
         # check ref_res
         split_fn = lambda x: set(map(lambda y: y.strip(), x.split(',')))
         if os.path.isfile(self.args.ref_res):
@@ -175,8 +174,8 @@ class simple_analysis(Command):
                 fmt_string = output_formater(inter_value, method)
                 df.loc[i, inter_mode] = fmt_string
                 for r in ref_res:
-                    if r in fmt_string and not r in df.loc[i,'ref_res']:
-                        df.loc[i,'ref_res'] += f'{r},'
+                    if r in fmt_string and not r in df.loc[i,'ref_res']: # type: ignore
+                        df.loc[i,'ref_res'] += f'{r},' # type: ignore
         df.to_excel(os.path.join(root, f'{Path(dlg_path).stem}_{method}_{suffix}_interactions.xlsx'))
         bar.set_description(f'{method} interactions saved')
         # release all in pymol
@@ -233,50 +232,6 @@ class simple_analysis(Command):
             bar.update(1)
 
 
-def vina_score_worker_fn(score_name: str, box_extend: float,
-                         complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str]):
-    """"total", "lig_inter", "flex_inter", "other_inter", "flex_intra", "lig_intra", "torsions", "-lig_intra"
-    """
-    from vina import Vina
-    
-    v = Vina(sf_name=score_name, cpu=1, verbosity=False)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        cmd.reinitialize()
-        cmd.read_pdbstr(complex_pdbstr, 'complex')
-        if not receptor_chain:
-            receptor_chain = list(set(cmd.get_chains()) - set([ligand_chain]))
-        if not receptor_chain:
-            put_err(f'there is no other chain exclude ligand chain {ligand_chain}.')
-            return None
-        # set receptor
-        if cmd.select('receptor', f'complex and (' + ' or '.join([f'chain {c}' for c in receptor_chain]) + ')') == 0:
-            put_err(f'can not find receptor with chain {receptor_chain}')
-            return None
-        rec_path = os.path.join(tmpdir, 'receptor.pdbqt')
-        success, receptor_pdbqtstr = get_pdbqtstr_from_pdbstr(cmd.get_pdbstr('receptor'), 'prepare_receptor', '-r')
-        if not success:
-            put_err(f"Failed to prepare receptor_pdbqtstr: {receptor_pdbqtstr}")
-            return None
-        opts_file(rec_path, 'w', way='str', data=receptor_pdbqtstr)
-        v.set_receptor(rec_path)
-        # set ligand
-        if cmd.select('ligand', f'complex and chain {ligand_chain}') == 0:
-            put_err(f'can not find ligand with chain {ligand_chain}')
-            return None
-        success, ligand_pdbqtstr = get_pdbqtstr_from_pdbstr(cmd.get_pdbstr(f'chain {ligand_chain}'), 'prepare_ligand', '-l')
-        if not success:
-            put_err(f"Failed to prepare ligand_pdbqtstr: {ligand_pdbqtstr}")
-            return None
-        v.set_ligand_from_string(ligand_pdbqtstr)
-        # set grid; not bounding box, just box in axis
-        ([minX, minY, minZ],[maxX, maxY, maxZ]) = cmd.get_extent('ligand')
-        grid_center = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]
-        grid_size = [maxX - minX + box_extend*2, maxY - minY + box_extend*2, maxZ - minZ + box_extend*2]
-        v.compute_vina_maps(center=grid_center, box_size=grid_size, spacing=0.375)
-        # compute and retrun score
-        return v.score().tolist()
-
-
 class vina_score(Command):
     HELP = """perform vina score on a complex.pdb file"""
     def __init__(self, args: argparse.Namespace, printf=print) -> None:
@@ -295,7 +250,7 @@ class vina_score(Command):
                           help="receptor chain, if not specified, will be others except ligand chain.")
         args.add_argument('-sf', '--score-name', default='vina', choices=['vina', 'vinardo', 'ad4'],
                           help='Score name for vina')
-        args.add_argument('-gb', '--grid-buffer', type = float, default=10,
+        args.add_argument('-gb', '--grid-buffer', type = float, default=4,
                           help='grid size buffer for grid box, will expand the grid box from ligand by buffer size, default is %(default)s.')
         args.add_argument('-o', '--output', type = str, default='vina_score.csv',
                           help="output file, default is %(default)s.")
@@ -317,7 +272,7 @@ class vina_score(Command):
         pool = TaskPool('process', self.args.n_workers, report_error=True,
                         mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
         for path in tqdm(paths):
-            pool.add_task(path, vina_score_worker_fn, self.args.score_name, self.args.grid_buffer, opts_file(path),
+            pool.add_task(path, calc_vina_score, self.args.score_name, self.args.grid_buffer, opts_file(path),
                           self.args.ligand_chain, self.args.receptor_chain)
             pool.wait_till_free()
         pool.wait_till_all_done()
@@ -330,6 +285,7 @@ class vina_score(Command):
         for path in paths:
             df.loc[path] = [os.path.relpath(path, self.args.batch_dir)] + pool.query_task(path, True, 30) # type: ignore
         df.to_csv(self.args.output, index=True)
+        pool.close(1)
 
 
 _str2func = {
