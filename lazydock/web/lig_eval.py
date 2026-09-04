@@ -87,7 +87,7 @@ def get_score_from_SwissTargetPrediction(lig_SMILES: str, result_dir: str, brows
 
 
 if __name__ == '__main__':
-    from mbapy.base import Configs
+    from mbapy_lite.base import Configs
     b = Browser(options = [f"--user-agent={Configs.web.chrome_driver_path}"], download_path='data_tmp/web')
     lig_SMILES = '[H]N[C@H](C(N1CCC[C@H]1C(N[C@H](C(N2CCC[C@H]2C(N[C@@H](C(C)C)C(N[C@@H](CC(N)=O)C(N[C@H](C(N[C@@H](CCCCN)C(N[C@@H](CC(C)C)C(N[C@@H](CC(C)C)C(N[C@@H](CO)C(N[C@H](C(N)=O)CC3=CN=CN3)=O)=O)=O)=O)=O)CC4=CC=CC=C4)=O)=O)=O)=O)CC5=CC=CC=C5)=O)=O)CC6=CC=C(O)C=C6'
     result_dir = 'data_tmp/web'

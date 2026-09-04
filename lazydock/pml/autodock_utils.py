@@ -183,7 +183,7 @@ class DlgFile(BaseInfo):
             self.pose_lst += other.pose_lst
             return self
         
-    def sort_pose(self, key: Callable[[ADModel], Any] = None,
+    def sort_pose(self, key: Optional[Callable[[ADModel], Any]] = None,
                   inplace: bool = True, reverse: bool = False) -> List[ADModel]:
         if key is None:
             key = lambda x : x.energy

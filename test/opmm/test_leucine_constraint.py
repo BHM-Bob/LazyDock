@@ -2,18 +2,17 @@
 # -*- coding: utf-8 -*-
 
 import io
-import tempfile
 import os
-import pdbfixer
-from openmm import app as openmm_app
-from openmm import openmm, unit
+import tempfile
 import unittest
 
+import pdbfixer
 import pyrosetta
-from mbapy.file import opts_file
 from lazydock.pyrt.pose_utils import _Pose
 from lazydock.pyrt.relax import RelaxPDBChain
-
+from mbapy_lite.file import opts_file
+from openmm import app as openmm_app
+from openmm import openmm, unit
 
 pyrosetta.init('-mute all')
 

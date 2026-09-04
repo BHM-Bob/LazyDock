@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Union
 
-from mbapy.base import Configs
+from mbapy_lite.base import Configs
 from mbapy_lite.base import put_log, put_err
 from mbapy_lite.web import Browser, random_sleep
 
@@ -50,7 +50,7 @@ def get_result_from_CGenFF(mol2_path: str, username: str = None, password: str =
 
 
 if __name__ == '__main__':
-    from mbapy.file import opts_file
+    from mbapy_lite.file import opts_file
     config = opts_file('data_tmp/config.json', way='json')
     mol2_path = 'data_tmp/pdb/ligand.mol2'
     mol2_path = str(Path(mol2_path).absolute())

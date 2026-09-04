@@ -1,5 +1,5 @@
 import itertools
-from typing import List, Union
+from typing import List, Optional, Union
 
 import numpy as np
 from compas.geometry import oriented_bounding_box_numpy
@@ -51,7 +51,7 @@ def sort_vertices(vertices, sort_orders=[(0, 1, 2), (1, 2, 0), (2, 0, 1)], toler
     raise ValueError("No valid sorting order found for the given vertices.")
 
 
-def calcu_bounding_box(pml_name: str = None, coords: np.ndarray = None, state: int = 0):
+def calcu_bounding_box(pml_name: str = None, coords: Optional[np.ndarray] = None, state: int = 0):
     index2coords = {}
     if coords is None:
         cmd.iterate_state(state, pml_name, 'index2coords[index] = [x, y, z]', space=locals())
@@ -334,7 +334,6 @@ def plot_bounding_box(ax, vertices, color='r'):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-
     from lazydock.pml.thirdparty.draw_bounding_box import draw_bounding_box
     
     cmd.reinitialize()
