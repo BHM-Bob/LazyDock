@@ -55,7 +55,7 @@ class simple_protein(Command):
     gmx mdrun -v -ntomp 14 -deffnm md_continue -update gpu -nb gpu -pme gpu -bonded gpu -pmefft gpu
     """
     def __init__(self, args, printf=print):
-        super().__init__(args, printf, ['batch_dir'])
+        super().__init__(args, printf)
         self.indexs = {}
         self.mono_lock = threading.Lock()
         
@@ -273,13 +273,20 @@ class simple_protein(Command):
             new_gmx = Gromacs(working_dir=str(protein_path.parent), gpu_ids=gmx.gpu_ids)
             pool.add_task(None, self.perform_single_md, protein_path, main_name, new_gmx, mdps)
             pool.wait_till_free()
+        pool.wait_till_all_done()
         pool.close(1)
 
     def main_process(self):
-        if os.path.isdir(self.args.batch_dir):
-            proteins_path = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.protein_name)
-        else:
-            put_err(f'dir argument should be a directory: {self.args.batch_dir}, exit.', _exit=True)
+        # do not use lazydock-cli iter_run_arg
+        # because one batch will left some GPUs empty load in the end
+        # since we want maximize the number and time of GPUs used
+        # take all batch dir in one
+        proteins_path = []
+        for bd in self.args.batch_dir:
+            if os.path.isdir(bd):
+                proteins_path.extend(get_paths_with_extension(bd, [], name_substr=self.args.protein_name))
+            else:
+                put_err(f'dir argument should be a directory: {bd}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')
         # check mdp files
         mdp_names = ['ion', 'em', 'nvt', 'npt','md']
@@ -308,6 +315,8 @@ class simple_protein(Command):
                 continue
             task_queue.put((protein_path, main_name))
             pool.wait_till(lambda: task_queue.empty())
+        [task_queue.put(None) for _ in gmx_lst]
+        pool.wait_till_all_done()
         pool.close(1)
 
     
