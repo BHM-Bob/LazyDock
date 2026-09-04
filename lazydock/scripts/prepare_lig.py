@@ -100,6 +100,8 @@ class cif2pdb(Command):
                           help='new name of the pdb, such as complex.pdb, default is %(default)s.')
         args.add_argument('--suffix', type=str, default=None,
                           help='suffix of the output pdb, such as _transfer, default is %(default)s.')
+        args.add_argument('--force', action='store_true',
+                          help='force overwrite the output file, default is %(default)s.')
 
     def process_args(self):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
@@ -124,16 +126,52 @@ class cif2pdb(Command):
         
     def main_process(self):
         # get complex paths
-        cif_paths = get_paths_with_extension(self.args.batch_dir, [self.args.main_name], name_substr=self.args.main_name)
+        cif_paths = get_paths_with_extension(self.args.batch_dir, ['.cif'], name_substr=self.args.main_name)
         put_log(f'get {len(cif_paths)} task(s)')
         # process each
         for cif_path in tqdm(cif_paths, total=len(cif_paths)):
             cif_path = Path(cif_path).resolve()
-            cmd.reinitialize()
-            cmd.set('connect_mode', 4)
-            cmd.set('pdb_conect_all', 'on')
-            cmd.load(str(cif_path))
-            cmd.save(str(self.new_name_fn(cif_path, suffix=self.args.suffix, new_name=self.args.new_name)))
+            if self.args.force and self.new_name_fn(cif_path, _args=self.args).exists():
+                put_log(f'skip: {self.new_name_fn(cif_path, _args=self.args)}')
+                continue
+            try:
+                cmd.reinitialize()
+                cmd.set('connect_mode', 4)
+                cmd.set('pdb_conect_all', 'on')
+                cmd.load(str(cif_path))
+                cmd.save(str(self.new_name_fn(cif_path, suffix=self.args.suffix, new_name=self.args.new_name)))
+            except:
+                put_err(f'error with {cif_path}')
+                traceback.print_exc()
+
+
+def _fix_cp_relax_one(fix_path: Path, cyclic_chains: List[str], disulfide_chains: List[str],
+                      constraints: str, max_iter: int, tolerance: float,
+                      platform: str, gpu_index: int):
+    """对修复后的 PDB 做 OpenMM 弛豫, 保护环化键/二硫键"""
+    from openmm import app as openmm_app
+
+    from lazydock.opmm.relax import ForceFieldMinimizer
+    if constraints == 'hbond':
+        constraints_obj = openmm_app.HBonds
+    elif constraints == 'all':
+        constraints_obj = openmm_app.AllBonds
+    else:
+        constraints_obj = None
+    relaxer = ForceFieldMinimizer(
+        stiffness=10,
+        max_iterations=max_iter,
+        tolerance=tolerance,
+        platform=platform,
+        constraints=constraints_obj,
+        cyclic_chains=cyclic_chains,
+        disulfide_chains=disulfide_chains,
+        device_index=gpu_index,
+    )
+    result_pdb, ret = relaxer(str(fix_path), None, return_info=True)
+    with open(fix_path, 'w') as f:
+        f.write(result_pdb)
+    put_log(f'relaxed: {fix_path.name} (efinal={ret["efinal"]:.1f} kJ/mol)')
 
 
 class fix_cp(Command):
@@ -189,6 +227,12 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         args.add_argument('--constraints', type=str, default='hbond',
                           choices=['hbond', 'all', 'none'],
                           help='constraints type for relaxation, default is %(default)s.')
+        args.add_argument('-nw', '--n-workers', type=int, default=1,
+                          help='number of workers for parallel relaxing, default is %(default)s.')
+        args.add_argument('--gpus', type=int, nargs='+', default=[0],
+                          help='GPU indices to use for parallel relaxing, default is %(default)s.')
+        args.add_argument('--n-task-per-gpu', type=int, default=1,
+                          help='max number of concurrent tasks on one GPU, default is %(default)s.')
         return args
     
     def process_args(self):
@@ -467,36 +511,20 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                 f'{self.args.outlier_dist}A from residue centroid:\n' + '\n'.join(report_lines))
         return out_lines
 
-    def _relax_one(self, fix_path: Path, cyclic_chains: List[str], disulfide_chains: List[str] = None):
-        """对修复后的 PDB 做 OpenMM 弛豫, 保护环化键/二硫键"""
-        from openmm import app as openmm_app
-
-        from lazydock.opmm.relax import ForceFieldMinimizer
-        if self.args.constraints == 'hbond':
-            constraints_obj = openmm_app.HBonds
-        elif self.args.constraints == 'all':
-            constraints_obj = openmm_app.AllBonds
-        else:
-            constraints_obj = None
-        relaxer = ForceFieldMinimizer(
-            stiffness=10,
-            max_iterations=self.args.max_iter,
-            tolerance=self.args.tolerance,
-            platform=self.args.platform,
-            constraints=constraints_obj,
-            cyclic_chains=cyclic_chains,
-            disulfide_chains=disulfide_chains,
-        )
-        result_pdb, ret = relaxer(str(fix_path), None, return_info=True)
-        with open(fix_path, 'w') as f:
-            f.write(result_pdb)
-        self.printf(f'relaxed: {fix_path.name} (efinal={ret["efinal"]:.1f} kJ/mol)')
-
     def main_process(self):
         pdb_paths = [Path(p).resolve() for p in get_paths_with_extension(
             self.args.batch_dir, ['.pdb'], name_substr=self.args.name)]
         put_log(f'get {len(pdb_paths)} pdb file(s) in {self.args.batch_dir}')
-        for pdb_path in tqdm(pdb_paths, total=len(pdb_paths)):
+        
+        # GPU 槽位: 把 --gpus 展开成 [g0 x n_task_per_gpu, g1 x n_task_per_gpu, ...],
+        # 任务按 index 轮询分配, 保证单卡可承载多个并发任务
+        gpu_slots = []
+        if self.args.gpus:
+            for g in self.args.gpus:
+                gpu_slots.extend([g] * max(1, self.args.n_task_per_gpu))
+        pool = TaskPool('process', self.args.n_workers, report_error=True).start()
+                
+        for task_i, pdb_path in tqdm(enumerate(pdb_paths), total=len(pdb_paths)):
             try:
                 out_lines = self._fix_one(pdb_path)
             except Exception:
@@ -513,9 +541,18 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
             self.printf(f'fixed: {pdb_path.name} -> {out_path.name}')
             if self.args.relax and self._last_fixed_chains:
                 if self._last_fixed_case == 'disulfide':
-                    self._relax_one(out_path, [], self._last_fixed_chains)
+                    pool.add_task(None, _fix_cp_relax_one, out_path, [], self._last_fixed_chains,
+                                  constraints=self.args.constraints, max_iter=self.args.max_iter,
+                                  tolerance=self.args.tolerance, platform=self.args.platform,
+                                  gpu_index=gpu_slots[task_i % len(gpu_slots)])
                 else:
-                    self._relax_one(out_path, self._last_fixed_chains, [])
+                    pool.add_task(None, _fix_cp_relax_one, out_path, self._last_fixed_chains, [],
+                                  constraints=self.args.constraints, max_iter=self.args.max_iter,
+                                  tolerance=self.args.tolerance, platform=self.args.platform,
+                                  gpu_index=gpu_slots[task_i % len(gpu_slots)])
+            pool.wait_till_free()
+        pool.wait_till_all_done()
+        pool.close(1)
 
     def _fix_one(self, pdb_path: Path):
         """按 case 分发单个文件修复: backbone / disulfide / auto."""
