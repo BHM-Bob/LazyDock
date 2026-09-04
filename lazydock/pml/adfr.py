@@ -22,18 +22,12 @@ def get_pdbqtstr_from_pdbstr(pdbstr: str, caller: str = 'prepare_ligand', entry_
     [cmd_options.extend(list(i)) for i in options]
     
     with tempfile.TemporaryDirectory() as tmpdir:
-        cwd = os.getcwd()
-        os.chdir(tmpdir)
-        opts_file('mol.pdb', 'w', way='str', data=pdbstr)
-        cmd = [
-            caller,
-            entry_param, 'mol.pdb',
-            '-o', 'mol.pdbqt',
-        ] + cmd_options
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        opts_file(os.path.join(tmpdir, 'mol.pdb'), 'w', way='str', data=pdbstr)
+        cmd = f"cd {tmpdir} && {caller} {entry_param} mol.pdb -o mol.pdbqt {' '.join(cmd_options)}"
+        proc = subprocess.Popen(cmd, shell=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         stdout, stderr = proc.communicate()
         output_str = stdout + stderr
-        os.chdir(cwd)
         if proc.returncode != 0 or not Path(f'{tmpdir}/mol.pdbqt').exists():
             return False, output_str
         return True, opts_file(f'{tmpdir}/mol.pdbqt', way='str')
