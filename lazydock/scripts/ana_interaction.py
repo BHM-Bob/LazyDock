@@ -27,7 +27,8 @@ from lazydock.pml.ligplus_interaction import \
 from lazydock.pml.plip_interaction import SUPPORTED_MODE as plip_mode
 from lazydock.pml.plip_interaction import \
     calcu_receptor_poses_interaction as calc_fn_plip
-from lazydock.scripts._script_utils_ import (Command, make_args_and_excute,
+from lazydock.scripts._script_utils_ import (Command, check_memory_usage,
+                                             make_args_and_excute,
                                              process_batch_dir_lst)
 
 
@@ -263,6 +264,8 @@ class vina_score(Command):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         
     def main_process(self):
+        if not check_memory_usage(self.args.n_workers):
+            return put_log('aborted by user.')
         # search for pdb files
         paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
         if not paths:
@@ -283,7 +286,9 @@ class vina_score(Command):
         df.set_index('path', inplace=True)
         # save results to csv
         for path in paths:
-            df.loc[path] = [os.path.relpath(path, self.args.batch_dir)] + pool.query_task(path, True, 30) # type: ignore
+            result = pool.query_task(path, True, 30)
+            if isinstance(result, list):
+                df.loc[path] = [os.path.relpath(path, self.args.batch_dir)] + result  # type: ignore
         df.to_csv(self.args.output, index=True)
         pool.close(1)
 

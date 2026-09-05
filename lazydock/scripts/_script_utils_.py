@@ -8,7 +8,7 @@ import argparse
 import os
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from mbapy_lite.base import (check_parameters_path, parameter_checker, put_err,
                              put_log)
@@ -51,6 +51,35 @@ def check_file_num_paried(r_paths: List[str], l_paths: List[str]):
         invalid_roots = '\n'.join([root for root, count in roots_count.items() if count!= 2])
         return invalid_roots
     return []
+
+
+def check_memory_usage(n_workers: int, per_task_mem_gb: float = 8.0, threshold: float = 0.75) -> Optional[bool]:
+    """
+    check whether n_workers * per_task_mem_gb exceeds threshold of system available memory.
+    if so, print warning and ask user to input 'y' to continue.
+    return True to continue, False to abort, None if memory info can not be obtained.
+    """
+    # get available memory in GB
+    available_mem_gb = None
+    try:
+        import psutil
+        available_mem_gb = psutil.virtual_memory().available / (1024 ** 3)
+    except ImportError:
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                meminfo = {line.split(':', 1)[0]: int(line.split()[1]) for line in f if ':' in line}
+            if 'MemAvailable' not in meminfo:
+                return put_err('can not get MemAvailable from /proc/meminfo, skip memory check.')
+            available_mem_gb = meminfo['MemAvailable'] / (1024 ** 2) # kB -> GB
+        except (FileNotFoundError, ValueError):
+            return put_err('can not get system available memory, skip memory check.')
+    required_mem_gb = n_workers * per_task_mem_gb
+    warn_limit_gb = available_mem_gb * threshold
+    if required_mem_gb <= warn_limit_gb:
+        return True
+    put_log(f'WARNING: estimated memory usage is {required_mem_gb:.1f} GB > {threshold*100:.0f}% '
+            f'({warn_limit_gb:.1f} GB) of system available memory ({available_mem_gb:.1f} GB)')
+    return input(f'continue docking with n_workers={n_workers}? (y/n): ').lower() == 'y'
 
 
 class Command:
