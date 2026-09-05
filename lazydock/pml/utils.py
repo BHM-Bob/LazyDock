@@ -60,5 +60,18 @@ def rotation_matrix_to_pymol_matrix(rotation_matrix, ref_center, move_center):
     return pymol_matrix
 
 
+class new_pml_context:
+    """PyMOL上下文管理器，进入和退出时执行cmd.reinitialize()以清理状态"""
+    def __enter__(self):
+        # 进入上下文前重置PyMOL状态
+        cmd.reinitialize()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # 退出上下文后重置PyMOL状态，无论是否发生异常
+        cmd.reinitialize()
+        return False
+
+
 if __name__ == '__main__':
     print(get_seq('data_tmp/pdb/RECEPTOR.pdb', False))
