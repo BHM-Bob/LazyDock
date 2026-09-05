@@ -4,7 +4,6 @@ LastEditors: BHM-Bob 2262029386@qq.com
 LastEditTime: 2025-02-18 16:01:18
 Description: 
 '''
-
 import argparse
 import os
 import time
@@ -13,16 +12,21 @@ from typing import Dict, List, Tuple, Union
 
 import pandas as pd
 import seaborn as sns
-from lazydock.pml.autodock_utils import DlgFile
-from lazydock.scripts._script_utils_ import Command, clean_path, excute_command
-from lazydock.web.dinc import run_dock_on_DINC_ensemble
-from lazydock.web.hdock import run_dock_on_HDOCK, run_dock_on_HPEPDOCK
 from matplotlib import pyplot as plt
 from mbapy_lite.base import Configs, put_err, put_log
 from mbapy_lite.file import get_paths_with_extension, opts_file, write_sheets
 from mbapy_lite.plot import save_show
 from mbapy_lite.web import TaskPool, random_sleep
 from tqdm import tqdm
+
+from lazydock.pml.adfr import perform_autodock_gpu_dock, perform_vina_dock
+from lazydock.pml.autodock_utils import DlgFile
+from lazydock.pml.utils import new_pml_context
+from lazydock.scripts._script_utils_ import (Command, check_memory_usage,
+                                             clean_path, excute_command,
+                                             process_batch_dir_lst)
+from lazydock.web.dinc import run_dock_on_DINC_ensemble
+from lazydock.web.hdock import run_dock_on_HDOCK, run_dock_on_HPEPDOCK
 
 
 class vina(Command):
@@ -55,7 +59,7 @@ class vina(Command):
         print(f'current: {config_path}')
         config = opts_file(config_path, way='lines')
         try:
-            out_name = list(filter(lambda x: x.startswith('out'), config))[0].split('=')[1].strip()
+            out_name = list(filter(lambda x: x.startswith('out'), config))[0].split('=')[1].strip() # type: ignore
         except:
             put_err(f'config {config_path} has no out_name: {config}.')
             return 
@@ -67,18 +71,185 @@ class vina(Command):
         os.system(cmd_string)
         
     def main_process(self):
+        if not check_memory_usage(self.args.n_workers):
+            return put_log('aborted by user.')
         configs_path = get_paths_with_extension(self.args.batch_dir, ['.txt'], name_substr=self.args.config_name)
         print(f'get {len(configs_path)} config(s) for docking')
         self.taskpool = TaskPool('threads', self.args.n_workers, report_error=True).start()
-        tasks = []
         for config_path in tqdm(configs_path, total=len(configs_path)):
-            tasks.append(self.taskpool.add_task(None, self.run_vina, Path(config_path), self.args.vina_name, self.args.vina_args))
-            while self.taskpool.count_waiting_tasks() > 1:
-                time.sleep(1)
-        self.taskpool.wait_till_tasks_done(tasks)
-        self.taskpool.close()
+            self.taskpool.add_task(None, self.run_vina, Path(config_path), self.args.vina_name, self.args.vina_args)
+            self.taskpool.wait_till_free()
+        self.taskpool.wait_till_all_done()
+        self.taskpool.close(1)
+
+
+class redock(Command):
+    HELP = """perform redock through vina or other method"""
+    def __init__(self, args: argparse.Namespace, printf=print) -> None:
+        super().__init__(args, printf, ['batch_dir'])
+        self.tasks = []
+        self.summary_df = pd.DataFrame(columns=['path', 'rel_path', 'energy'])
+        self.summary_df.set_index('path', inplace=True)
         
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
+                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
+        args.add_argument('-n', '--name', type = str, required=True,
+                          help="name for input complex file, such as `complex.pdb`.")
+        args.add_argument('-lc', '--ligand-chain', type = str, required=True,
+                          help=f"ligand chain.")
+        args.add_argument('-rc', '--receptor-chain', type = str, nargs='+', default=None,
+                          help="receptor chain, if not specified, will be others except ligand chain.")
+        args.add_argument('-sf', '--score-name', default='vina', choices=['vina', 'vinardo', 'ad4'],
+                          help='Score name for vina, default is %(default)s.')
+        args.add_argument('-gb', '--grid-buffer', type = float, default=4,
+                          help='grid size buffer for grid box, will expand the grid box from ligand by buffer size, default is %(default)s.')
+        args.add_argument('-e', '--exhaustiveness', type = int, default=32,
+                          help='exhaustiveness, default is %(default)s.')
+        args.add_argument('-np', '--n-poses', type = int, default=20,
+                          help='number of poses, default is %(default)s.')
+        args.add_argument('--suffix', type = str, default='_redock',
+                          help="suffix for output pdbqt file, default is %(default)s.")
+        args.add_argument('--n-pdb', type = int, default=1,
+                          help="number of pdb files to extract from pdbqt, sorted by score, such as a_redock_0.pdb, default is %(default)s.")
+        args.add_argument('--summary', type = str, default='redock_summary.csv',
+                          help='nenrgy summary table')
+        args.add_argument('-nw', '--n-workers', type = int, default=1,
+                          help="number of workers, default is %(default)s.")
+        return args
+
+    def process_args(self):
+        # process IO
+        self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
+    
+    def process_result(self, result_path: str, result):
+        if isinstance(result, tuple) and len(result) == 5:
+            result_pdbstr, rec_pdbstr, _, _, _ = result
+            opts_file(result_path, 'w', way='str', data = result_pdbstr)
+            dlg = DlgFile(None, result_pdbstr, True, True)
+            dlg.sort_pose() # sort by docking energy
+            for i, pose in enumerate(dlg.pose_lst[:self.args.n_pdb]):
+                path = Path(result_path)
+                pdb_path = str(path.parent / (path.stem + f'_{i}.pdb'))
+                opts_file(pdb_path, 'w', way='str', data = f'{rec_pdbstr}\nTER\n' + pose.as_pdb_string())
+                self.summary_df.loc[pdb_path] = [os.path.relpath(pdb_path, self.args.batch_dir), pose.energy]
+            return True
+        return put_err(f'invalid result: {result}', False)
         
+    def main_process(self):
+        if not check_memory_usage(self.args.n_workers):
+            return put_log('aborted by user.')
+        # search for pdb files
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        if not paths:
+            put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
+            return
+        # submit and run tasks parallel
+        pool = TaskPool('process', self.args.n_workers, report_error=True,
+                        mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
+        for path in tqdm(paths):
+            path = Path(path)
+            result_path = str(path.parent / (path.stem + f'{self.args.suffix}.pdbqt'))
+            pool.add_task(result_path, perform_vina_dock, self.args.score_name, self.args.grid_buffer, opts_file(path),
+                          self.args.ligand_chain, self.args.receptor_chain, self.args.exhaustiveness, self.args.n_poses)
+            while True:
+                result = pool.pull_task(return_name=True, block=False)
+                if not result or result == pool.TASK_NOT_RETURNED or result == pool.TASK_NOT_SUCCEEDED:
+                    break
+                result_path, result = result
+                self.process_result(result_path, result)
+                self.summary_df.to_csv(self.args.summary, index=True)
+            pool.wait_till_free()
+        pool.wait_till_all_done()
+        # retrieve results
+        for result_path in list(pool.tasks.keys()):
+            result = pool.query_task(result_path, True, 30) # type: ignore
+            self.process_result(result_path, result)
+        self.summary_df.to_csv(self.args.summary, index=True)
+
+
+class redock_gpu(redock):
+    def __init__(self, args, printf = print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
+                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
+        args.add_argument('-n', '--name', type = str, required=True,
+                          help="name for input complex file, such as `complex.pdb`.")
+        args.add_argument('-lc', '--ligand-chain', type = str, required=True,
+                          help=f"ligand chain.")
+        args.add_argument('-rc', '--receptor-chain', type = str, nargs='+', default=None,
+                          help="receptor chain, if not specified, will be others except ligand chain.")
+        args.add_argument('-gb', '--grid-buffer', type = float, default=4,
+                          help='grid size buffer for grid box, will expand the grid box from ligand by buffer size, default is %(default)s.')
+        args.add_argument('--seed', type = int, default=0,
+                          help='seed for random number, default is %(default)s.')
+        args.add_argument('--nev', type = int, default=2500000,
+                          help='Score evaluations (max.) per LGA run, default is %(default)s.')
+        args.add_argument('--stopstd', type = float, default=0.15,
+                          help='AutoStop energy standard deviation tolerance, default is %(default)s.')
+        args.add_argument('--heurmax', type = int, default=12000000,
+                          help='Asymptotic heuristics evals limit (smooth limit), default is %(default)s.')
+        args.add_argument('-np', '--n-poses', type = int, default=20,
+                          help='number of poses, default is %(default)s.')
+        args.add_argument('--suffix', type = str, default='_redock',
+                          help="suffix for output dlg file, default is %(default)s.")
+        args.add_argument('--n-pdb', type = int, default=1,
+                          help="number of pdb files to extract from pdbqt, sorted by score, such as a_redock_0.pdb, default is %(default)s.")
+        args.add_argument('--summary', type = str, default='redock_summary.csv',
+                          help='nenrgy summary table')
+        args.add_argument('-nw', '--n-workers', type = int, default=1,
+                          help="number of workers, default is %(default)s.")
+        args.add_argument('--gpus', type = int, nargs='+', default=[0],
+                          help="gpu ids, default is %(default)s.")
+        args.add_argument('--n-task-per-gpu', type = int, default=1,
+                          help="number of tasks per gpu, default is %(default)s.")
+        return args
+        
+    def main_process(self):
+        # search for pdb files
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        if not paths:
+            put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
+            return
+        # submit and run tasks parallel
+        ## adfr use pymol.cmd to optrate pdb, so use process to isolate each task
+        pool = TaskPool('process', self.args.n_workers, report_error=True,
+                        mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
+        # GPU 槽位: 把 --gpus 展开成 [g0 x n_task_per_gpu, g1 x n_task_per_gpu, ...],
+        # 任务按 index 轮询分配, 保证单卡可承载多个并发任务
+        gpu_slots = []
+        if self.args.gpus:
+            for g in self.args.gpus:
+                gpu_slots.extend([g] * max(1, self.args.n_task_per_gpu))
+        # launch tasks
+        for path_idx, path in tqdm(enumerate(paths), total=len(paths)):
+            path = Path(path)
+            result_path = str(path.parent / (path.stem + f'{self.args.suffix}.dlg'))
+            pool.add_task(result_path, perform_autodock_gpu_dock, opts_file(path),
+                          self.args.ligand_chain, self.args.receptor_chain, self.args.grid_buffer,
+                          seed=self.args.seed, nrun=self.args.n_poses, nev=self.args.nev,
+                          stopstd=self.args.stopstd, heurmax=self.args.heurmax,
+                          gpu_id=gpu_slots[path_idx % len(gpu_slots)])
+            while True:
+                result = pool.pull_task(return_name=True, block=False)
+                if not result or result == pool.TASK_NOT_RETURNED or result == pool.TASK_NOT_SUCCEEDED:
+                    break
+                result_path, result = result
+                self.process_result(result_path, result)
+                self.summary_df.to_csv(self.args.summary, index=True)
+            pool.wait_till_free()
+        pool.wait_till_all_done()
+        # retrieve results
+        for result_path in list(pool.tasks.keys()):
+            result = pool.query_task(result_path, True, 30) # type: ignore
+            self.process_result(result_path, result)
+        self.summary_df.to_csv(self.args.summary, index=True)
+
+
 def hdock_run_fn_warpper(result_prefix: str = 'HDOCK', result_name: str = 'HDOCK_all_results.tar.gz'):
     def ret_warpper(func):
         def core_wrapper(*args, **kwargs):
@@ -239,7 +410,7 @@ class dinc_ensemble(hdock):
                       args: argparse.ArgumentParser = None):
         w_dir = config_path.parent if isinstance(config_path, Path) else Path(config_path[0]).resolve().parent
         put_log(f'working in {w_dir}')
-        if args.use_config_box:
+        if args.use_config_box: # type: ignore
             box_center = {k:parameters[f'center_{k}'] for k in ['x', 'y', 'z']}
             box_size = {k:parameters[f'size_{k}'] for k in ['x', 'y', 'z']}
         else:
@@ -302,15 +473,13 @@ class convert_result(vina):
         print(f'get {len(input_paths)} input(s) for convert:\n', '\n'.join([f'{i+1}. {x}' for i, x in enumerate(input_paths)]))
         if input('start convert? (y/n) ').lower() != 'y':
             return 
-        tasks = []
         for input_path in tqdm(input_paths, total=len(input_paths)):
             input_path = Path(input_path)
             output_path = input_path.parent / f'{input_path.stem}{self.args.suffix}.{self.args.output_type}'
-            tasks.append(self.taskpool.add_task(None, convert_result_run_convert, input_path, output_path, self.args.method))
-            while self.taskpool.count_waiting_tasks() > 0:
-                time.sleep(1)
-        self.taskpool.wait_till_tasks_done(tasks)
-        self.taskpool.close()
+            self.taskpool.add_task(None, convert_result_run_convert, input_path, output_path, self.args.method)
+            self.taskpool.wait_till_free()
+        self.taskpool.wait_till_all_done()
+        self.taskpool.close(1)
 
 
 class cluster_result(vina):
@@ -378,19 +547,19 @@ class cluster_result(vina):
 
     def main_process(self):
         input_paths = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.name)
-        tasks = []
         for input_path in tqdm(input_paths, total=len(input_paths)):
             input_path = Path(input_path)
-            tasks.append(self.taskpool.add_task(None, getattr(self, f'cluster_on_{self.args.method}'),
-                                                input_path, self.args.range, self.args.repeat))
-            while self.taskpool.count_waiting_tasks() > 0:
-                time.sleep(1)
-        self.taskpool.wait_till_tasks_done(tasks)
-        self.taskpool.close()
+            self.taskpool.add_task(None, getattr(self, f'cluster_on_{self.args.method}'),
+                                                input_path, self.args.range, self.args.repeat)
+            self.taskpool.wait_till_free()
+        self.taskpool.wait_till_all_done()
+        self.taskpool.close(1)
 
 
 _str2func = {
     'vina': vina,
+    'redock': redock,
+    'redock-gpu': redock_gpu,
     'hdock': hdock,
     'hpepdock': hpepdock,
     'dinc-ensemble': dinc_ensemble,
