@@ -28,8 +28,8 @@ class smiles2pdb(Command):
         super().__init__(args, printf)
         # Check if RDKit is available
         try:
-            from rdkit import Chem
-            from rdkit.Chem import AllChem
+            from rdkit import Chem # type: ignore
+            from rdkit.Chem import AllChem # type: ignore
         except ImportError:
             put_err('RDKit is required for SMILES to PDB conversion. Please install it with: pip install rdkit', _exit=True)
         # Store RDKit modules for later use
@@ -233,6 +233,8 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                           help='GPU indices to use for parallel relaxing, default is %(default)s.')
         args.add_argument('--n-task-per-gpu', type=int, default=1,
                           help='max number of concurrent tasks on one GPU, default is %(default)s.')
+        args.add_argument('-F', '--force', action='store_true',
+                          help='force overwrite output files, default is %(default)s.')
         return args
     
     def process_args(self):
@@ -260,8 +262,16 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                         serial2conect.setdefault(nums[0], []).extend(nums[1:])
         return atoms, atom_lines, serial2conect
     
+    @staticmethod
+    def _has_cyclic_mark(sN, sC, sOXT, serial2conect):
+        """判断链是否带环化标记: 头尾 N-C 间已有 CONECT 键, 或链尾残基有 OXT(线性C端残留)"""
+        if sOXT:
+            return True
+        return (sC in serial2conect.get(sN, [])) or (sN in serial2conect.get(sC, []))
+
     def _detect_cyclic_sites(self, atoms, serial2conect):
-        """检测候选环化位点: 链的 C端残基 C(=O) 与 N端残基 N 距离 < min_cn 且有 OXT"""
+        """检测候选环化位点: 链的 C端残基 C(=O) 与 N端残基 N 距离 < min_cn.
+        OXT 非必需(上游输出可能已无 OXT 且已带头尾 CONECT), 但记录是否存在供后续删除."""
         from collections import defaultdict
 
         # 按链收集残基
@@ -276,9 +286,10 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                 continue
             first, last = resis[0], resis[-1]
             r_first, r_last = residues[first], residues[last]
-            if not (r_first.get('N') and r_last.get('C') and r_last.get('OXT')):
+            if not (r_first.get('N') and r_last.get('C')):
                 continue
-            sN, sC, sOXT = r_first['N'], r_last['C'], r_last['OXT']
+            sN, sC = r_first['N'], r_last['C']
+            sOXT = r_last.get('OXT', None)
             xN = atoms[sN][3:6]; xC = atoms[sC][3:6]
             d = ((xN[0]-xC[0])**2 + (xN[1]-xC[1])**2 + (xN[2]-xC[2])**2) ** 0.5
             if d < self.args.min_cn:
@@ -288,6 +299,10 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                     'sN': sN, 'sC': sC, 'sOXT': sOXT,
                     'd_cn': d,
                 })
+            elif self._has_cyclic_mark(sN, sC, sOXT, serial2conect):
+                # 有环化标记(头尾 CONECT/OXT)但空间未闭合: 构象问题而非拓扑问题, 报告并跳过
+                put_log(f'chain {chain}: cyclic mark found but C-N dist={d:.1f}A >= min_cn, '
+                        f'peptide is NOT spatially closed, skip (cannot fix topology on an open conformation)')
         return sites
 
     def _detect_disulfide_sites(self, atoms, serial2conect):
@@ -346,9 +361,14 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         for s in sites:
             new_conect.setdefault(s['sC'], set()).add(s['sN'])
             new_conect.setdefault(s['sN'], set()).add(s['sC'])
-            put_log(f"{pdb_path.name}: fix chain {s['chain']}: add peptide bond "
-                    f"C(res{s['last_resi']},serial{s['sC']}) - N(res{s['first_resi']},serial{s['sN']}), "
-                    f"C-N dist={s['d_cn']:.3f}A, removed OXT(serial{s['sOXT']})")
+            if s['sOXT']:
+                put_log(f"{pdb_path.name}: fix chain {s['chain']}: add peptide bond "
+                        f"C(res{s['last_resi']},serial{s['sC']}) - N(res{s['first_resi']},serial{s['sN']}), "
+                        f"C-N dist={s['d_cn']:.3f}A, removed OXT(serial{s['sOXT']})")
+            else:
+                put_log(f"{pdb_path.name}: fix chain {s['chain']}: add peptide bond "
+                        f"C(res{s['last_resi']},serial{s['sC']}) - N(res{s['first_resi']},serial{s['sN']}), "
+                        f"C-N dist={s['d_cn']:.3f}A, no OXT")
         
         # 3. 写输出
         lines = []
@@ -525,6 +545,10 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         pool = TaskPool('process', self.args.n_workers, report_error=True).start()
                 
         for task_i, pdb_path in tqdm(enumerate(pdb_paths), total=len(pdb_paths)):
+            out_path = pdb_path.with_name(pdb_path.stem + self.args.suffix + '.pdb')
+            if out_path.exists() and not self.args.force:
+                continue
+            
             try:
                 out_lines = self._fix_one(pdb_path)
             except Exception:
@@ -534,8 +558,6 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                 continue
             # 所有 case 修复逻辑之后、relax 之前: 删除离群原子(可选)
             out_lines = self._remove_outlier_atoms_from_lines(out_lines, pdb_path)
-            # batch 模式下每个文件输出到同目录 + suffix, 避免固定 output 互相覆盖
-            out_path = pdb_path.with_name(pdb_path.stem + self.args.suffix + '.pdb')
             with open(out_path, 'w') as f:
                 f.writelines(out_lines)
             self.printf(f'fixed: {pdb_path.name} -> {out_path.name}')
