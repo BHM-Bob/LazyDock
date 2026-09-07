@@ -460,6 +460,9 @@ class mmpbsa(simple):
                               help=f"gmx_MMPBSA input file name in each sub-folder, such as mmpbsa.in")
             args.add_argument('-o', '--output', type = str, default='MMPBSA_FINAL_RESULTS',
                               help=f"gmx_MMPBSA output file name, such as MMPBSA_FINAL_RESULTS")
+            args.add_argument('-lm', '--ligand-mol2', type = str, default=None,
+                              help=f"ligand mol2 file name in each sub-folder, ONLY used to perform QM/MM calculation;\
+if provided and not found, will use MDAnalysis to export from Gromacs topology file.")
             args.add_argument('-np', '--np', type = int, required=True,
                               help=f"npi np argument for gmx_MMPBSA")
             args.add_argument('-ph', '--placeholder', default=None, type=str,
@@ -553,16 +556,16 @@ class mmpbsa(simple):
     def perform_analysis(self, top_path, traj_path, args):
         wdir = os.path.dirname(top_path)
         # check results
-        if os.path.exists(os.path.join(wdir, self.args.output+'.csv')) and not self.args.force:
-            put_log(f"{self.args.output}.csv already exists, skip.")
+        if os.path.exists(os.path.join(wdir, args.output+'.csv')) and not args.force:
+            put_log(f"{args.output}.csv already exists, skip.")
             return
         # check placeholder
-        if self.args.placeholder and os.path.exists(os.path.join(wdir, self.args.placeholder)):
-            put_log(f"{self.args.placeholder} already exists, skip.")
+        if args.placeholder and os.path.exists(os.path.join(wdir, args.placeholder)):
+            put_log(f"{args.placeholder} already exists, skip.")
             return
         # write placeholder
-        if self.args.placeholder:
-            opts_file(os.path.join(wdir, self.args.placeholder), 'w', way='str', data=wdir)
+        if args.placeholder:
+            opts_file(os.path.join(wdir, args.placeholder), 'w', way='str', data=wdir)
         # get receptor and ligand atoms index (supports interleaved chains, e.g. ligand between two receptor chains)
         put_log(f'loading {traj_path}')
         u = Universe(top_path, traj_path)
@@ -572,24 +575,30 @@ class mmpbsa(simple):
         # write index file for receptor and ligand directly, both group numbers are 0-based 0/1
         gmx = Gromacs(working_dir=wdir)
         if not self.write_mmpbsa_ndx(gmx.working_dir, rec_idx, lig_idx):
-            if self.args.placeholder:
-                os.remove(os.path.join(wdir, self.args.placeholder))
+            if args.placeholder:
+                os.remove(os.path.join(wdir, args.placeholder))
             return
         # check MMPBSA parameters input file
-        if not os.path.exists(os.path.join(wdir, self.args.input)):
-            if os.path.exists(self.args.input):
-                input_name = os.path.basename(self.args.input)
-                shutil.copy(self.args.input, os.path.join(wdir, input_name))
+        if not os.path.exists(os.path.join(wdir, args.input)):
+            if os.path.exists(args.input):
+                input_name = os.path.basename(args.input)
+                shutil.copy(args.input, os.path.join(wdir, input_name))
             else:
-                put_err(f"input file {self.args.input} not exists, skip.")
-                if self.args.placeholder:
-                    os.remove(os.path.join(wdir, self.args.placeholder))
+                put_err(f"input file {args.input} not exists, skip.")
+                if args.placeholder:
+                    os.remove(os.path.join(wdir, args.placeholder))
                 return
         else:
-            input_name = self.args.input
+            input_name = args.input
+        # check and export ligand.mol2 if defined
+        if args.ligand_mol2:
+            if not os.path.exists(os.path.join(wdir, args.ligand_mol2)):
+                put_log(f"ligand mol2 file {args.ligand_mol2} not exists, export from {top_path}.")
+                lig_mol = u.atoms[lig_idx]
+                lig_mol.write(os.path.join(wdir, args.ligand_mol2))
         # call gmx_MMPBSA
-        cmd_str = f'gmx_MMPBSA -O -i {input_name} -cs {self.args.top_name} -ct {self.args.traj_name} -ci mmpbsa.ndx -cg 0 1 -cp topol.top -o {self.args.output}.dat -eo {self.args.output}.csv -nogui'
-        os.system(f'cd "{gmx.working_dir}" && mpirun -np {self.args.np} {cmd_str}')
+        cmd_str = f'gmx_MMPBSA -O -i {input_name} -cs {args.top_name} -ct {args.traj_name} {f"-lm {args.ligand_mol2} " if args.ligand_mol2 else " "}-ci mmpbsa.ndx -cg 0 1 -cp topol.top -o {args.output}.dat -eo {args.output}.csv -nogui'
+        os.system(f'cd "{gmx.working_dir}" && mpirun -np {args.np} {cmd_str}')
         
     def main_process(self):
         # load origin dfs from data file
