@@ -166,14 +166,14 @@ def check_bond_lengths(mol: 'ob.OBMol', args, report_atom_nums=None) -> List[dic
     return errors
 
 
-def check_one_file(pdb_path, args, report_atom_nums=None) -> dict:
+def check_one_file(pdb_path: Path, args, report_atom_nums=None) -> dict:
     """对单个 PDB 文件执行完整检测, 返回结果 dict(供并行调用)"""
     conv = ob.OBConversion()
-    if not conv.SetInAndOutFormats('pdb', 'pdb'):
+    if not conv.SetInAndOutFormats(pdb_path.suffix[1:], 'pdb'):
         put_err(f'failed to set pdb format, exit.', _exit=True)
     mol = ob.OBMol()
     if not conv.ReadFile(mol, str(pdb_path)):
-        put_err(f'failed to read pdb file: {pdb_path}', _exit=True)
+        put_err(f'failed to read file: {pdb_path}', _exit=True)
     if args.add_h:
         mol.AddHydrogens()  # openbabel 补全缺失的 H
 
@@ -222,6 +222,10 @@ Filtering:
                           help="dir which contains input pdb files or sub-folders containing input pdb files, default is %(default)s.")
         args.add_argument('-n', '--name', type=str, default='',
                           help="input pdb file name substring, default is %(default)s.")
+        args.add_argument('-ft', '--file-type', type=str, nargs='+', default=['pdb'],
+                          help='input pdb file type, default is %(default)s.')
+        args.add_argument('--file-name-exact-match', action='store_true',
+                          help='only check files with exact name match, default is %(default)s.')
         args.add_argument('-o', '--output', type=str, default=None,
                           help='output json file path, default is %(default)s, which means print to console.')
         args.add_argument('--summary', type=str, choices=['each', 'detail'], default=None,
@@ -302,7 +306,8 @@ Filtering:
     
     def main_process(self):
         pdb_paths = [Path(p).resolve() for p in get_paths_with_extension(
-            self.args.batch_dir, ['.pdb'], name_substr=self.args.name)]
+            self.args.batch_dir, self.args.file_type, name_substr=self.args.name,
+            exact_match=self.args.file_name_exact_match)]
         put_log(f'get {len(pdb_paths)} pdb file(s) in {self.args.batch_dir}')
         
         tasks = []
