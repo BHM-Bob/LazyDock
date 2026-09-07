@@ -269,9 +269,10 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
             return True
         return (sC in serial2conect.get(sN, [])) or (sN in serial2conect.get(sC, []))
 
-    def _detect_cyclic_sites(self, atoms, serial2conect):
+    def _detect_cyclic_sites(self, atoms, serial2conect, only_chains=None):
         """检测候选环化位点: 链的 C端残基 C(=O) 与 N端残基 N 距离 < min_cn.
-        OXT 非必需(上游输出可能已无 OXT 且已带头尾 CONECT), 但记录是否存在供后续删除."""
+        OXT 非必需(上游输出可能已无 OXT 且已带头尾 CONECT), 但记录是否存在供后续删除.
+        only_chains: None 检测所有链; 有值时仅检测对应链, 链不存在时报告并跳过."""
         from collections import defaultdict
 
         # 按链收集残基
@@ -279,8 +280,15 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         for serial, (chain, resi, name, *_coords) in atoms.items():
             chain_residues[chain].setdefault(resi, {})[name] = serial
         
+        if only_chains:
+            for c in only_chains:
+                if c not in chain_residues:
+                    put_log(f'chain {c} not found in this complex, skip.')
+        
         sites = []
         for chain, residues in sorted(chain_residues.items()):
+            if only_chains and chain not in only_chains:
+                continue
             resis = sorted(residues)
             if len(resis) < 2:
                 continue
@@ -305,15 +313,23 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                         f'peptide is NOT spatially closed, skip (cannot fix topology on an open conformation)')
         return sites
 
-    def _detect_disulfide_sites(self, atoms, serial2conect):
+    def _detect_disulfide_sites(self, atoms, serial2conect, only_chains=None):
         """检测候选二硫键位点: 链内恰 2 个 CYS, 且 SG-SG 有 CONECT 或距离 < ss_max_dist.
-        返回 sites 列表(dict: chain/res1/res2/sS1/sS2/d_ss)."""
+        返回 sites 列表(dict: chain/res1/res2/sS1/sS2/d_ss).
+        only_chains: None 检测所有链; 有值时仅检测对应链, 链不存在时报告并跳过."""
         chain_residues = defaultdict(dict)  # chain -> {resi: {name: serial}}
         for serial, (chain, resi, name, *_coords) in atoms.items():
             chain_residues[chain].setdefault(resi, {})[name] = serial
 
+        if only_chains:
+            for c in only_chains:
+                if c not in chain_residues:
+                    put_log(f'chain {c} not found in this complex, skip.')
+
         sites = []
         for chain, residues in sorted(chain_residues.items()):
+            if only_chains and chain not in only_chains:
+                continue
             # 恰 2 个 CYS(含 SG 的残基)
             cys_resis = [r for r, d in residues.items() if 'SG' in d]
             if len(cys_resis) != 2:
@@ -337,12 +353,8 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
     
     def _fix_backbone(self, pdb_path: Path):
         atoms, atom_lines, serial2conect = self._parse_pdb(str(pdb_path))
-        sites = self._detect_cyclic_sites(atoms, serial2conect)
-        
-        # 链过滤
-        if self.args.only_chains:
-            sites = [s for s in sites if s['chain'] in self.args.only_chains]
-        
+        sites = self._detect_cyclic_sites(atoms, serial2conect, self.args.only_chains)
+
         if not sites:
             put_log(f'{pdb_path.name}: no cyclic peptide closure site found, skip.')
             return None
@@ -393,10 +405,7 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         """修复二硫键环: 保留全部原子(不删 OXT), 仅确保 SG-SG 间存在 CONECT 键.
         返回 (lines, sites)."""
         atoms, atom_lines, serial2conect = self._parse_pdb(str(pdb_path))
-        sites = self._detect_disulfide_sites(atoms, serial2conect)
-
-        if self.args.only_chains:
-            sites = [s for s in sites if s['chain'] in self.args.only_chains]
+        sites = self._detect_disulfide_sites(atoms, serial2conect, self.args.only_chains)
 
         if not sites:
             put_log(f'{pdb_path.name}: no disulfide site found, skip.')
@@ -586,16 +595,12 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
             return self._fix_backbone(pdb_path)
         # auto: 前置检测分流
         atoms, _, serial2conect = self._parse_pdb(str(pdb_path))
-        disu_sites = self._detect_disulfide_sites(atoms, serial2conect)
-        if self.args.only_chains:
-            disu_sites = [s for s in disu_sites if s['chain'] in self.args.only_chains]
+        disu_sites = self._detect_disulfide_sites(atoms, serial2conect, self.args.only_chains)
         if disu_sites:
             put_log(f'{pdb_path.name}: auto -> disulfide')
             self._last_fixed_case = 'disulfide'
             return self._fix_disulfide(pdb_path)
-        cyc_sites = self._detect_cyclic_sites(atoms, serial2conect)
-        if self.args.only_chains:
-            cyc_sites = [s for s in cyc_sites if s['chain'] in self.args.only_chains]
+        cyc_sites = self._detect_cyclic_sites(atoms, serial2conect, self.args.only_chains)
         if cyc_sites:
             put_log(f'{pdb_path.name}: auto -> backbone')
             self._last_fixed_case = 'backbone'
