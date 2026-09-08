@@ -167,7 +167,7 @@ class redock(Command):
         for result_path in list(pool.tasks.keys()):
             result = pool.query_task(result_path, True, 30) # type: ignore
             self.process_result(result_path, result)
-        self.summary_df.to_csv(self.args.summary, index=True)
+        self.summary_df.to_csv(os.path.join(self.args.batch_dir, self.args.summary), index=True)
 
 
 class redock_gpu(redock):
@@ -248,7 +248,7 @@ class redock_gpu(redock):
         for result_path in list(pool.tasks.keys()):
             result = pool.query_task(result_path, True, 30) # type: ignore
             self.process_result(result_path, result)
-        self.summary_df.to_csv(self.args.summary, index=True)
+        self.summary_df.to_csv(os.path.join(self.args.batch_dir, self.args.summary), index=True)
 
 
 def hdock_run_fn_warpper(result_prefix: str = 'HDOCK', result_name: str = 'HDOCK_all_results.tar.gz'):
