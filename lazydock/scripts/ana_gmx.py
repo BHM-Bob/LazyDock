@@ -450,7 +450,10 @@ class mmpbsa(simple):
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
+        # receptor chains, will update after get_complex_atoms_index,
+        # NO LOCK, do note use this in multi-task on threads mode
         
+        self.rec_chains_no_lock: List[str] = None
     @staticmethod
     def make_args(args: argparse.ArgumentParser, mmpbsa_args: bool = True):
         args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
@@ -485,12 +488,13 @@ if provided and not found, will use MDAnalysis to export from Gromacs topology f
         
     def get_complex_atoms_index(self, u: Universe):
         if self.args.receptor_chain_name is None:
-            self.args.receptor_chain_name = list(set(u.atoms.chainIDs) - set([self.args.ligand_chain_name]) - set(self.args.exclude_chain_name))
+            rec_chains = list(set(u.atoms.chainIDs) - set([self.args.ligand_chain_name]) - set(self.args.exclude_chain_name))
         else:
-            self.args.receptor_chain_name = list(set(self.args.receptor_chain_name))
-        rec_idx = np.isin(u.atoms.chainIDs, self.args.receptor_chain_name)
+            rec_chains = list(set(self.args.receptor_chain_name))
+        self.rec_chains_no_lock = rec_chains
+        rec_idx = np.isin(u.atoms.chainIDs, rec_chains)
         lig_idx = u.atoms.chainIDs == self.args.ligand_chain_name
-        put_log(f"receptor ({self.args.receptor_chain_name}) atoms: {rec_idx.sum()}, ligand ({self.args.ligand_chain_name}) atoms: {lig_idx.sum()}.")
+        put_log(f"receptor ({rec_chains}) atoms: {rec_idx.sum()}, ligand ({self.args.ligand_chain_name}) atoms: {lig_idx.sum()}.")
         return rec_idx, lig_idx
     
     def get_index_range(self, idx: np.ndarray):
@@ -716,7 +720,7 @@ class interaction(simple_analysis, mmpbsa):
         u, u2 = Universe(top_path, traj_path), Universe(gro_path)
         u.atoms.residues.resids = u2.atoms.residues.resids
         rec_idx, lig_idx = self.get_complex_atoms_index(u) # this will assign rec chain if is None
-        self.args.alter_receptor_chain = self.args.receptor_chain_name # assign alter_receptor_chain
+        self.args.alter_receptor_chain = self.rec_chains_no_lock # assign alter_receptor_chain
         if rec_idx.sum() == 0 or lig_idx.sum() == 0:
             return put_err(f"no atoms found in receptor or ligand, skip.", (None, None))
         complex_ag = u.atoms[rec_idx | lig_idx]
