@@ -87,14 +87,16 @@ class protein(Command):
             # STEP 0.1: center complex.pdb by obabel.
             ipath, opath = str(protein_path), str(protein_path.parent / f'0.1_{protein_path.stem}_center.pdb')
             if not os.path.exists(opath):
-                os.system(f'obabel -ipdb {ipath} -opdb -O {opath} -c')
+                gmx.run_cmd_with_expect(f'obabel -ipdb {ipath} -opdb -O {opath} -c')
+            else:
+                print(f'{opath} already exists, skip centering.')
             # step 0.2: align complex.pdb with xyz axes by lazydock.
             ipath, opath = opath, str(protein_path.parent / f'0.2_{protein_path.stem}_center_align_axis.pdb')
             if not os.path.exists(opath):
+                cmd.reinitialize()
                 cmd.load(ipath, 'protein')
                 align_pose_to_axis('protein')
                 cmd.save(opath, 'protein')
-                cmd.reinitialize()
             # STEP 1: Prepare the Protein Topology
             ff_dir = prepare_ff_dir(protein_path.parent, self.args.ff_dir)
             if ff_dir is None:
