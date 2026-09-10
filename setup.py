@@ -55,6 +55,8 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
         # "Programming Language :: Python :: 3 :: Only",
     ],
         
@@ -62,7 +64,7 @@ setup(
     description = "A Python package for molecular docking",
     long_description = long_description,
     long_description_content_type='text/markdown',
-    python_requires=">=3.7, <3.13",
+    python_requires=">=3.7, <3.15",
     license = "MIT Licence",
 
     url = __url__,
