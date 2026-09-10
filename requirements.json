@@ -6,12 +6,22 @@
         "nicegui",
         "openbabel-wheel",
         "networkx>=3",
+        "rich>=10.0.0",
         "DuIvyTools>=0.6.0",
         "toml",
         "MDAnalysis>=2.9.0",
         "compas>=2.8.0",
         "fplip>=1.1.0",
-        "vina>=1.2.5"
+        "vina>=1.2.5",
+        "alchemlyb>=2.0.0",
+        "pymbar>=4.0.1",
+        "parmed>=4.1.0",
+        "toff==0.2.0",
+        "rdkit",
+        "openff-toolkit>=0.14.2",
+        "openmmforcefields>=0.14.1",
+        "espaloma==0.4.0",
+        "pyyaml"
     ],
     "all":
     [
