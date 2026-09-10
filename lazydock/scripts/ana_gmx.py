@@ -3,8 +3,9 @@ import copy
 import os
 import shutil
 from pathlib import Path
+from threading import Lock
 import time
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 if 'MBAPY_PLT_AGG' in os.environ:
     import matplotlib
@@ -14,6 +15,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.ticker import FuncFormatter
+from mbapy_lite.plot import save_show
+from mbapy_lite.base import put_err, put_log, split_list
+from mbapy_lite.file import get_paths_with_extension, opts_file
+from mbapy_lite.web import TaskPool
+from MDAnalysis import AtomGroup, Universe
+from scipy.stats import gaussian_kde
+from tqdm import tqdm
+from pymol import cmd
+
 from lazydock.algorithm.utils import vectorized_sliding_average
 from lazydock.gmx.mda.convert import PDBConverter, FakeAtomGroup
 from lazydock.gmx.run import Gromacs
@@ -26,14 +37,7 @@ from lazydock.scripts._script_utils_ import (Command, check_file_num_paried,
                                              process_batch_dir_lst)
 from lazydock.scripts.ana_interaction import (plip_mode, pml_mode,
                                               simple_analysis)
-from matplotlib.ticker import FuncFormatter
-from mbapy_lite.plot import save_show
-from mbapy_lite.base import put_err, put_log, split_list
-from mbapy_lite.file import get_paths_with_extension, opts_file
-from mbapy_lite.web import TaskPool
-from MDAnalysis import AtomGroup, Universe
-from scipy.stats import gaussian_kde
-from tqdm import tqdm
+from lazydock.gmx.qmmm_charge import parse_pdb_residue_serials, qm_charges, update_input_file
 
 
 class trjconv(Command):
@@ -452,8 +456,10 @@ class mmpbsa(simple):
         super().__init__(args, printf)
         # receptor chains, will update after get_complex_atoms_index,
         # NO LOCK, do note use this in multi-task on threads mode
+        self.rec_chains_no_lock: Optional[List[str]] = None
+        # pymol lock, pymol is shared in threads, so make sure it is locked when using pymol
+        self.pymol_lock = Lock()
         
-        self.rec_chains_no_lock: List[str] = None
     @staticmethod
     def make_args(args: argparse.ArgumentParser, mmpbsa_args: bool = True):
         args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
@@ -463,9 +469,10 @@ class mmpbsa(simple):
                               help=f"gmx_MMPBSA input file name in each sub-folder, such as mmpbsa.in")
             args.add_argument('-o', '--output', type = str, default='MMPBSA_FINAL_RESULTS',
                               help=f"gmx_MMPBSA output file name, such as MMPBSA_FINAL_RESULTS")
-            args.add_argument('-lm', '--ligand-mol2', type = str, default=None,
-                              help=f"ligand mol2 file name in each sub-folder, ONLY used to perform QM/MM calculation;\
-if provided and not found, will use MDAnalysis to export from Gromacs topology file.")
+            args.add_argument('--auto-qm-charge', default=False, action='store_true',
+                              help='auto calculate qmmm charge for ligand/rec QM region, rely on _GMXMMPBSA_LIG.pdb, _GMXMMPBSA_REC.pdb and _GMXMMPBSA_COM.pdb, default is %(default)s.')
+            args.add_argument('--qm-dist', type = int, default=5,
+                              help=f"QM distance")
             args.add_argument('-np', '--np', type = int, required=True,
                               help=f"npi np argument for gmx_MMPBSA")
             args.add_argument('-ph', '--placeholder', default=None, type=str,
@@ -594,15 +601,33 @@ if provided and not found, will use MDAnalysis to export from Gromacs topology f
                 return
         else:
             input_name = args.input
-        # check and export ligand.mol2 if defined
-        if args.ligand_mol2:
-            if not os.path.exists(os.path.join(wdir, args.ligand_mol2)):
-                put_log(f"ligand mol2 file {args.ligand_mol2} not exists, export from {top_path}.")
-                lig_mol = u.atoms[lig_idx]
-                lig_mol.write(os.path.join(wdir, args.ligand_mol2))
+        # auto calculate QM region charge
+        if args.auto_qm_charge:
+            if any([not os.path.exists(os.path.join(wdir, f)) for f in ['_GMXMMPBSA_COM.pdb', '_GMXMMPBSA_LIG.pdb', '_GMXMMPBSA_REC.pdb']]):
+                put_err(f"QM/MMGBSA: _GMXMMPBSA_COM.pdb or _GMXMMPBSA_LIG.pdb or _GMXMMPBSA_REC.pdb not exists in {wdir},"\
+"lazydock pipeline only support QM/MMGBSA when MMGB/PBSA was performed by gmx_MMPBSA, skip.")
+                if args.placeholder:
+                    os.remove(os.path.join(wdir, args.placeholder))
+                return
+            # pymol within threads need run-once-a-time, else will make conflict
+            with self.pymol_lock:
+                cmd.reinitialize()
+                cmd.load(os.path.join(wdir, '_GMXMMPBSA_LIG.pdb'), 'ligand')
+                cmd.load(os.path.join(wdir, '_GMXMMPBSA_REC.pdb'), 'receptor')
+                rec_qm_n_atoms = cmd.select('rec_sel', f'byres (receptor within {args.qm_dist} of ligand)')
+                lig_qm_n_atoms = cmd.select('lig_sel', f'byres (ligand within {args.qm_dist} of rec_sel)')
+                put_log(f"QM/MMGBSA: select {rec_qm_n_atoms} receptor atoms as QM region atoms, across chains: {cmd.get_chains('rec_sel')}.")
+                put_log(f"QM/MMGBSA: select {lig_qm_n_atoms} ligand atoms as QM region atoms, in chain: {cmd.get_chains('lig_sel')}.")
+                def keys_of(sel):
+                    return sorted({(a.chain, int(a.resi), a.resn) for a in cmd.get_model(sel).atom})
+                rec_keys, lig_keys = keys_of('rec_sel'), keys_of('lig_sel')
+                res_serials = parse_pdb_residue_serials(os.path.join(wdir, '_GMXMMPBSA_COM.pdb'))
+                qr, ql, qc_, _, _ = qm_charges(os.path.join(wdir, 'COM.prmtop'), res_serials, rec_keys, lig_keys)
+                update_input_file(os.path.join(wdir, input_name), qr, ql, qc_)     # 就地写回 .in &gb 段
+                put_log(f'QM charge: rec={qr} lig={ql} com={qc_}')
         # call gmx_MMPBSA
-        cmd_str = f'gmx_MMPBSA -O -i {input_name} -cs {args.top_name} -ct {args.traj_name} {f"-lm {args.ligand_mol2} " if args.ligand_mol2 else " "}-ci mmpbsa.ndx -cg 0 1 -cp topol.top -o {args.output}.dat -eo {args.output}.csv -nogui'
-        os.system(f'cd "{gmx.working_dir}" && mpirun -np {args.np} {cmd_str}')
+        cmd_str = f'gmx_MMPBSA -O -i {input_name} -cs {args.top_name} -ct {args.traj_name} -ci mmpbsa.ndx -cg 0 1 -cp topol.top -o {args.output}.dat -eo {args.output}.csv -nogui'
+        gmx.run_cmd_with_expect(f'mpirun -np {args.np} {cmd_str}')
         
     def main_process(self):
         # load origin dfs from data file
