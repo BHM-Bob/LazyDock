@@ -87,13 +87,10 @@ the officially recommended one and avoids toolchain conflicts.
 
 ### 2. pip extras (from the `fep` requirements group)
 ```bash
+# manually:
 pip install 'MDRestraintsGenerator>=0.2.1' --no-deps
-pip install -e ".[fep]"
-# or, manually:
-pip install 'MDRestraintsGenerator>=0.2.1' --no-deps
-pip install alchemlyb>=2.0.0 pymbar>=4.0.1  \
-            parmed>=4.1.0 pandas toff==0.2.0 rdkit openff-toolkit \
-            openmmforcefields pyyaml
+# bellow are already installed by requirements.json
+pip install 'alchemlyb>=2.0.0' 'pymbar>=4.0.1' 'parmed>=4.1.0' 'toff==0.2.0' rdkit openmmforcefields pyyaml
 ```
 
 > **Known issue**: `MDRestraintsGenerator==0.2.1` declares `scipy < 1.8` in its
