@@ -17,6 +17,8 @@ class Config(BaseInfo):
         self.named_paths = {
             'ligplus_dir': None,
             'sobtop_dir': None,
+            'prepare_gpf': None,
+            'autodock_gpu': None,
         }
         self.named_accounts = {
             'CGenFF': {
