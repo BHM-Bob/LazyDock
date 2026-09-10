@@ -1,2 +1,7 @@
 include requirements.json
 include lazydock/storage/lazydock-cli-scripts-list.json
+
+# ABFE runtime data (read via lazydock/gmx/abfe/_home.py at import time;
+# must be shipped with the package or prepare-abfe/run-abfe fail at runtime)
+recursive-include lazydock/gmx/abfe/data *
+recursive-include lazydock/gmx/abfe/mdp_templates *.mdp

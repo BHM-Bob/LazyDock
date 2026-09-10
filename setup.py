@@ -73,7 +73,18 @@ setup(
     
     packages = find_packages(exclude=["test", "test."]),
     include_package_data = True, # define in MANIFEST.in file
-    package_data = {"lazydock": dynlib},
+    package_data = {
+        "lazydock": dynlib,
+        # ABFE runtime data must be shipped in wheels as well (not only sdist);
+        # include_package_data relies on MANIFEST.in which drives sdist, but
+        # explicit package_data guarantees the files land in bdist_wheel too.
+        "lazydock.gmx.abfe": [
+            "data/gmx_ff/*.tar.gz",
+            "data/gmx_water_models/*",
+            "data/gmx_water_models/**/*",
+            "mdp_templates/**/*.mdp",
+        ],
+    },
     
     entry_points={
         "console_scripts": [
