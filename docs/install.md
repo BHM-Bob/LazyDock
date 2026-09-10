@@ -67,6 +67,43 @@ sudo apt install expect
 pip install git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3"
 ```
 
+## install ABFE (FEP) dependencies
+ABFE (prepare-abfe + run-abfe) needs a python stack for small-molecule parameterization
+(OpenFF), Boresch restraints and alchemlyb analysis. All extras live in the
+[requirements.json](../requirements.json).
+
+### 1. conda channel packages (OpenFF + OpenMM stack)
+`openff-toolkit` (and `OpenMM`) are **conda packages** - install them from
+conda-forge *before* the pip extras, so the heavy compiled dependencies
+(amberff, rdkit, numpy, scipy) are resolved by conda rather than pip:
+
+```bash
+conda install -c conda-forge openff-toolkit openmm  # versions from https://docs.openforcefield.org/projects/toolkit/en/stable/installation.html
+```
+
+If you already run in a purely pip-managed environment, `openff-toolkit` is
+also available on PyPI (`pip install openff-toolkit`), but the conda route is
+the officially recommended one and avoids toolchain conflicts.
+
+### 2. pip extras (from the `fep` requirements group)
+```bash
+pip install 'MDRestraintsGenerator>=0.2.1' --no-deps
+pip install -e ".[fep]"
+# or, manually:
+pip install 'MDRestraintsGenerator>=0.2.1' --no-deps
+pip install alchemlyb>=2.0.0 pymbar>=4.0.1  \
+            parmed>=4.1.0 pandas toff==0.2.0 rdkit openff-toolkit \
+            openmmforcefields pyyaml
+```
+
+> **Known issue**: `MDRestraintsGenerator==0.2.1` declares `scipy < 1.8` in its
+> metadata (its older internal implementation), but the code only uses
+> `scipy.stats` circular statistics and works fine with modern scipy
+> (verified with scipy 1.12 + python 3.10/3.12). 
+> `toff==0.2.0` also has incomplete metadata: it only declares pyyaml/parmed/
+> rdkit but **hard-imports** `openff.toolkit` and `openmmforcefields` at module
+> top-level - install those explicitly (step 1/2 above).
+
 ## python env compatibility
 ### matplotlib
 - matplotlib==3.7.5
