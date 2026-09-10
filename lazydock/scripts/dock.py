@@ -5,8 +5,10 @@ LastEditTime: 2025-02-18 16:01:18
 Description: 
 '''
 import argparse
+import multiprocessing
 import os
 import time
+import traceback
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
@@ -27,6 +29,29 @@ from lazydock.scripts._script_utils_ import (Command, check_memory_usage,
                                              process_batch_dir_lst)
 from lazydock.web.dinc import run_dock_on_DINC_ensemble
 from lazydock.web.hdock import run_dock_on_HDOCK, run_dock_on_HPEPDOCK
+
+
+# 全局 GPU 槽位队列: 主进程写入可用 gpu_id, 子进程取走后用完归还。
+# 某卡并发已满时队列自然不会向它放新的 gpu_id, 避免长任务卡拖满任务池。
+_GPU_SLOT_QUEUE: 'multiprocessing.Queue' = None
+
+def mp_pool_init_fn(slot_queue):
+    """进程池子进程初始化: 继承主进程创建的 GPU 槽位队列"""
+    global _GPU_SLOT_QUEUE
+    _GPU_SLOT_QUEUE = slot_queue
+
+def perform_autodock_gpu_dock_on_slot(*args, **kwargs):
+    """从槽位队列领一个 gpu_id 执行 docking, 无论成败归还槽位"""
+    global _GPU_SLOT_QUEUE
+    if _GPU_SLOT_QUEUE is None:
+        return perform_autodock_gpu_dock(*args, **kwargs)
+    gpu_id = _GPU_SLOT_QUEUE.get()
+    try:
+        return perform_autodock_gpu_dock(*args, gpu_id=gpu_id, **kwargs)
+    except Exception:
+        traceback.print_exc()
+    finally:
+        _GPU_SLOT_QUEUE.put(gpu_id)
 
 
 class vina(Command):
@@ -216,25 +241,25 @@ class redock_gpu(redock):
         if not paths:
             put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
             return
+        # GPU 槽位队列: 展开为 [g0 x n_task_per_gpu, g1 x n_task_per_gpu, ...],
+        # 子进程取走一个 gpu_id 执行任务, 无论成败都归还, 天然形成背压负载均衡:
+        # 某卡并发已满时队列没有它的空闲槽位, 长任务卡不会再被塞入新任务
+        slot_queue = multiprocessing.Queue()
+        for g in self.args.gpus:
+            for _ in range(max(1, self.args.n_task_per_gpu)):
+                slot_queue.put(g)
         # submit and run tasks parallel
         ## adfr use pymol.cmd to optrate pdb, so use process to isolate each task
         pool = TaskPool('process', self.args.n_workers, report_error=True,
-                        mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
-        # GPU 槽位: 把 --gpus 展开成 [g0 x n_task_per_gpu, g1 x n_task_per_gpu, ...],
-        # 任务按 index 轮询分配, 保证单卡可承载多个并发任务
-        gpu_slots = []
-        if self.args.gpus:
-            for g in self.args.gpus:
-                gpu_slots.extend([g] * max(1, self.args.n_task_per_gpu))
+                        mp_pool_init_kwargs={'maxtasksperchild': 100, 'initializer': mp_pool_init_fn, 'initargs': (slot_queue,)}).start()
         # launch tasks
-        for path_idx, path in tqdm(enumerate(paths), total=len(paths)):
+        for path in tqdm(paths, total=len(paths)):
             path = Path(path)
             result_path = str(path.parent / (path.stem + f'{self.args.suffix}.dlg'))
-            pool.add_task(result_path, perform_autodock_gpu_dock, opts_file(path),
+            pool.add_task(result_path, perform_autodock_gpu_dock_on_slot, opts_file(path),
                           self.args.ligand_chain, self.args.receptor_chain, self.args.grid_buffer,
                           seed=self.args.seed, nrun=self.args.n_poses, nev=self.args.nev,
-                          stopstd=self.args.stopstd, heurmax=self.args.heurmax,
-                          gpu_id=gpu_slots[path_idx % len(gpu_slots)])
+                          stopstd=self.args.stopstd, heurmax=self.args.heurmax)
             while True:
                 result = pool.pull_task(return_name=True, block=False)
                 if not result or result == pool.TASK_NOT_RETURNED or result == pool.TASK_NOT_SUCCEEDED:
@@ -243,6 +268,7 @@ class redock_gpu(redock):
                 self.process_result(result_path, result)
                 self.summary_df.to_csv(self.args.summary, index=True)
             pool.wait_till_free()
+            pool.wait_till(lambda : not slot_queue.empty(), 0.01)
         pool.wait_till_all_done()
         # retrieve results
         for result_path in list(pool.tasks.keys()):
