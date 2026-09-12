@@ -648,9 +648,9 @@ class mmpbsa(simple):
         pool.close(1)
     
     
-def run_pdbstr_interaction_analysis(fake_ag: FakeAtomGroup, receptor_chain: List[str], ligand_chain: str,
-                                    method: str, mode: str, cutoff: float, hydrogen_atom_only: bool,
-                                    alter_chain: Dict[str,str] = None, alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None):
+def _interaction_ana_worker(fake_ag: FakeAtomGroup, receptor_chain: List[str], ligand_chain: str,
+                            method: str, mode: str, cutoff: float, hydrogen_atom_only: bool,
+                            alter_chain: Dict[str,str] = None, alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None):
     pdbstr = PDBConverter(fake_ag).fast_convert(alter_chain=alter_chain, alter_res=alter_res, alter_atm=alter_atm)
     if method == 'pymol':
         inter = calcu_pdbstr_interaction(' or '.join([f'chain {chain}' for chain in receptor_chain]),
@@ -661,6 +661,53 @@ def run_pdbstr_interaction_analysis(fake_ag: FakeAtomGroup, receptor_chain: List
     else:
         return put_err(f"method {method} not supported, return None.")
     return inter
+
+def _interaction_data_worker(interactions: Dict[str, pd.DataFrame], args: argparse.Namespace,
+                             top_path: Path, suffix: str):
+    # transform interaction df to plot matrix df
+    times = split_list(list(interactions.keys()), args.plot_time_unit)
+    plot_df = pd.DataFrame()
+    for i, time_u in enumerate(times):
+        for time_i in time_u:
+            lst = [single_v for v in interactions[time_i].values() if v for single_v in v if single_v]
+            for single_inter in lst:
+                receptor_res = f'{single_inter[0][1]}{single_inter[0][0]}'
+                if i not in plot_df.index or receptor_res not in plot_df.columns:
+                    plot_df.loc[i, receptor_res] = 1
+                elif np.isnan(plot_df.loc[i, receptor_res]):
+                    plot_df.loc[i, receptor_res] = 1
+                else:
+                    plot_df.loc[i, receptor_res] += 1
+        if i not in plot_df.index:
+            plot_df.loc[i, :] = np.nan
+        plot_df.loc[i, :] /= len(time_u)
+    # filter plot df by (max, mean) inter value
+    if args.max_plot is not None and len(plot_df.columns) > args.max_plot:
+        sort_val = {k: (v.max(), v.mean()) for k, v in plot_df.items()}
+        sorted_val = sorted(list(sort_val.keys()), key=lambda k: sort_val[k])
+        to_del = sorted_val[:len(sort_val)-args.max_plot]
+        put_log(f'delete {to_del} from plot_df')
+        plot_df.drop(to_del, axis=1, inplace=True)
+    # sort residue index
+    plot_df = plot_df[sorted(list(plot_df.columns), key=lambda x: int(x[3:]))]
+    # save to csv and plot
+    plot_df.to_csv(str(top_path.parent / f'{top_path.stem}_{args.method}_plot_df{suffix}.csv'), index=False)
+    put_log(f'save {top_path.parent / f"{top_path.stem}_{args.method}_plot_df{suffix}.csv"}')
+    if not plot_df.empty:
+        fig, ax = plt.subplots(figsize=args.fig_size)
+        sns.heatmap(plot_df, xticklabels=list(plot_df.columns),
+                    cmap='viridis', cbar_kws={'label': 'Interaction frequency'}, ax=ax)
+        y_ticks = list(range(0, len(plot_df)+1, args.yticks_interval))
+        ax.set_yticks(y_ticks, list(map(str, y_ticks)))
+        ax.tick_params(labelsize=14, axis='both')
+        plt.xlabel('Residues (aa)', fontsize=16, weight='bold')
+        plt.ylabel('Time (ns)', fontsize=16, weight='bold')
+        cbar = ax.collections[0].colorbar
+        cbar.ax.tick_params(labelsize=14)
+        cbar.ax.set_ylabel('Interaction frequency', fontsize=16)
+        save_show(str(top_path.parent / f'{top_path.stem}_{args.method}_interactions{suffix}.png'), 600, show=False)
+        plt.close(fig)
+        put_log(f'save {top_path.parent / f'{top_path.stem}_{args.method}_interactions{suffix}.png'}')
 
 
 class interaction(simple_analysis, mmpbsa):
@@ -754,11 +801,11 @@ class interaction(simple_analysis, mmpbsa):
         for frame in tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
                         total=sum_frames//self.args.traj_step, desc='Calculating frames', leave=False):
             fake_ag = FakeAtomGroup(complex_ag)
-            pool.add_task(frame.time, run_pdbstr_interaction_analysis, fake_ag,
+            pool.add_task(frame.time, _interaction_ana_worker, fake_ag,
                         self.args.alter_receptor_chain, self.args.alter_ligand_chain,
                         self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only,
                         alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm)
-            pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 0.001, update_result_queue=False)
+            pool.wait_till_free(wait_each_loop=0.001, update_result_queue=False)
         # merge interactions
         interactions, df = {}, pd.DataFrame()
         for k in list(pool.tasks.keys()):
@@ -776,6 +823,11 @@ class interaction(simple_analysis, mmpbsa):
                     if r in fmt_string and not r in df.loc[i,'ref_res']:
                         df.loc[i,'ref_res'] += f'{r},'
         return interactions, df
+    
+    def init(self):
+        self.pool = TaskPool('process', self.args.n_workers,
+                            mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
+        
         
     def main_process(self):
         # load origin dfs from data file
@@ -784,8 +836,6 @@ class interaction(simple_analysis, mmpbsa):
         suffix = self.args.suffix
         print(f'find {len(self.tasks)} tasks.')
         # run tasks
-        pool = TaskPool('process', self.args.n_workers,
-                        mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
         bar = tqdm(total=len(self.tasks), desc='Calculating interaction')
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
@@ -797,7 +847,7 @@ class interaction(simple_analysis, mmpbsa):
             csv_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions{suffix}.csv')
             pkl_path = str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions{suffix}.pkl')
             if (not os.path.exists(csv_path) or not os.path.exists(pkl_path)) or self.args.force:
-                interactions, df = self.calcu_interaction(str(top_path), gro_path, traj_path, pool)
+                interactions, df = self.calcu_interaction(str(top_path), gro_path, traj_path, self.pool)
                 if interactions is None:
                     put_log(f'no interaction found, skip.')
                     bar.update(1)
@@ -808,55 +858,17 @@ class interaction(simple_analysis, mmpbsa):
                 interactions = opts_file(pkl_path, 'rb', way='pkl')
                 # ckeck whether to plot
                 if self.args.skip_plot:
-                    pool.task = {}
+                    self.pool.task = {}
                     bar.update(1)
                     continue
-            # transform interaction df to plot matrix df
-            times = split_list(list(interactions.keys()), self.args.plot_time_unit)
-            plot_df = pd.DataFrame()
-            for i, time_u in tqdm(enumerate(times), desc='Gathering interactions', total=len(times)):
-                for time_i in time_u:
-                    lst = [single_v for v in interactions[time_i].values() if v for single_v in v if single_v]
-                    for single_inter in lst:
-                        receptor_res = f'{single_inter[0][1]}{single_inter[0][0]}'
-                        if i not in plot_df.index or receptor_res not in plot_df.columns:
-                            plot_df.loc[i, receptor_res] = 1
-                        elif np.isnan(plot_df.loc[i, receptor_res]):
-                            plot_df.loc[i, receptor_res] = 1
-                        else:
-                            plot_df.loc[i, receptor_res] += 1
-                if i not in plot_df.index:
-                    plot_df.loc[i, :] = np.nan
-                plot_df.loc[i, :] /= len(time_u)
-            # filter plot df by (max, mean) inter value
-            if self.args.max_plot is not None and len(plot_df.columns) > self.args.max_plot:
-                sort_val = {k: (v.max(), v.mean()) for k, v in plot_df.items()}
-                sorted_val = sorted(list(sort_val.keys()), key=lambda k: sort_val[k])
-                to_del = sorted_val[:len(sort_val)-self.args.max_plot]
-                put_log(f'delete {to_del} from plot_df')
-                plot_df.drop(to_del, axis=1, inplace=True)
-            # sort residue index
-            plot_df = plot_df[sorted(list(plot_df.columns), key=lambda x: int(x[3:]))]
-            # save to csv and plot
-            plot_df.to_csv(str(top_path.parent / f'{top_path.stem}_{self.args.method}_plot_df{suffix}.csv'), index=False)
-            if not plot_df.empty:
-                fig, ax = plt.subplots(figsize=self.args.fig_size)
-                sns.heatmap(plot_df, xticklabels=list(plot_df.columns),
-                            cmap='viridis', cbar_kws={'label': 'Interaction frequency'}, ax=ax)
-                y_ticks = list(range(0, len(plot_df)+1, self.args.yticks_interval))
-                ax.set_yticks(y_ticks, list(map(str, y_ticks)))
-                ax.tick_params(labelsize=14, axis='both')
-                plt.xlabel('Residues (aa)', fontsize=16, weight='bold')
-                plt.ylabel('Time (ns)', fontsize=16, weight='bold')
-                cbar = ax.collections[0].colorbar
-                cbar.ax.tick_params(labelsize=14)
-                cbar.ax.set_ylabel('Interaction frequency', fontsize=16)
-                save_show(str(top_path.parent / f'{top_path.stem}_{self.args.method}_interactions{suffix}.png'), 600, show=False)
-                plt.close(fig)
+            self.pool.add_task(str(top_path), _interaction_data_worker, interactions, self.args, top_path, suffix)
             # other things
-            pool.clear()
+            self.pool.clear()
             bar.update(1)
-        pool.close(timeout=1)
+            
+    def finish(self):
+        self.pool.wait_till_all_done()
+        self.pool.close(timeout=1)
 
 
 def _calcu_RRCS(resis: np.ndarray, names: np.ndarray, positions: np.ndarray,
