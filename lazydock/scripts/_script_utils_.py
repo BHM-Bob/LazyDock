@@ -91,14 +91,29 @@ class Command:
         self.iter_run_arg = iter_run_arg or []
         
     def process_args(self):
+        """process args, run first. check, transform argument here
+        ON iter_run_args mode, it only run once!"""
+        pass
+    
+    def init(self):
+        """init something. run after self.process_args
+        ON iter_run_args mode, it only run once!"""
         pass
     
     def main_process(self):
+        """main process, run after self.init
+        ON iter_run_args mode, it runs for each iter_args value"""
+        pass
+    
+    def finish(self):
+        """finish something. run after self.main_process
+        ON iter_run_args mode, it only run once!"""
         pass
         
     def excute(self):
         self.process_args()
         show_args(self.args, list(self.args.__dict__.keys()), self.printf)
+        self.init()
         if self.iter_run_arg:
             # [arg1_values: List, arg2_values: List, ...]
             iter_args = [getattr(self.args, n).copy() for n in self.iter_run_arg]
@@ -113,6 +128,7 @@ class Command:
                 self.main_process()
         else:
             return self.main_process()
+        self.finish()
     
     def save_session(self, module_name: str, module_path: str = 'mbapy.scripts', path: str = os.curdir):
         if not Path(path).parent.exists():
