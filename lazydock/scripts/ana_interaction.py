@@ -263,6 +263,10 @@ class vina_score(Command):
         # process IO
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         
+    def init(self):
+        self.pool = TaskPool('process', self.args.n_workers, report_error=True,
+                                mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
+        
     def main_process(self):
         if not check_memory_usage(self.args.n_workers):
             return put_log('aborted by user.')
@@ -272,13 +276,11 @@ class vina_score(Command):
             put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
             return
         # submit and run tasks parallel
-        pool = TaskPool('process', self.args.n_workers, report_error=True,
-                        mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
         for path in tqdm(paths):
-            pool.add_task(path, calc_vina_score, self.args.score_name, self.args.grid_buffer, opts_file(path),
+            self.pool.add_task(path, calc_vina_score, self.args.score_name, self.args.grid_buffer, opts_file(path),
                           self.args.ligand_chain, self.args.receptor_chain)
-            pool.wait_till_free()
-        pool.wait_till_all_done()
+            self.pool.wait_till_free()
+        self.pool.wait_till_all_done()
         # retrieve results
         df = pd.DataFrame(columns=['path', 'rel_path',
                                    "total", "lig_inter", "flex_inter", "other_inter",
@@ -286,11 +288,13 @@ class vina_score(Command):
         df.set_index('path', inplace=True)
         # save results to csv
         for path in paths:
-            result = pool.query_task(path, True, 30)
+            result = self.pool.query_task(path, True, 30)
             if isinstance(result, list):
                 df.loc[path] = [os.path.relpath(path, self.args.batch_dir)] + result  # type: ignore
         df.to_csv(self.args.output, index=True)
-        pool.close(1)
+        
+    def finish(self):
+        self.pool.close(1)
 
 
 _str2func = {
