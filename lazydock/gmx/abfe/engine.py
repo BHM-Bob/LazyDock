@@ -263,6 +263,9 @@ def _make_fep_mdps(global_config: dict, sys_type: str) -> None:
     fep_rlist = global_config.get("fep_rlist")
     fep_cutoff = global_config.get("fep_cutoff")
     fep_dt_max = global_config.get("fep_dt_max", global_config["dt_max"])
+    # 分腿 rlist: ligand 腿可单独指定 (--fep-rlist-ligand), 用于小分子路径的
+    # 大非标氨基酸肽等; 默认回落到全局 fep_rlist (肽 3.1 / 小分子 None→模板 1.2)。
+    fep_rlist_ligand = global_config.get("fep_rlist_ligand", fep_rlist)
 
     for ligand_name in global_config["ligand_names"]:
         for replica in map(str, range(1, global_config["replicas"] + 1)):
@@ -279,7 +282,7 @@ def _make_fep_mdps(global_config: dict, sys_type: str) -> None:
                     dt_max=fep_dt_max,
                     mdp_extra_kwargs=mdp_extra_kwargs,
                     couple_intramol=couple_intramol,
-                    fep_rlist=fep_rlist,
+                    fep_rlist=(fep_rlist_ligand if sys_type == "ligand" else fep_rlist),
                     fep_cutoff=fep_cutoff,
                 )
 

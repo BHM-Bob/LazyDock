@@ -103,7 +103,20 @@ class protein(Command):
                 continue
             ipath, opath_rgro = opath, str(protein_path.parent / f'{protein_path.stem}.gro')
             if not os.path.exists(opath_rgro):
-                expect_acts = [{'dihedrals)': '1\r'}, {'None': '1\r'}]
+                # expect 匹配设计:
+                #   块1 {'dihedrals)': '1'} 匹配力场列表文本 "18: OPLS-AA/L ... (2001
+                #   aminoacid dihedrals)" 里的 "dihedrals)" -> 发 "1" 选中力场列表第 1 个
+                #   (即当前目录的 CHARMM)。不采用精确 prompt 匹配 (如
+                #   "Select the Force Field") 是为了兼容旧 GROMACS 及触发时机差异。
+                #   块2 {'None': '1'} 匹配水模型列表的 "8: None" -> 发 "1" 选 TIP3P。
+                #   注意: 仅当 pdb2gmx 未指定 -water 时才有水模型交互; 若用户显式传了
+                #   -water (如 ABFE 的 -water none), 水模型交互消失, 该 None 兜底会
+                #   错位匹配到随后的 start-terminus 列表 (其末项也是 "None"), 误发
+                #   "1" 把 N 端选成中性 NH2 而非带电 NH3+ (系统电荷偏差)!
+                #   -> 显式 -water 时跳过块2, 只保留 dihedrals + terminus 两个交互。
+                expect_acts = [{'dihedrals)': '1\r'}]
+                if '-water' not in self.args.pdb2gmx_args:
+                    expect_acts.append({'None': '1\r'})
                 term_acts = get_term_expect_acts(ipath, self.args.n_term, self.args.c_term)
                 expect_acts.extend(term_acts)
                 # run pdb2gmx
@@ -346,7 +359,11 @@ class complex(ligand):
             # STEP 7: Prepare the Protein Topology
             ipath, opath_rgro = opath_r, str(complex_path.parent / f'{complex_path.stem}_receptor.gro')
             if self.args.max_step >= 7 and (not os.path.exists(opath_rgro)):
-                expect_acts = [{'dihedrals)': '1\r'}, {'None': '1\r'}]
+                # 与 protein 子命令同款 expect 设计, 见上 (2026-09-10):
+                # 显式 -water 时跳过水模型 None 兜底, 防错位到 terminus。
+                expect_acts = [{'dihedrals)': '1\r'}]
+                if '-water' not in self.args.pdb2gmx_args:
+                    expect_acts.append({'None': '1\r'})
                 term_acts = get_term_expect_acts(ipath, self.args.n_term, self.args.c_term,
                                                   self.args.receptor_chain_name)
                 expect_acts.extend(term_acts)

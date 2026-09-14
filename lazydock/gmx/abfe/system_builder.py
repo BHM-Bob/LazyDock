@@ -183,12 +183,18 @@ class MakeInputs:
                  cofactor: dict = None, cofactor_selection: str = "resname COF",
                  cofactor_on_protein: bool = True, water_model: str = 'amber/tip3p',
                  custom_ff_path: Union[None, PathLike] = None, hmr_factor: Union[float, None] = None,
-                 fix_protein: bool = False, solv_d: float = 1.5, solv_bt: str = "dodecahedron",
+                 solv_d: float = 1.5, solv_bt: str = "dodecahedron",
                  solv_rmin: float = 1, solv_ion_conc: float = 150E-3,
                  builder_dir: PathLike = 'builder', gmx: Gromacs = None,
                  peptide_definition: dict = None,
                  pdb2gmx_args: Union[None, List[str]] = None,
-                 n_term: int = 0, c_term: int = 0, maxwarn: Union[int, None] = None):
+                 n_term: int = 0, c_term: int = 0, maxwarn: Union[int, None] = None,
+                 fep_rlist_ligand: Union[float, None] = None,
+                 solv_d_ligand: Union[float, None] = None,
+                 solv_d_complex: Union[float, None] = None,
+                 auto_box: bool = False, auto_box_pad: Union[float, List[float]] = 1.2,
+                 mono_lock=None, ligand_chain: str = None,
+                 whole_complex: bool = False):
         self.pdb2gmx_args = pdb2gmx_args or []
         self.n_term = 0 if n_term is None else int(n_term)
         self.c_term = 0 if c_term is None else int(c_term)
@@ -201,11 +207,18 @@ class MakeInputs:
         self.cofactor_selection = cofactor_selection
         self.hmr_factor = hmr_factor
         self.water_model = water_model
-        self.fix_protein = fix_protein
         self.solv_d = solv_d
         self.solv_bt = solv_bt
         self.solv_rmin = solv_rmin
         self.solv_ion_conc = solv_ion_conc
+        self.solv_d_ligand = solv_d_ligand
+        self.solv_d_complex = solv_d_complex
+        self.fep_rlist_ligand = fep_rlist_ligand
+        self.auto_box = auto_box
+        self.auto_box_pad = auto_box_pad
+        self.mono_lock = mono_lock
+        self.ligand_chain = ligand_chain
+        self.whole_complex = whole_complex
         self.peptide_definition = peptide_definition
         self._peptide_n_atoms = None
         self.wd = Path(builder_dir).resolve()
@@ -343,47 +356,23 @@ class MakeInputs:
                                         water="none", o=str(gro_out), p=str(top_out), i=str(posre_out))
             else:
                 _extra_pdb2gmx = _pdb2gmx_args_to_kwargs(self.pdb2gmx_args)
-                if self.fix_protein:
-                    logger.info(f"fix_protein = {self.fix_protein}; therefore pdbfixer will be used "
-                                "with flags --add-atoms=all --replace-nonstandard and pdb2gmx with -ignh. "
-                                "The protonation of your protein may have changed!")
-                    env_prefix = os.environ.get("CONDA_PREFIX", "")
-                    fixed_pdb = self.wd / f"{name}_fixed.pdb"
-                    _run_cmd(f"{env_prefix}/bin/pdbfixer {dict_to_work['conf']} "
-                             f"--output={fixed_pdb} --add-atoms=all --replace-nonstandard")
-                    _strip_pdbfixer_oxt(dict_to_work['conf'], fixed_pdb)
-                    # pdb2gmx: -ff is not used; -ignh and -merge all, with term selection via expect
-                    # NOTE: -ff/-water are passed on the command line, so pdb2gmx will
-                    # NOT prompt for force field / water model.  Only the termini
-                    # prompts (with -ter) remain; matching patterns for non-existent
-                    # prompts would hang forever.
-                    _pdb2gmx_expect = [
-                        {'Select start terminus type': f'{self.n_term}\r'},
-                        {'Select end terminus type': f'{self.c_term}\r'},
-                    ]
-                    # NOTE: explicit flags below are defaults; user-supplied
-                    # --pdb2gmx-args overwrite them (e.g. -noignh).
-                    _pdb2gmx_kwargs = dict(f=str(fixed_pdb), merge="all",
-                                           ff=dict_to_work['ff']['code'], water="none",
-                                           o=str(gro_out), p=str(top_out), i=str(posre_out),
-                                           ter=True, ignh=True)
-                    _pdb2gmx_kwargs.update(_extra_pdb2gmx)
-                    gmx.run_gmx_with_expect('pdb2gmx', expect_actions=_pdb2gmx_expect,
-                                            expect_settings={'timeout': 180}, **_pdb2gmx_kwargs)
-                else:
-                    _pdb2gmx_expect = [
-                        {'Select start terminus type': f'{self.n_term}\r'},
-                        {'Select end terminus type': f'{self.c_term}\r'},
-                    ]
-                    # NOTE: explicit flags below are defaults; user-supplied
-                    # --pdb2gmx-args overwrite them (e.g. -noignh).
-                    _pdb2gmx_kwargs = dict(f=str(dict_to_work['conf']), merge="all",
-                                           ff=dict_to_work['ff']['code'], water="none",
-                                           o=str(gro_out), p=str(top_out), i=str(posre_out),
-                                           ter=True, ignh=True)
-                    _pdb2gmx_kwargs.update(_extra_pdb2gmx)
-                    gmx.run_gmx_with_expect('pdb2gmx', expect_actions=_pdb2gmx_expect,
-                                            expect_settings={'timeout': 180}, **_pdb2gmx_kwargs)
+                # pdb2gmx: -ff/-water 命令行传入 (无交互提示力场/水模型);
+                # 仅残留 terminus 提示 (选为 n_term/c_term, 对应 NH3+/COO- 等)。
+                # NOTE: 不经过 pdbfixer (fix_protein 已移除, 2026-09):
+                #   pdbfixer 会为每条链加 C 端 OXT, 破坏环肽; 受体修复应由
+                #   专门 CLI 处理 (prepare_gmx / opmm), 不在此重复。
+                _pdb2gmx_expect = [
+                    {'Select start terminus type': f'{self.n_term}\r'},
+                    {'Select end terminus type': f'{self.c_term}\r'},
+                ]
+                # NOTE: 下面显式给出的默认参数会被用户 --pdb2gmx-args 覆盖 (如 -noignh)。
+                _pdb2gmx_kwargs = dict(f=str(dict_to_work['conf']), merge="all",
+                                       ff=dict_to_work['ff']['code'], water="none",
+                                       o=str(gro_out), p=str(top_out), i=str(posre_out),
+                                       ter=True, ignh=True)
+                _pdb2gmx_kwargs.update(_extra_pdb2gmx)
+                gmx.run_gmx_with_expect('pdb2gmx', expect_actions=_pdb2gmx_expect,
+                                        expect_settings={'timeout': 180}, **_pdb2gmx_kwargs)
         os.chdir(self.cwd)
 
         system = solvent._read_parmed_molecule(top_file=top_out, gro_file=gro_out)
@@ -400,31 +389,88 @@ class MakeInputs:
         # must stay protein (GLU/PRO/...) so that GROMACS/Boresch/analysis treat
         # it as a peptide; the ligand identity for FEP (couple-moltype LIG) is
         # enforced by renaming ONLY the moleculetype (see make_bindflow_dir).
-        if self.peptide_definition:
+        if self.whole_complex:
+            # 整链模式 (peptide, 2026-09-11 三段式重构):
+            #   complex 腿 = pdb2gmx 一次跑出的整链 (受体 + 配体两 moleculetype,
+            #   -merge no 保留, 相对坐标天然正确 - 修复 Phase 2 独立居中重叠 bug)。
+            #   sys_protein / md_system = 整链 (不走 system_combiner);
+            #   sys_ligand = 独立 peptide protein 拓扑 (ligand_definition, 由
+            #   prepare_abfe 在 ligand_pep/ 里单独跑 prepare-gmx protein 得到,
+            #   "保留 ligand 腿独立 protein" 用户决策)。
+            self.sys_protein = self.gmx_process(mol_definition=self.protein)
+            self.sys_membrane = None
+            self.sys_cofactor = None
+            self.md_system = self.sys_protein
+            if isinstance(ligand_definition, dict) and ligand_definition.get('conf'):
+                _lg = solvent._read_parmed_molecule(top_file=ligand_definition.get('top'),
+                                                    gro_file=ligand_definition['conf'])
+                self.sys_ligand = _lg
+                self._peptide_n_atoms = len(_lg.atoms)
+                self._ligand_parmed = _lg
+                logger.info(f"whole-complex: sys_protein = whole "
+                            f"({len(self.sys_protein.atoms)} atoms), sys_ligand = "
+                            f"independent peptide protein ({self._peptide_n_atoms} atoms)")
+            else:
+                # 兜底: 按配体链原子数从整链切出配体
+                n_lig = self._find_ligand_n_atoms_by_chain(self.sys_protein)
+                n_total = self.sys_protein.n_atoms if hasattr(self.sys_protein, 'n_atoms') \
+                    else len(self.sys_protein.atoms)
+                self.sys_ligand = self.sys_protein[n_total - n_lig:n_total]
+                self._peptide_n_atoms = n_lig
+                logger.info(f"whole-complex (fallback slice): sys_ligand = "
+                            f"{n_total - n_lig}:{n_total} ({n_lig} atoms)")
+        elif self.peptide_definition:
             pep_def = dict(self.peptide_definition)
             pep_def['conf'] = Path(pep_def['conf']).resolve()
             logger.info(f"Processing peptide ligand as protein: {pep_def['conf']}")
             self.sys_ligand = self.gmx_process(mol_definition=pep_def)
             self._peptide_n_atoms = self.sys_ligand.n_atoms if hasattr(self.sys_ligand, 'n_atoms') \
                 else len(self.sys_ligand.atoms)
-        else:
-            self.sys_ligand = self.small_mol_process(mol_definition=ligand_definition, name="LIG",
-                                                     safe_naming_prefix='x')
-            self._peptide_n_atoms = None
-
-        if self.__self_was_called:
-            logger.info("Reusing components from cache")
-        else:
+            self.sys_protein = self.gmx_process(mol_definition=self.protein)
+            self.sys_membrane = self.gmx_process(mol_definition=self.membrane, is_membrane=True)
             if self.cofactor:
                 self.sys_cofactor = self.small_mol_process(mol_definition=self.cofactor, name="COF",
                                                            safe_naming_prefix='z')
             else:
                 self.sys_cofactor = None
-            self.sys_protein = self.gmx_process(mol_definition=self.protein)
-            self.sys_membrane = self.gmx_process(mol_definition=self.membrane, is_membrane=True)
-        logger.info("Merging Components")
-        self.md_system = system_combiner(protein=self.sys_protein, membrane=self.sys_membrane,
-                                         ligand=self.sys_ligand, cofactor=self.sys_cofactor)
+            logger.info("Merging Components")
+            self.md_system = system_combiner(protein=self.sys_protein, membrane=self.sys_membrane,
+                                             ligand=self.sys_ligand, cofactor=self.sys_cofactor)
+        else:
+            self.sys_ligand = self.small_mol_process(mol_definition=ligand_definition, name="LIG",
+                                                     safe_naming_prefix='x')
+            self._peptide_n_atoms = None
+            if self.__self_was_called:
+                logger.info("Reusing components from cache")
+            else:
+                if self.cofactor:
+                    self.sys_cofactor = self.small_mol_process(mol_definition=self.cofactor, name="COF",
+                                                               safe_naming_prefix='z')
+                else:
+                    self.sys_cofactor = None
+                self.sys_protein = self.gmx_process(mol_definition=self.protein)
+                self.sys_membrane = self.gmx_process(mol_definition=self.membrane, is_membrane=True)
+            logger.info("Merging Components")
+            self.md_system = system_combiner(protein=self.sys_protein, membrane=self.sys_membrane,
+                                             ligand=self.sys_ligand, cofactor=self.sys_cofactor)
+
+    def _find_ligand_n_atoms_by_chain(self, whole) -> int:
+        """Fallback: infer the ligand atom count by counting atoms of the
+        ligand chain from the whole-complex parmed residue/atom names."""
+        if self.ligand_chain is None:
+            raise ValueError("whole-complex mode requires ligand_chain or a "
+                             "ligand_definition with a known atom count")
+        try:
+            cnt = 0
+            for a in whole.atoms:
+                if str(a.chain) == self.ligand_chain:
+                    cnt += 1
+            if cnt > 0:
+                return cnt
+        except Exception as e:
+            logger.warning(f"ligand-chain atom counting failed: {e}")
+        raise ValueError(f"cannot determine ligand atom count from whole-complex "
+                         f"(chain {self.ligand_chain})")
 
     def clean(self):
         """Small cleaner: the intermediate steps saved on builder_dir will be deleted."""
@@ -461,9 +507,11 @@ class MakeInputs:
         with Solvate(self.water_model, builder_dir=self.wd / '.solvating', gmx=gmx,
                      cwd=self.cwd, maxwarn=self.maxwarn) as SolObj:
             logger.info(f"Ligand in: {ligand_dir}")
-            SolObj(structure=self.sys_ligand, bt=self.solv_bt, d=self.solv_d, rmin=self.solv_rmin,
-                   ion_conc=self.solv_ion_conc, out_dir=ligand_dir, out_name='solvated',
-                   f_xyz=3 * [2500], all_atoms=bool(self.peptide_definition))
+            SolObj(structure=self.sys_ligand, bt=self.solv_bt, d=self.solv_d_ligand or self.solv_d,
+                   rmin=self.solv_rmin, ion_conc=self.solv_ion_conc, out_dir=ligand_dir,
+                   out_name='solvated', f_xyz=3 * [2500], all_atoms=bool(self.peptide_definition),
+                   rlist_min=self.fep_rlist_ligand, auto_box=self.auto_box,
+                   auto_box_pad=self.auto_box_pad, mono_lock=self.mono_lock)
             logger.info(f"Complex in: {system_dir}")
             settles_to_constraints_on = None
             if self.cofactor and self.cofactor.get('is_water'):
@@ -476,9 +524,11 @@ class MakeInputs:
                        out_name='solvated', f_xyz=f_xyz_complex,
                        settles_to_constraints_on=settles_to_constraints_on)
             else:
-                SolObj(structure=self.md_system, bt=self.solv_bt, d=self.solv_d, rmin=self.solv_rmin,
-                       ion_conc=self.solv_ion_conc, out_dir=system_dir, out_name='solvated',
-                       f_xyz=f_xyz_complex, settles_to_constraints_on=settles_to_constraints_on)
+                SolObj(structure=self.md_system, bt=self.solv_bt, d=self.solv_d_complex or self.solv_d,
+                       rmin=self.solv_rmin, ion_conc=self.solv_ion_conc, out_dir=system_dir,
+                       out_name='solvated', f_xyz=f_xyz_complex, settles_to_constraints_on=settles_to_constraints_on,
+                       rlist_min=self.fep_rlist_ligand, auto_box=self.auto_box,
+                       auto_box_pad=self.auto_box_pad, mono_lock=self.mono_lock)
 
         # Make index file
         if self.membrane:
@@ -551,42 +601,6 @@ def _check_and_fix_box(system: Structure, check_box: bool):
                 system.box = [0, 0, 0, 90, 90, 90]
         except Exception:
             pass
-
-
-def _run_cmd(cmd: str):
-    """Run a shell command (used for pdbfixer), raising on failure."""
-    import subprocess
-    put_log(cmd, head='ABFE')
-    ret = os.system(cmd)
-    if ret != 0:
-        raise RuntimeError(f"command failed ({ret}): {cmd}")
-
-
-def _strip_pdbfixer_oxt(input_conf: PathLike, fixed_pdb: PathLike):
-    """Remove OXT atoms that pdbfixer added to chains without an OXT in the input.
-
-    pdbfixer --add-atoms=all treats every chain as a linear peptide and adds a
-    C-terminal OXT, which breaks cyclic peptides (pdb2gmx then fails with
-    'Atom OXT ... not found in rtp entry').  Only chains whose input PDB
-    actually has an OXT keep it; the ring-closure decision is left to pdb2gmx.
-    """
-    input_conf = Path(input_conf)
-    fixed_pdb = Path(fixed_pdb)
-    input_chains_with_oxt = set()
-    for line in input_conf.read_text().splitlines():
-        if line.startswith('ATOM') and line[12:16].strip() == 'OXT':
-            input_chains_with_oxt.add(line[21])
-    lines = fixed_pdb.read_text().splitlines()
-    new_lines = []
-    for line in lines:
-        if line.startswith('ATOM') and line[12:16].strip() == 'OXT' and line[21] not in input_chains_with_oxt:
-            continue
-        new_lines.append(line)
-    if len(new_lines) != len(lines):
-        fixed_pdb.write_text('\n'.join(new_lines) + '\n')
-        put_log(f'stripped pdbfixer-added OXT from chains '
-                f'{sorted(set(l[21] for l in lines if l.startswith("ATOM") and l[12:16].strip()=="OXT") - input_chains_with_oxt)} '
-                f'in {fixed_pdb}', head='ABFE')
 
 
 if __name__ == '__main__':

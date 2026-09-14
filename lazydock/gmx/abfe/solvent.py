@@ -17,6 +17,8 @@ from parmed import Structure
 
 from lazydock.gmx.abfe._home import gmx_water_models_data_dir
 from lazydock.gmx.run import Gromacs
+from lazydock.gmx.box import (measure_span, run_editconf, run_solvate,
+                              run_grompp_ions, run_genion)
 
 logger = logging.getLogger(__name__)
 
@@ -261,10 +263,37 @@ class Solvate:
     def _add_water_and_ions(self, gro: PathLike, top: PathLike, bt: str = "triclinic",
                             box: list = None, angles: list = None, d: float = None,
                             c: bool = False, pname: str = "NA", nname: str = "CL",
-                            ion_conc: float = 150E-3, rmin: float = 1.0) -> None:
-        """Make box, solvate and add ions to the system using LazyDock Gromacs class."""
+                            ion_conc: float = 150E-3, rmin: float = 1.0,
+                            rlist_min: float = None, auto_box: bool = False,
+                            auto_box_pad: float = 1.2, mono_lock=None) -> None:
+        """Make box, solvate and add ions to the system using LazyDock Gromacs class.
+
+        ``auto_box``: use PyMOL contour box (anisotropic, via box.measure_span
+        / run_gmx get_extent) so the smallest box vector >= rlist_min.
+        ``rlist_min``: if given (and not auto_box), after editconf the
+        half-shortest-box-vector is checked against it (Phase 3B assertion).
+        """
         os.chdir(self.solvated_dir)
         self.gmx = Gromacs(working_dir=str(self.solvated_dir))
+
+        if auto_box:
+            # contour box: each axis = max(span + 2*pad, 2*(rlist_min+margin))
+            from lazydock.gmx.box import get_box
+            if mono_lock is not None:
+                with mono_lock:
+                    _, box_size = get_box(gro, auto_box_pad)
+            else:
+                _, box_size = get_box(gro, auto_box_pad)
+            rlist_eff = rlist_min or 0.0
+            box = [max(b, 2 * (rlist_eff + 0.3)) for b in box_size]
+            angles = [90, 90, 90]
+            bt = 'triclinic'
+            d = None
+            c = False
+            logger.info(f'auto_box contour: box={box}, angles={angles}')
+        elif rlist_min is not None and not box:
+            # dodecahedron check after editconf: half-shortest-vector = a/2
+            pass
 
         editconf_kwargs = dict(f=gro, o=gro, bt=bt)
         if box:
@@ -292,13 +321,25 @@ class Solvate:
         grompp_kwargs = dict(f="ions.mdp", c=gro, p=top, o="ions.tpr")
         if self.maxwarn is not None:
             grompp_kwargs['maxwarn'] = self.maxwarn
-        self.gmx.run_gmx_with_expect('editconf', **editconf_kwargs)
-        self.gmx.run_gmx_with_expect('solvate', cp=gro, p=top, cs=self.water_gro, o=gro)
-        self.gmx.run_gmx_with_expect('grompp', **grompp_kwargs)
-        # genion needs SOL group selection via expect
-        self.gmx.run_gmx_with_expect('genion', s="ions.tpr", p=top, o=gro, neutral=True,
-                                     pname=pname, nname=nname, rmin=rmin, conc=ion_conc,
-                                     expect_actions=[{'Select a group:': 'SOL\r'}])
+        run_editconf(self.gmx, f=str(gro), o=str(gro), bt=bt,
+                     d=d, box=box, angles=angles, c=c)
+        run_solvate(self.gmx, cp=str(gro), p=str(top), cs=str(self.water_gro), o=str(gro))
+        run_grompp_ions(self.gmx, f='ions.mdp', c=str(gro), p=str(top),
+                        o='ions.tpr', maxwarn=self.maxwarn or 0)
+        run_genion(self.gmx, s='ions.tpr', p=str(top), o=str(gro),
+                   pname=pname, nname=nname, conc=ion_conc, neutral=True,
+                   rmin=rmin, groups='SOL')
+
+        # rlist_min assertion: half-shortest-box-vector >= rlist_min
+        # 直接解析 gro 末行的 triclinic 盒向量, 不依赖 parmed:
+        #   parmed 会把 dodecahedron (a=b, c=a/sqrt(2), 非对角元非零) 误解析为
+        #   a=b=c 的伪盒, min()/2 得到错误值 (曾误报 half=0 < rlist)。
+        #   gro 末行 9 列顺序: v1x v2y v3z v1y v1z v2z v2x v3x v3y
+        if rlist_min is not None and not auto_box:
+            half = _read_gro_half_shortest(gro)
+            if half < rlist_min:
+                logger.warning(f'box half-shortest-vector {half:.3f} nm < rlist_min '
+                               f'{rlist_min:.3f} nm!')
 
         # Just to clean the topology: build a monolithic topology
         struc = _read_parmed_molecule(top_file=top, gro_file=gro)
@@ -326,7 +367,8 @@ class Solvate:
                  nname: str = "CL", ion_conc: float = 150E-3, rmin: float = 1.0,
                  exclusion_list: list = None, out_dir: PathLike = '.', out_name: str = 'solvated',
                  f_xyz: tuple = (2500, 2500, 2500), settles_to_constraints_on: Union[PathLike, str] = None,
-                 all_atoms: bool = False) -> None:
+                 all_atoms: bool = False, rlist_min: float = None, auto_box: bool = False,
+                 auto_box_pad: float = 1.2, mono_lock=None) -> None:
         if exclusion_list is None:
             exclusion_list = ["SOL", "NA", "CL"]
         out_dir = Path(out_dir)
@@ -343,7 +385,9 @@ class Solvate:
         self._include_water_ions_params(init_top)
         self._include_all_atom_types(init_top)
         self._add_water_and_ions(gro=init_gro, top=init_top, bt=bt, box=box, angles=angles,
-                                 d=d, c=c, pname=pname, nname=nname, ion_conc=ion_conc, rmin=rmin)
+                                 d=d, c=c, pname=pname, nname=nname, ion_conc=ion_conc, rmin=rmin,
+                                 rlist_min=rlist_min, auto_box=auto_box,
+                                 auto_box_pad=auto_box_pad, mono_lock=mono_lock)
         molecules = list(set(get_molecule_names(init_top)) - set(exclusion_list))
         make_posres(input_topology=init_top, molecules=molecules, out_dir=out_dir, f_xyz=f_xyz,
                     all_atoms=all_atoms)
@@ -352,6 +396,44 @@ class Solvate:
 
         shutil.copy(init_top, out_dir / f'{out_name}.top')
         shutil.copy(init_gro, out_dir / f'{out_name}.gro')
+
+
+def _read_gro_half_shortest(gro_file: PathLike) -> float:
+    """Parse the last line of a .gro (box vectors) and return the
+    half-shortest-box-vector (nm), robust for triclinic/dodecahedron boxes.
+
+    .gro box line layout (9 or 12 columns, GROMACS manual 4.2.3):
+        v1x v2y v3z v1y v1z v2z v2x v3x v3y [vix viy viz]
+    Box vectors (columns are 0-based):
+        v1 = (v1x, v1y, v1z) = (box[0], box[3], box[4])
+        v2 = (v2x, v2y, v2z) = (box[6], box[1], box[5])
+        v3 = (v3x, v3y, v3z) = (box[7], box[8], box[2])
+    For dodecahedron (editconf -bt dodecahedron): a=b, |v3|=a, and the
+    half-shortest-vector = a/2.  For triclinic generally it is half the
+    smallest box-vector norm; for orthogonal boxes it degenerates to
+    min(a,b,c)/2.  Returns 0.0 if the box line cannot be parsed, so an
+    unparseable box is reported as "too small" (safe default) by the caller.
+    """
+    import numpy as np
+    try:
+        lines = Path(gro_file).read_text().splitlines()
+        if not lines:
+            return 0.0
+        box = [float(x) for x in lines[-1].split()]
+        if len(box) < 3:
+            return 0.0
+        if len(box) < 9:
+            # 旧式/正交盒 (3 或 6 列): 对角 v1=(a,0,0) v2=(0,b,0) v3=(0,0,c)
+            return min(box[:3]) / 2
+        v1 = np.array([box[0], box[3], box[4]])
+        v2 = np.array([box[6], box[1], box[5]])
+        v3 = np.array([box[7], box[8], box[2]])
+        # smallest box-vector norm / 2; dodecahedron: |v1|=|v2|=|v3|=a
+        half = min(np.linalg.norm(v1), np.linalg.norm(v2), np.linalg.norm(v3)) / 2
+        return float(half)
+    except Exception as e:
+        logger.warning(f'cannot parse box of {gro_file}: {e}')
+        return 0.0
 
 
 def _read_parmed_molecule(top_file: PathLike, gro_file: PathLike) -> Structure:
