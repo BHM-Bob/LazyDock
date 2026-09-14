@@ -24,7 +24,7 @@ def _fix_ligand_for_abfe(pdb_path: Path, ligand_resname: str = 'LIG') -> Path:
     from mbapy_lite.file import opts_file
     lines = opts_file(pdb_path, way='lines')
     new_lines = []
-    for line in lines:
+    for line in lines: # type: ignore
         if line.startswith(('ATOM', 'HETATM')):
             line = f'{line[:17]}{ligand_resname:<3s}{line[20:]}'
         new_lines.append(line)
@@ -72,14 +72,23 @@ def auto_solv_d_pair(ligand_pdb: Path, complex_leg_span_src: Path, peptide: bool
 
 
 def _check_solv_d_conflict(args) -> None:
-    """--solv-d-auto and --solv-d are mutually exclusive (user decision 4:
-    error out instead of silently resolving). --auto-box implies --solv-d-auto."""
+    """The three box-mode flags are mutually exclusive (user review 2026-09-12):
+      --solv-d  : manual isotropic editconf -d (both legs, same value)
+      --solv-d-auto : auto isotropic editconf -d per leg (shape via --solv-bt)
+      --auto-box    : auto anisotropic contour box (triclinic, each axis >= rlist)
+    They express different box-building strategies; combining them is ambiguous,
+    so error out instead of silently resolving (auto-box no longer implies
+    solv-d-auto: the contour box has its own rlist handling)."""
     if args.solv_d_auto and args.solv_d is not None:
-        put_err('--solv-d-auto and --solv-d conflict: both provided. '
+        put_err('--solv-d-auto and --solv-d are mutually exclusive: both provided. '
                 'Remove one (auto is preferred for correctness).', _exit=True)
-    if args.auto_box and args.solv_d is not None and not args.solv_d_auto:
-        put_err('--auto-box requires --solv-d-auto (or do not pass --solv-d). '
-                'Contour box derives its axes from rlist; a manual --solv-d '
+    if args.auto_box and args.solv_d_auto:
+        put_err('--auto-box and --solv-d-auto are mutually exclusive: both provided. '
+                'They are DIFFERENT box strategies (anisotropic contour vs isotropic '
+                '-d, see help). Pick one.', _exit=True)
+    if args.auto_box and args.solv_d is not None:
+        put_err('--auto-box and --solv-d are mutually exclusive: both provided. '
+                'The contour box derives its axes from rlist; a manual --solv-d '
                 'conflicts with it.', _exit=True)
 
 
@@ -127,10 +136,6 @@ class Complex(Command):
                                'built-in force field code. Default %(default)s.')
         args.add_argument('--pdb2gmx-args', type=str, default='-ter -ignh',
                           help='args passed to pdb2gmx. Default %(default)s.')
-        args.add_argument('--n-term', type = str, default='0', nargs='+',
-                          help='N-Term type for gmx pdb2gmx, if "auto", will be 1 if is MET, else 0. Default is %(default)s.')   
-        args.add_argument('--c-term', type = str, default='0', nargs='+',
-                          help='C-Term type for gmx pdb2gmx, if "auto", will be 1 if is MET, else 0. Default is %(default)s.')
         args.add_argument('--water-model', type=str, default='amber/tip3p',
                           help='water model. Default %(default)s.')
         args.add_argument('--solv-d', type=float, default=None,
@@ -140,20 +145,28 @@ class Complex(Command):
         args.add_argument('--solv-d-auto', action='store_true',
                           help='auto-derive editconf -d per leg (ligand/complex) from the '
                                'system span and the FEP rlist, guaranteeing '
-                               'half-shortest-box-vector >= rlist. Conflicts with --solv-d.')
+                               'half-shortest-box-vector >= rlist. '
+                               'ISOTROPIC: the box grows equally in all directions '
+                               '(shape set by --solv-bt: cubic/dodecahedron/octahedron). '
+                               'Conflicts with --solv-d and --auto-box (both error out).')
         args.add_argument('--solv-bt', type=str, default='cubic',
                           choices=['cubic', 'dodecahedron', 'octahedron'],
-                          help='box type. Default %(default)s (editconf default). '
-                               'All choices share the same half-shortest-vector '
-                               'a/2 formula for the automatic box derivation '
-                               '(--solv-d-auto). dodecahedron/octahedron save '
-                               'water vs cubic (0.707/0.577 of cubic volume at '
-                               'equal half-shortest-vector).')
+                          help='box type for --solv-d-auto (isotropic editconf -d). '
+                               'Default %(default)s (editconf default). '
+                               'All choices share half-shortest-vector = a/2, so at the '
+                               'same a the water volume ranks: cubic a^3 (most), '
+                               'octahedron ~0.77*a^3, dodecahedron ~0.707*a^3 (least, '
+                               'measured 2026-09-11). '
+                               'NOTE: --solv-d-auto CANNOT adapt to the solute contour '
+                               '(isotropic); use --auto-box for anisotropic contour boxes.')
         args.add_argument('--auto-box', action='store_true',
-                          help='use PyMOL contour box (anisotropic triclinic, axes >= rlist) '
-                               'instead of editconf -d. For elongated receptors (GPCR/'
-                               'multimers) saves water. Requires --solv-d-auto (or it falls '
-                               'back to padding 1.2 around the solute span).')
+                          help='use PyMOL contour box (ANISOTROPIC triclinic/orthogonal, '
+                               'each axis = max(span_i + 2*pad, 2*(rlist+0.3)) >= rlist) '
+                               'instead of the isotropic editconf -d. For elongated '
+                               'receptors (GPCR/multimers) saves water (~40%% vs cubic). '
+                               'This is a *different branch* from --solv-d-auto: contour '
+                               'vs isotropic. Mutually exclusive with --solv-d-auto and '
+                               '--solv-d (error out if combined).')
         args.add_argument('--auto-box-pad', type=float, default=1.2,
                           help='padding (nm) for --auto-box contour (per axis, both sides). '
                                'Default %(default)s.')
@@ -188,6 +201,9 @@ class Complex(Command):
                     f'GMXLIB parent handling in MakeInputs, code = {self.args.protein_ff}')
         else:
             self.args.custom_ff_path = None
+        # 盒子模式互斥检查: 必须在找 complex / 判 skip 之前 (参数合法性优先于
+        # input/ 存在与否, 否则已存在 input 的目录会跳过检查而静默接受冲突 flag)
+        _check_solv_d_conflict(self.args)
         # find complex files (REAL batch: process EVERY match, not just the first)
         complex_files = []
         for _dir in (self.args.dir if isinstance(self.args.dir, list) else [self.args.dir]):
@@ -307,7 +323,7 @@ class Complex(Command):
                 if f'-merge' not in pdb2gmx_args:
                     pdb2gmx_args += f' -merge {merge_val}'
                 argv = ['protein', '-d', str(wdir_p), '-n', pdb_name,
-                        '--n-term', str(self.args.n_term), '--c-term', str(self.args.c_term),
+                        '--n-term', 'auto', '--c-term', 'auto',
                         '--pdb2gmx-args', pdb2gmx_args, '--chain-num', '1']
                 if self.args.custom_ff_path:
                     argv += ['--ff-dir', str(self.args.custom_ff_path)]
@@ -374,16 +390,34 @@ class Complex(Command):
             peptide_def = {'conf': str(_complex_gro), 'top': str(_complex_top),
                            'ff': {'code': self.args.protein_ff}}
         else:
-            ligand_def = {'conf': str(ligand_pdb), 'ff': {'type': self.args.ligand_ff}}
+            # 小分子路径: 入口 (L254) 已抛 NotImplementedError, 此处不可达;
+            # 保留显式 raise 作为防御 (避免蛋白整链逻辑误处理小分子 complex.pdb)
+            raise NotImplementedError(
+                'small-molecule ABFE prepare is NOT implemented yet (complex leg '
+                'requires prepare-gmx complex/toff support). '
+                'See docs/dev/abfe/small_mol_future_prepare_gmx_complex.md.')
 
         out_input = wdir / 'input'
+        # 有效 rlist (--auto-box 也需要, 不能只依赖 --solv-d-auto 的推导):
+        #   peptide 铁律: ligand-leg rlist >= 3.1, 永不降低
+        rlist_eff = self.args.fep_rlist_ligand
+        if rlist_eff is None:
+            if self.args.peptide:
+                rlist_eff = 3.1
+            else:
+                rlist_eff = 1.2
+        elif self.args.peptide:
+            rlist_eff = max(rlist_eff, 3.1)
+        put_log(f'rlist adjust from {self.args.fep_rlist_ligand} to {rlist_eff}', head='ABFE')
         # --solv-d-auto: 按腿推导 d (ligand/complex 分开), 保证半盒矢 >= rlist
+        # (互斥已在 main_process 校验, 此处只选分支)
         solv_d_ligand = solv_d_complex = None
-        _check_solv_d_conflict(self.args)
         if self.args.auto_box:
-            # 轮廓盒模式: Solvate 内部根据 rlist 自适应轴, 不再显式传 d
+            # 轮廓盒模式: Solvate 内部根据 rlist 自适应轴 (每轴 >= 2*(rlist+0.3)),
+            # 不再显式传 d; 但 rlist 必须传下去, 否则退化为纯 span 盒
             solv_d_ligand = solv_d_complex = None
-            put_log('--auto-box: contour box derived from rlist inside Solvate.', head='ABFE')
+            put_log(f'--auto-box: contour box derived from rlist={rlist_eff} '
+                    f'inside Solvate.', head='ABFE')
         elif self.args.solv_d_auto:
             # span 测量源: ligand 腿用独立配体 gro (peptide) 或 ligand pdb (小分子),
             # complex 腿用整链 gro (pdb2gmx -ignh 已重建氢, gro 为全原子, 直接测)
@@ -394,7 +428,7 @@ class Complex(Command):
             complex_meas = _complex_gro
             solv_d_ligand, solv_d_complex = auto_solv_d_pair(
                 ligand_meas, complex_meas, bool(self.args.peptide),
-                fep_rlist_ligand=self.args.fep_rlist_ligand)
+                fep_rlist_ligand=rlist_eff)
         elif self.args.solv_d is not None:
             solv_d_ligand = solv_d_complex = self.args.solv_d
         else:
@@ -414,11 +448,8 @@ class Complex(Command):
             builder_dir=wdir / self.args.builder_dir,
             gmx=gmx,
             peptide_definition=peptide_def,
-            pdb2gmx_args=self.args.pdb2gmx_args.split(),
-            n_term=self.args.n_term,
-            c_term=self.args.c_term,
             maxwarn=self.args.maxwarn,
-            fep_rlist_ligand=self.args.fep_rlist_ligand,
+            fep_rlist_ligand=rlist_eff,
             auto_box=self.args.auto_box,
             auto_box_pad=self.args.auto_box_pad,
             ligand_chain=self.args.ligand_chain,
