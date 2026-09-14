@@ -174,5 +174,29 @@
         "exec_names": ["check-structure", "check_structure"],
         "brief": "Check PDB structure for atom clashes and covalent bond length errors using OpenBabel.",
         "detailed": "Check PDB structure for atom clashes (OpenBabel vdw radii) and covalent bond length errors (OpenBabel equilibrium bond lengths). Support batch directories, chain filtering and JSON output."
+    },
+    "prepare_abfe":
+    {
+        "name": "prepare_abfe",
+        "script name": "prepare_abfe",
+        "exec_names": ["prepare_abfe", "prepare-abfe"],
+        "brief": "Prepare ABFE molecular prepare tools.",
+        "detailed": "Prepare ABFE molecular prepare tools."
+    },
+    "run_abfe":
+    {
+        "name": "run_abfe",
+        "script name": "run_abfe",
+        "exec_names": ["run_abfe", "run-abfe"],
+        "brief": "Run ABFE molecular run tools.",
+        "detailed": "Run ABFE molecular run tools."
+    },
+    "affinity":
+    {
+        "name": "affinity",
+        "script name": "affinity",
+        "exec_names": ["affinity", "pla"],
+        "brief": "Run affinity tools.",
+        "detailed": "Run affinity tools."
     }
 }
