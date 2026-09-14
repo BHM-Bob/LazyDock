@@ -64,7 +64,9 @@ def get_all_fep_dgs(root_folder_path: PathLike, out_csv: PathLike = None) -> pd.
     Parameters
     ----------
     root_folder_path : PathLike
-        Where the simulation run. Inside it should be the files: root_folder_path + "/*/*/dG_results.csv".
+        Where the simulation run. Inside it should be the files:
+        root_folder_path + "/replica_*/dG_results.csv" (LazyDock layout
+        2026-09-14: no {ligand_name}/ layer).
     out_csv : PathLike, optional
         If given a pandas.DataFrame will be written as csv file, by default None
 
@@ -73,24 +75,18 @@ def get_all_fep_dgs(root_folder_path: PathLike, out_csv: PathLike = None) -> pd.
     pd.DataFrame
         All gather results. If there are not dG_results.csv; It will return an empty DataFrame
     """
-    # Get all dG_results.csv files
+    # Get all dG_results.csv files (one per replica)
     root_folder_path = str(root_folder_path)
-    dg_files_dir = dict()
-    for dg_file in glob.glob(root_folder_path + "/*/*/dG_results.csv"):
-        dg_file = os.path.normpath(dg_file)
-        ligand_name = dg_file.split(os.path.sep)[-3]
-        if ligand_name in dg_files_dir:
-            dg_files_dir[ligand_name].append(dg_file)
-        else:
-            dg_files_dir[ligand_name] = [dg_file]
+    dg_files = []
+    for dg_file in glob.glob(root_folder_path + "/replica_*/dG_results.csv"):
+        dg_files.append(os.path.normpath(dg_file))
 
     gathered_results = []
-    if dg_files_dir:
-        for ligand in dg_files_dir:
-            statistics = get_fep_stats(dg_files_dir[ligand])
-            statistics['ligand'] = ligand
-            gathered_results.append(statistics)
-
+    if dg_files:
+        statistics = get_fep_stats(dg_files)
+        # single-ligand run: the ligand column is the working directory name
+        statistics['ligand'] = os.path.basename(os.path.normpath(root_folder_path))
+        gathered_results.append(statistics)
         gathered_results = pd.DataFrame(gathered_results)
         # Put the column 'ligand' at the beginning
         columns = ['ligand'] + [col for col in gathered_results.columns if col != 'ligand']
@@ -100,7 +96,7 @@ def get_all_fep_dgs(root_folder_path: PathLike, out_csv: PathLike = None) -> pd.
             gathered_results.to_csv(out_csv)
         return gathered_results
     else:
-        print(f"There is not dG_results.csv yet on {root_folder_path}/*/*")
+        print(f"There is not dG_results.csv yet on {root_folder_path}/replica_*")
         return pd.DataFrame()
 
 
@@ -110,7 +106,9 @@ def get_raw_fep_data(root_folder_path: PathLike, out_csv: PathLike = None) -> pd
     Parameters
     ----------
     root_folder_path : PathLike
-        Where the simulation run. Inside it should be the files: root_folder_path + "/*/*/complex/fep/ana/dg_complex_contributions.json".
+        Where the simulation run. Inside it should be the files:
+        root_folder_path + "/replica_*/complex/fep/ana/dg_complex_contributions.json"
+        (LazyDock layout 2026-09-14: no {ligand_name}/ layer).
     out_csv : PathLike, optional
         If given a pandas.DataFrame will be written as csv file, by default None
 
@@ -122,50 +120,47 @@ def get_raw_fep_data(root_folder_path: PathLike, out_csv: PathLike = None) -> pd
     sample_data = []
     root_folder_path = Path(root_folder_path).resolve()
     for item1 in root_folder_path.iterdir():
-        if item1.is_dir():
-            ligand = item1.stem
-            for item2 in item1.iterdir():
-                if item2.is_dir():
-                    replica = item2.stem
-                    complex_json = item2/"complex/fep/ana/dg_complex_contributions.json"
-                    ligand_json = item2/"ligand/fep/ana/dg_ligand_contributions.json"
-                    if complex_json.is_file() and ligand_json.is_file():
-                        with open(complex_json, 'r') as cj:
-                            complex_data = json.load(cj)
-                        with open(ligand_json, 'r') as lj:
-                            ligand_data = json.load(lj)
+        if item1.is_dir() and item1.name.startswith('replica_'):
+            replica = item1.stem
+            complex_json = item1/"complex/fep/ana/dg_complex_contributions.json"
+            ligand_json = item1/"ligand/fep/ana/dg_ligand_contributions.json"
+            if complex_json.is_file() and ligand_json.is_file():
+                with open(complex_json, 'r') as cj:
+                    complex_data = json.load(cj)
+                with open(ligand_json, 'r') as lj:
+                    ligand_data = json.load(lj)
 
-                        sample_data.append(
-                            [
-                                ligand,
-                                replica,
-                                complex_data['vdw']['MBAR']['value'],
-                                complex_data['coul']['MBAR']['value'],
-                                complex_data['bonded']['MBAR']['value'],
-                                ligand_data['vdw']['MBAR']['value'],
-                                ligand_data['coul']['MBAR']['value'],
+                sample_data.append(
+                    [
+                        os.path.basename(root_folder_path),  # ligand = workdir name
+                        replica,
+                        complex_data['vdw']['MBAR']['value'],
+                        complex_data['coul']['MBAR']['value'],
+                        complex_data['bonded']['MBAR']['value'],
+                        ligand_data['vdw']['MBAR']['value'],
+                        ligand_data['coul']['MBAR']['value'],
 
-                                complex_data['vdw']['TI']['value'],
-                                complex_data['coul']['TI']['value'],
-                                complex_data['bonded']['TI']['value'],
-                                ligand_data['vdw']['TI']['value'],
-                                ligand_data['coul']['TI']['value'],
+                        complex_data['vdw']['TI']['value'],
+                        complex_data['coul']['TI']['value'],
+                        complex_data['bonded']['TI']['value'],
+                        ligand_data['vdw']['TI']['value'],
+                        ligand_data['coul']['TI']['value'],
 
-                                complex_data['boresch'],
+                        complex_data['boresch'],
 
-                                complex_data['vdw']['MBAR']['error'],
-                                complex_data['coul']['MBAR']['error'],
-                                complex_data['bonded']['MBAR']['error'],
-                                ligand_data['vdw']['MBAR']['error'],
-                                ligand_data['coul']['MBAR']['error'],
+                        complex_data['vdw']['MBAR']['error'],
+                        complex_data['coul']['MBAR']['error'],
+                        complex_data['bonded']['MBAR']['error'],
+                        ligand_data['vdw']['MBAR']['error'],
+                        ligand_data['coul']['MBAR']['error'],
 
-                                complex_data['vdw']['TI']['error'],
-                                complex_data['coul']['TI']['error'],
-                                complex_data['bonded']['TI']['error'],
-                                ligand_data['vdw']['TI']['error'],
-                                ligand_data['coul']['TI']['error'],
-                            ]
-                        )
+                        complex_data['vdw']['TI']['error'],
+                        complex_data['coul']['TI']['error'],
+                        complex_data['bonded']['TI']['error'],
+                        ligand_data['vdw']['TI']['error'],
+                        ligand_data['coul']['TI']['error'],
+                    ]
+                )
     df = pd.DataFrame(
         sample_data,
         columns=[

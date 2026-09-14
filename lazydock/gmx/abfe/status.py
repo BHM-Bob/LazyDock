@@ -186,36 +186,37 @@ def scan_abfe_progress(out_root: PathLike) -> List[dict]:
 
     Returns a list of dicts with keys:
         ligand, leg, lam_type, state, n_finished, n_total, current_step, elapsed
+
+    LazyDock layout (2026-09-14): {out}/replica_{N}/{ligand,complex}/fep/simulation
+    (no {ligand_name}/ layer). The first field stays 'ligand' for compatibility
+    with the renderer but now holds the working directory name.
     """
     out_root = Path(out_root)
     rows = []
     if not out_root.exists():
         return rows
-    # locate ligand/replica roots: {out}/<ligand>/<replica>
-    roots = []
+    # locate replica roots: {out}/replica_{N}
     try:
         top_dirs = [p for p in out_root.iterdir() if p.is_dir()]
     except OSError:
         return rows
-    for lig_dir in sorted(top_dirs):
-        if lig_dir.name.startswith('.'):
+    roots = []
+    for rep_dir in sorted(top_dirs):
+        if rep_dir.name.startswith('.') or not rep_dir.name.startswith('replica_'):
             continue
-        try:
-            rep_dirs = [p for p in lig_dir.iterdir() if p.is_dir()]
-        except OSError:
-            continue
-        for rep_dir in sorted(rep_dirs):
-            if rep_dir.name.startswith('.'):
-                continue
-            roots.append((lig_dir.name, rep_dir.name, lig_dir, rep_dir))
+        roots.append((out_root.name, rep_dir.name, None, rep_dir))
     if not roots:
-        # maybe out_root is exactly the ligand dir
+        # fallback: every subdirectory treated as a replica root
         for rep_dir in sorted(p for p in out_root.iterdir() if p.is_dir()):
             if rep_dir.name.startswith('.'):
                 continue
-            roots.append((out_root.name, rep_dir.name, out_root, rep_dir))
+            roots.append((out_root.name, rep_dir.name, None, rep_dir))
+    if not roots:
+        # maybe out_root is exactly a replica dir
+        if (out_root / 'ligand' / 'fep' / 'simulation').is_dir():
+            roots.append((out_root.parent.name, out_root.name, None, out_root))
 
-    for lig_name, rep_name, lig_dir, rep_dir in roots:
+    for lig_name, rep_name, _lig_dir, rep_dir in roots:
         for sys_type in ('ligand', 'complex'):
             sim_root = rep_dir / sys_type / 'fep' / 'simulation'
             if not sim_root.is_dir():

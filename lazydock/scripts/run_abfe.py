@@ -14,8 +14,6 @@ from mbapy_lite.base import put_err, put_log
 from lazydock.gmx.run import Gromacs
 from lazydock.scripts._script_utils_ import Command, make_args_and_excute, process_batch_dir_lst
 
-logger = logging.getLogger(__name__)
-
 
 def _parse_mdp_extra(s: str) -> dict:
     """Parse a user mdp override string like:
@@ -51,8 +49,9 @@ class Run(Command):
         directory produced by prepare-abfe, containing:
             input/complex/*  (complex.gro complex.top index.ndx itps)
             input/ligand/*   (ligand.gro ligand.top itps)
-        The engine re-creates the BindFlow layout:
-            {out}/<ligand_name>/<replica>/{ligand,complex}/(equil-mdsim|fep)
+        The engine builds the LazyDock layout in the SAME directory
+        (no copied input/, no {ligand_name}/ layer):
+            {wdir}/replica_{N}/{ligand,complex}/(equil-mdsim|fep)
     """
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
@@ -61,14 +60,6 @@ class Run(Command):
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-d', '--dir', type=str, nargs='+', default=['.'],
                           help='directory containing input/ (prepare-abfe output). Default %(default)s.')
-        args.add_argument('-o', '--out', type=str, default=None,
-                          help='output root directory (default: same as -d).')
-        args.add_argument('--name', type=str, default=None,
-                          help='ligand name (default: derived from the single input ligand; '
-                               'if multiple, use --name to select).')
-        args.add_argument('--ligand-pdb', type=str, default=None,
-                          help='ligand pdb file name inside input dir (default: auto-detect first '
-                               'in input/ligand). Only needed for archiving; can be omitted.')
         args.add_argument('--replicas', type=int, default=1, help='number of replicas. Default %(default)s.')
         args.add_argument('--threads', type=int, default=12, help='mdrun -nt. Default %(default)s.')
         args.add_argument('--ntmpi', type=int, default=None,
@@ -99,6 +90,13 @@ class Run(Command):
                           help='rlist (nm) for FEP windows in peptide mode (couple-intramol=no). '
                                'Default 3.1 (covers cyclic-peptide diameter ~2.6 nm + margin; '
                                'must be < half shortest box vector).')
+        args.add_argument('--fep-rlist-ligand', type=float, default=None,
+                          help='rlist (nm) for the LIGAND-leg FEP windows only (overrides '
+                               '--fep-rlist for the ligand leg). Small-molecule ligands '
+                               '(couple-intramol=yes) need only the template 1.2; large '
+                               'non-standard amino-acid peptides processed through the '
+                               'small-molecule path may need more. Peptide ligands: do NOT '
+                               'lower below 3.1 (peptide can stretch in solvent).')
         args.add_argument('--fep-cutoff', type=float, default=None,
                           help='rcoulomb/rvdw (nm) for FEP windows in peptide mode '
                                '(couple-intramol=no). grompp checks non-perturbed excluded '
@@ -159,27 +157,12 @@ class Run(Command):
         if not (ligand_dir / 'ligand.top').exists() and not (ligand_dir / 'ligand.gro').exists():
             put_err(f'ligand files not found in {ligand_dir}.', _exit=True)
 
-        # name: explicit or from the single ligand definition
-        out_root = Path(self.args.out) if self.args.out else wdir
-        if not out_root.is_absolute():
-            out_root = wdir / out_root
-        if self.args.name:
-            ligand_name = self.args.name
-        else:
-            # prefer the prepare-abfe input pdb found next to input/ (e.g.
-            # complex_cycpep.pdb), skipping generated intermediates
-            # (receptor.pdb, ligand.pdb).  Fallback: working directory name.
-            skip = {'receptor.pdb', 'ligand.pdb'}
-            cands = sorted(f for f in wdir.glob('*.pdb') if f.name not in skip)
-            if cands:
-                ligand_name = cands[0].stem
-            else:
-                ligand_name = wdir.name
-        ligand_pdb = Path(self.args.ligand_pdb) if self.args.ligand_pdb else ligand_dir / 'ligand.pdb'
+        # out_root is the working directory itself (LazyDock convention
+        # 2026-09-14: no separate --out, no {ligand_name}/ layer)
+        out_root = wdir
+        ligand_pdb = ligand_dir / 'ligand.pdb'
         if not ligand_pdb.exists():
             ligand_pdb = ligand_dir / 'ligand.gro'
-            if not ligand_pdb.exists():
-                ligand_pdb = Path(f'{ligand_name}.pdb')  # placeholder for archive
 
         # nwindows override
         nwindows = None
@@ -244,7 +227,6 @@ class Run(Command):
                 else {'conf': str(complex_dir / 'complex.gro')},
                 'ligands': [{'conf': str(ligand_pdb)}],
             },
-            'ligand_names': [ligand_name],
             'replicas': self.args.replicas,
             'water_model': None,  # not used in run stage
             'host_name': self.args.host_name,
@@ -259,6 +241,7 @@ class Run(Command):
             'equi_integrator': self.args.equi_integrator,
             'fep_dt_max': self.args.dt_max_fep,
             'fep_rlist': self.args.fep_rlist,
+            'fep_rlist_ligand': self.args.fep_rlist_ligand,
             'fep_cutoff': self.args.fep_cutoff,
             'retries': self.args.retries,
             'maxwarn': self.args.maxwarn,
@@ -282,15 +265,9 @@ class Run(Command):
         from lazydock.gmx.abfe import engine
         wdir = Path(self.args.dir[0])
         put_log(f'processing ABFE run in: {wdir}')
-        if self.args.out:
-            out_root = Path(self.args.out)
-            out_root = out_root if out_root.is_absolute() else wdir / self.args.out
-        else:
-            out_root = wdir
         config = self._build_global_config(wdir)
-        config['out_approach_path'] = str(out_root)
         engine.run_abfe(config, only_build=self.args.only_build)
-        put_log(f'ABFE run completed. Output in: {out_root}')
+        put_log(f'ABFE run completed. Output in: {wdir}')
 
 
 class Status(Command):
@@ -300,8 +277,8 @@ class Status(Command):
     Read-only: only scans .finished markers and mdp/log metadata.
 
     INPUT:
-        the output directory of an abfe run
-        ({out}/<ligand_name>/<replica>/...), or its ligand subdirectory.
+        the working directory of an abfe run ({wdir}/replica_{N}/...),
+        or a replica directory itself.
     """
     def __init__(self, args, printf=print):
         # NOTE: must NOT use iter_run_arg=['dir']: the generic Command.excute()
