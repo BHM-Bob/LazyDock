@@ -359,8 +359,9 @@ class Complex(Command):
             return gro_p, top_p
 
         # complex 腿: 整链 complex.pdb 一次 prepare-gmx protein (-merge no 保留两链
-        # moleculetype, 相对坐标天然保留 - 修复 Phase 2 受体/配体独立居中重叠 bug)
-        _complex_gro, _complex_top = _run_prepare_gmx_protein(wdir, 'complex.pdb', merge_val='no')
+        # moleculetype, 相对坐标天然保留 - 修复 Phase 2 受体/配体独立居中重叠 bug)。
+        # 用 complex_path.name (-n/--name 指定的文件名), 与 batch 扫描的输入一致。
+        _complex_gro, _complex_top = _run_prepare_gmx_protein(wdir, complex_path.name, merge_val='no')
 
         gmx = Gromacs(working_dir=str(wdir))
 
