@@ -49,7 +49,7 @@ def _relax_worker(pdb_path: str, output_path: str, chain: str, stiffness: float,
     with open(pdb_path, 'r') as f:
         pdb_str = f.read()
     
-    result_pdb, ret = relaxer(
+    result_pdb, _ = relaxer(
         pdb_str, 
         output_path, 
         restrain_chain=chain,

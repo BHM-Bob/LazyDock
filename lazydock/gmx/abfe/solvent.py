@@ -221,7 +221,7 @@ class Solvate:
         ions_itp = (ff_dir / str(self.force_field_family) / "ions.itp").resolve()
         ffnonbonded_itp = (ff_dir / str(self.force_field_family) / "ffnonbonded.itp").resolve()
         water_gro = (ff_dir / "configurations" / self.water_models_data[self.force_field_family][self.water_model]).resolve()
-        return water_itp, ions_itp, ffnonbonded_itp, water_gro
+        return water_itp, ions_itp, ffnonbonded_itp, water_gro # type: ignore
 
     def _include_all_atom_types(self, top: PathLike) -> None:
         """Add all the atom types of the force field family to the first [ atomtypes ] section."""

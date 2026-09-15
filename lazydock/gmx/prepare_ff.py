@@ -153,7 +153,7 @@ def prepare_complex_with_sobtop(complex_path: str, ff_dir: str, rec_chain: str, 
     
     # check if the sobtop exists
     if not os.path.exists(GlobalConfig.named_paths["sobtop_dir"]):
-        return put_err(f'sobtop not found from ~/.lazydock/config.json, skip.')
+        return put_err(f'sobtop not found from ~/.lazydock/lazydock_config.json, skip.')
     
     if os.path.exists(abs_path(os.path.join(complex_dir, 'FAILED'))):
         return put_log(f'FAILED already exists in {complex_dir}, skip.')
