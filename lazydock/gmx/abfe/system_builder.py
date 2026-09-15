@@ -265,6 +265,11 @@ class MakeInputs:
             if isinstance(ligand_definition, dict) and ligand_definition.get('conf'):
                 _lg = solvent._read_parmed_molecule(top_file=ligand_definition.get('top'),
                                                     gro_file=ligand_definition['conf'])
+                # HMR: same as the complex leg (gmx_process applies
+                # HMassRepartition): without it the ligand-leg topology keeps
+                # H mass 1.008 and every 4 fs step blows up (LINCS/NaN).
+                if self.hmr_factor:
+                    HMassRepartition(_lg, self.hmr_factor).execute()
                 self.sys_ligand = _lg
                 self._peptide_n_atoms = len(_lg.atoms)
                 self._ligand_parmed = _lg
