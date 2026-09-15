@@ -56,19 +56,21 @@ def sum_uncertainty_propagation(errors: Iterable[float], coefficients: Optional[
 
 
 def _gmx_for_run_dir(gmx, run_dir: Path) -> 'Gromacs':
-    """Return a Gromacs object whose working_dir == run_dir.
+    """Return a NEW Gromacs object whose working_dir == run_dir.
 
     The shared ``gmx`` (created once at the output root, carrying the GPU
-    selection) must NOT be reused directly: ``run_gmx_with_expect`` prepends
+    selection) is only used as the ``gpu_ids`` source here; it is NEVER
+    returned/reused directly: ``run_gmx_with_expect`` prepends
     ``cd <working_dir>``, so mdrun's relative outputs (-deffnm) would land in
-    the output root instead of the simulation step directory.  BindFlow's
-    ``gmx_runner`` does ``os.chdir(run_dir)`` before launching gmx; we emulate
-    that by building a per-run-dir Gromacs that inherits the gpu_ids.
+    the output root instead of the simulation step directory.  Always creating
+    a fresh per-run-dir instance also keeps the parallel task pool free of any
+    shared-object state (e.g. caching) that a future Gromacs upgrade might
+    introduce.  BindFlow's ``gmx_runner`` does ``os.chdir(run_dir)`` before
+    launching gmx; we emulate that by building a per-run-dir Gromacs that
+    inherits the gpu_ids.
     """
     from lazydock.gmx.run import Gromacs
     run_dir = Path(run_dir)
-    if gmx is not None and Path(getattr(gmx, 'working_dir', '.')).resolve() == run_dir.resolve():
-        return gmx
     gpu_ids = list(gmx.gpu_ids) if (gmx is not None and getattr(gmx, 'gpu_ids', None)) else [0]
     return Gromacs(working_dir=str(run_dir), gpu_ids=gpu_ids)
 

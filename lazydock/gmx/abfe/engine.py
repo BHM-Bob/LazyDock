@@ -23,8 +23,10 @@ import copy
 import logging
 import os
 import shutil
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+from mbapy_lite.base import put_err
 
 from lazydock.gmx.abfe import mdp
 from lazydock.gmx.abfe import templates
@@ -664,19 +666,168 @@ def _run_fep_analysis(global_config, replica):
 # Full pipeline
 ###########################################################################
 
-def run_abfe(
-    global_config: dict,
-    only_build: bool = False,
-):
+def _check_boresch_exists(global_config: dict) -> bool:
+    """Whether every replica's complex equil has Boresch restraints (needed by FEP)."""
+    out_root = Path(global_config["out_approach_path"])
+    for replica in map(str, range(1, int(global_config["replicas"]) + 1)):
+        run_dir = _replica_dir(out_root, replica) / "complex" / "equil-mdsim" / "boreschcalc"
+        if not _boresch_finished(run_dir):
+            return False
+    return True
+
+
+def _equil_tasks(global_configs: list) -> list:
+    """Cross-run equilibration task list: (case_idx, leg, replica)."""
+    tasks = []
+    for ci, cfg in enumerate(global_configs):
+        n_rep = int(cfg["replicas"])
+        for leg in ("ligand", "complex"):
+            for rep in map(str, range(1, n_rep + 1)):
+                tasks.append((ci, leg, rep))
+    return tasks
+
+
+def _run_equil_parallel(global_configs: list, only_build: bool = False) -> None:
+    """Cross-run equilibration task pool.
+
+    Task unit = (case_idx, leg, replica); a worker runs one full equilibration
+    chain (00_min -> ... -> prod) pinned to a GPU from the first config's
+    gpu_ids (round-robin).  Completed tasks are skipped via .finished markers.
+    Boresch restraints are NOT parallelized: they depend on the complex equil
+    prod trajectory and must be deterministic for a given case/replica, so the
+    main thread runs them serially after all equilibration tasks succeed.
+    """
+    # 1) directories + equil mdp generation (per case, per leg)
+    for cfg in global_configs:
+        cfg = prepare_out_dir_and_config(cfg)
+        _make_equi_mdps(cfg, "ligand")
+        _make_equi_mdps(cfg, "complex")
+    if only_build:
+        logger.info("only_build=True: equil MDP structure generated; "
+                    "no simulation launched")
+        return
+
+    n_parallel = int(global_configs[0].get("n_parallel", 1) or 1)
+    nthreads = int(global_configs[0].get("threads", 12))
+    gpu_ids = list(global_configs[0].get("gpu_ids") or [global_configs[0].get("gpu_id", 0)])
+    n_gpu = len(gpu_ids) if gpu_ids else 1
+    tasks = _equil_tasks(global_configs)
+    n_tasks = len(tasks)
+
+    if n_parallel <= 1 or n_tasks <= 1:
+        # serial fallback (original behavior: per replica, ligand then complex + boresch)
+        for cfg in global_configs:
+            for rep in map(str, range(1, int(cfg["replicas"]) + 1)):
+                _run_equilibration(cfg, "ligand", rep)
+                _run_equilibration(cfg, "complex", rep)
+                _run_boresch(cfg, rep)
+        return
+
+    n_workers = min(n_parallel, n_tasks)
+    logger.info(f"equil parallel: {n_tasks} tasks, {n_workers} concurrent, "
+                f"GPUs={gpu_ids}, threads/task={max(1, nthreads // n_workers)}")
+
+    def _worker(task):
+        ci, leg, rep = task
+        wid = tasks.index(task)
+        gpu = gpu_ids[wid % n_gpu]
+        wcfg = dict(global_configs[ci])        # shallow: only gpu_id/threads overridden
+        wcfg["gpu_id"] = gpu
+        wcfg["threads"] = max(1, nthreads // n_workers)
+        _run_equilibration(wcfg, leg, rep)
+        return task
+
+    errors = []
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        futs = {pool.submit(_worker, t): t for t in tasks}
+        for fut in as_completed(futs):
+            task = futs[fut]
+            try:
+                fut.result()
+            except Exception as exc:  # noqa: BLE001 - surface all task errors
+                errors.append((task, exc))
+                logger.error(f"equil task {task} failed: {exc}")
+    if errors:
+        raise RuntimeError(
+            f"{len(errors)} equil task(s) failed: "
+            + "; ".join(f"{t}: {e}" for t, e in errors))
+
+    # 2) boresch: deterministic per case/replica; run serially on the main thread
+    for cfg in global_configs:
+        for rep in map(str, range(1, int(cfg["replicas"]) + 1)):
+            _run_boresch(cfg, rep)
+
+
+def run_abfe_equil(global_configs: list, only_build: bool = False) -> None:
+    """Equilibration stage only: cross-run task pool (default serial)
+    followed by per-case Boresch restraint generation (serial).
+
+    Accepts one config (backwards compatible) or a list of configs.
+    """
+    if isinstance(global_configs, dict):
+        global_configs = [global_configs]
+    _run_equil_parallel(global_configs, only_build=only_build)
+
+
+def run_abfe_fep(global_configs: list, only_build: bool = False) -> None:
+    """FEP stage only: per-case check Boresch products -> mdp generation ->
+    window simulation (parallel or serial) -> analysis -> gather.
+
+    Accepts one config (backwards compatible) or a list of configs.
+    """
+    if isinstance(global_configs, dict):
+        global_configs = [global_configs]
+
+    # 1) check Boresch products exist (complex FEP depends on them)
+    for cfg in global_configs:
+        if not _check_boresch_exists(cfg):
+            put_err(
+                f"{Path(cfg['out_approach_path'])}: Boresch restraints not found "
+                f"(run the equilibration stage first, e.g. `run-abfe equil`).",
+                _exit=True)
+
+    # 2) mdp generation (per case, per leg)
+    for cfg in global_configs:
+        cfg = prepare_out_dir_and_config(cfg)
+        _make_fep_mdps(cfg, "ligand")
+        _make_fep_mdps(cfg, "complex")
+    if only_build:
+        logger.info("only_build=True: FEP MDP structure generated; "
+                    "no simulation launched")
+        return
+
+    # 3) FEP simulations + analysis + gather (per case)
+    for cfg in global_configs:
+        n_parallel = int(cfg.get("n_parallel", 1))
+        for replica in map(str, range(1, cfg["replicas"] + 1)):
+            if n_parallel > 1:
+                _run_fep_simulation_parallel(cfg, replica)
+            else:
+                _run_fep_simulation(cfg, "ligand", replica)
+                _run_fep_simulation(cfg, "complex", replica)
+            _run_fep_analysis(cfg, replica)
+        gather_results.get_all_fep_dgs(
+            root_folder_path=cfg["out_approach_path"],
+            out_csv=Path(cfg["out_approach_path"]) / "fep_results.csv",
+        )
+        gather_results.get_raw_fep_data(
+            root_folder_path=cfg["out_approach_path"],
+            out_csv=Path(cfg["out_approach_path"]) / "fep_results_raw.csv",
+        )
+
+
+def run_abfe(global_config: dict, only_build: bool = False) -> None:
     """Run the complete ABFE workflow sequentially (no Snakemake).
 
     Parameters
     ----------
-    global_config : dict
+    global_config : dict | list[dict]
         Config containing at least: calculation_type, out_approach_path,
         input_dir, inputs, water_model, host_name, host_selection,
         replicas, hmr_factor, custom_ff_path, threads,
         extra_directives, retries, dt_max, lambdas, complex_type.
+        A list of configs (batch mode) is also accepted: equil runs as a
+        cross-run task pool, then FEP per case.
     only_build : bool, optional
         If True, only generate the mdp structure and the directories,
         do not run any simulation (useful for debugging). By default False.
@@ -685,45 +836,7 @@ def run_abfe(
     -------
     None
     """
-    cfg = prepare_out_dir_and_config(global_config)
-
-    # --- MDP generation (upfront, like the setup rules) ---
-    _make_equi_mdps(cfg, "ligand")
-    _make_equi_mdps(cfg, "complex")
-
+    run_abfe_equil(global_config, only_build=only_build)
     if only_build:
-        logger.info("only_build=True: MDP structure generated; "
-                    "no simulation launched")
         return
-
-    # --- Equilibrations (Ligand first, then complex) ---
-    for replica in map(str, range(1, cfg["replicas"] + 1)):
-        _run_equilibration(cfg, "ligand", replica)
-        _run_equilibration(cfg, "complex", replica)
-        _run_boresch(cfg, replica)
-
-    # --- FEP setup (needs Boresch restraints generated above) ---
-    _make_fep_mdps(cfg, "ligand")
-    _make_fep_mdps(cfg, "complex")
-
-    # --- FEP simulations ---
-    n_parallel = int(cfg.get("n_parallel", 1))
-    for replica in map(str, range(1, cfg["replicas"] + 1)):
-        if n_parallel > 1:
-            # two-level scheduler: window workers run concurrently,
-            # each pinned to a GPU from gpu_ids
-            _run_fep_simulation_parallel(cfg, replica)
-        else:
-            _run_fep_simulation(cfg, "ligand", replica)
-            _run_fep_simulation(cfg, "complex", replica)
-        _run_fep_analysis(cfg, replica)
-
-    # --- Gather ---
-    gather_results.get_all_fep_dgs(
-        root_folder_path=cfg["out_approach_path"],
-        out_csv=Path(cfg["out_approach_path"]) / "fep_results.csv",
-    )
-    gather_results.get_raw_fep_data(
-        root_folder_path=cfg["out_approach_path"],
-        out_csv=Path(cfg["out_approach_path"]) / "fep_results_raw.csv",
-    )
+    run_abfe_fep(global_config, only_build=False)

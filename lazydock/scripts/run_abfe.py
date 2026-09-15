@@ -5,11 +5,11 @@ Description: run ABFE (absolute binding free energy) simulations + analysis.
              Core logic migrated from BindFlow (https://github.com/IFMIFMIF/BindFlow)
 '''
 import argparse
-import logging
 from pathlib import Path
-from typing import List, Union
+from typing import List
 
 from mbapy_lite.base import put_err, put_log
+from mbapy_lite.file import get_paths_with_extension
 
 from lazydock.gmx.run import Gromacs
 from lazydock.scripts._script_utils_ import Command, make_args_and_excute, process_batch_dir_lst
@@ -41,25 +41,25 @@ def _parse_mdp_extra(s: str) -> dict:
     return result
 
 
-class Run(Command):
-    HELP = """
-    run ABFE: equilibration -> Boresch restraints -> FEP simulations -> analysis -> gather.
-
-    INPUT:
-        directory produced by prepare-abfe, containing:
-            input/complex/*  (complex.gro complex.top index.ndx itps)
-            input/ligand/*   (ligand.gro ligand.top itps)
-        The engine builds the LazyDock layout in the SAME directory
-        (no copied input/, no {ligand_name}/ layer):
-            {wdir}/replica_{N}/{ligand,complex}/(equil-mdsim|fep)
+class _RunBase(Command):
+    """Common base of the equi/fep/run subcommands: the shared argument
+    table, the batch discovery (scan the prepare-abfe convention file
+    complex.pdb, -n to override) and the engine config builder.
+    Not registered as a subcommand itself.
     """
+    HELP = """(base class, not a subcommand)"""
+
     def __init__(self, args, printf=print):
         super().__init__(args, printf)
 
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
         args.add_argument('-d', '--dir', type=str, nargs='+', default=['.'],
-                          help='directory containing input/ (prepare-abfe output). Default %(default)s.')
+                          help='batch directory containing complex.pdb subdirs '
+                               '(or a single case directory with input/). Default %(default)s.')
+        args.add_argument('-n', '--name', type=str, default='complex.pdb',
+                          help='complex structure file name in each case dir; '
+                               'must match prepare-abfe -n/--name. Default %(default)s.')
         args.add_argument('--replicas', type=int, default=1, help='number of replicas. Default %(default)s.')
         args.add_argument('--threads', type=int, default=12, help='mdrun -nt. Default %(default)s.')
         args.add_argument('--ntmpi', type=int, default=None,
@@ -124,10 +124,12 @@ class Run(Command):
                                'complex equil-mdsim). Overrides the template nsteps; e.g. '
                                '--equi-prod-ns 1 = 1 ns. Default keeps the template length.')
         args.add_argument('--n-parallel', type=int, default=1,
-                          help='number of FEP windows to run concurrently (two-level scheduler: '
-                               'a pool of window workers, each running its full step chain '
-                               '00_min->...->prod on one GPU). Windows are distributed across '
-                               '--gpus round-robin. Default 1 (sequential, BindFlow behavior). '
+                          help='number of concurrent tasks/windows. For FEP: FEP windows to '
+                               'run concurrently (two-level scheduler: a pool of window workers, '
+                               'each running its full step chain 00_min->...->prod on one GPU). '
+                               'For equil: cross-run equilibration tasks (case x leg x replica) '
+                               'to run concurrently. Windows/tasks are distributed across --gpus '
+                               'round-robin. Default 1 (sequential, BindFlow behavior). '
                                'Use e.g. --n-parallel 8 with 4 GPUs (2 windows per GPU, '
                                'nt per window = threads/n-parallel*ngpus ... see docs).')
         args.add_argument('--retries', type=int, default=3, help='gmx retries per step. Default %(default)s.')
@@ -261,13 +263,87 @@ class Run(Command):
         }
         return config
 
-    def main_process(self):
+    def _batch_configs(self) -> 'list[dict]':
+        """Scan the batch dir(s) for the ABFE cases: any directory containing
+        the same convention file prepare-abfe consumed (complex.pdb by default,
+        see prepare-abfe -n/--name) whose input/ exists.  Also accepts a
+        directory that directly contains input/ (a single case).  Returns one
+        engine config per case.
+        """
+        cases: list[Path] = []
+        for d in self.args.dir:
+            d = Path(d)
+            if (d / 'input').exists():
+                cases.append(d)
+                continue
+            if not d.is_dir():
+                put_err(f'dir argument should be a directory: {d}', _exit=True)
+            found = get_paths_with_extension(d, [], name_substr=self.args.name)
+            if not found:
+                put_log(f'no {self.args.name} found under {d} - nothing to do', head='ABFE')
+                continue
+            seen = set()
+            for p in found:
+                case_dir = Path(p).parent
+                if case_dir in seen:
+                    continue
+                seen.add(case_dir)
+                if (case_dir / 'input').exists():
+                    cases.append(case_dir)
+                else:
+                    put_log(f'{case_dir}: no input/ (prepare-abfe not run?) - skipped',
+                            head='ABFE')
+        if not cases:
+            put_err(f'no ABFE case ({self.args.name} + input/) found under {self.args.dir}',
+                    _exit=True)
+        return [self._build_global_config(c) for c in cases]
+
+    @staticmethod
+    def _get_engine():
         from lazydock.gmx.abfe import engine
-        wdir = Path(self.args.dir[0])
-        put_log(f'processing ABFE run in: {wdir}')
-        config = self._build_global_config(wdir)
-        engine.run_abfe(config, only_build=self.args.only_build)
-        put_log(f'ABFE run completed. Output in: {wdir}')
+        return engine
+
+
+class Equil(_RunBase):
+    """Run only the equilibration stage: cross-run task pool + Boresch (serial).
+
+    Reuses the shared argument table, batch scan and config builder of _RunBase.
+    """
+    HELP = """
+    run only the ABFE equilibration stage: cross-run task pool (task =
+    (case, leg, replica)) -> Boresch restraints (serial).
+
+    INPUT:
+        same batch directory convention as `run` (cases = subdirs with
+        complex.pdb and input/).
+    """
+    def main_process(self):
+        configs = self._batch_configs()
+        engine_ = self._get_engine()
+        engine_.run_abfe_equil(configs, only_build=self.args.only_build)
+        for cfg in configs:
+            put_log(f'ABFE equilibration completed. Output in: {cfg["out_approach_path"]}')
+
+
+class Fep(_RunBase):
+    """Run only the FEP stage: windows -> analysis -> gather.
+
+    Reuses the shared argument table, batch scan and config builder of _RunBase.
+    """
+    HELP = """
+    run only the ABFE FEP stage: check Boresch restraints -> window
+    simulation (parallel or serial) -> analysis -> gather.
+
+    INPUT:
+        same batch directory convention as `run` (cases = subdirs with
+        complex.pdb and input/); requires `run-abfe equil` (or `run`) first.
+    """
+    def main_process(self):
+        configs = self._batch_configs()
+        engine_ = self._get_engine()
+        engine_.run_abfe_fep(configs, only_build=self.args.only_build)
+        for cfg in configs:
+            put_log(f'ABFE FEP completed. Output in: {cfg["out_approach_path"]}')
 
 
 class Status(Command):
@@ -298,8 +374,37 @@ class Status(Command):
             self.printf(render_status(rows))
 
 
+class Run(_RunBase):
+    """Full ABFE workflow subcommand (placed last: it simply composes the
+    equil -> fep stages described above).
+    """
+    HELP = """
+    run ABFE: equilibration -> Boresch restraints -> FEP simulations -> analysis -> gather.
+
+    INPUT:
+        a batch directory containing the prepare-abfe output layout:
+            <case>/{input/complex, input/ligand}   (one case per subdir with complex.pdb)
+        The engine builds the LazyDock layout in the SAME case directory (no
+        copied input/, no {ligand_name}/ layer):
+            <case>/replica_{N}/{ligand,complex}/(equil-mdsim|fep)
+    """
+    def main_process(self):
+        configs = self._batch_configs()
+        engine_ = self._get_engine()
+        for cfg in configs:
+            put_log(f'processing ABFE run in: {cfg["out_approach_path"]}', head='ABFE')
+        if len(configs) == 1:
+            engine_.run_abfe(configs[0], only_build=self.args.only_build)
+        else:
+            engine_.run_abfe(configs, only_build=self.args.only_build)
+        for cfg in configs:
+            put_log(f'ABFE run completed. Output in: {cfg["out_approach_path"]}')
+
+
 _str2func = {
     'run': Run,
+    'equil': Equil,
+    'fep': Fep,
     'status': Status,
 }
 
