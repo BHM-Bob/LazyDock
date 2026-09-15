@@ -17,6 +17,7 @@ from mbapy_lite.file import get_paths_with_extension
 from lazydock.gmx.run import Gromacs
 from lazydock.gmx.abfe import system_builder
 from lazydock.scripts._script_utils_ import Command, make_args_and_excute, process_batch_dir_lst
+from tqdm import tqdm
 
 
 def _fix_ligand_for_abfe(pdb_path: Path, ligand_resname: str = 'LIG') -> Path:
@@ -217,7 +218,7 @@ class Complex(Command):
                 + ', '.join(str(Path(p)) for p in complex_files))
 
         skipped, failed = 0, 0
-        for complex_path in map(Path, complex_files):
+        for complex_path in tqdm(map(Path, complex_files), desc='ABFE prepare', total=len(complex_files)):
             complex_path = complex_path.resolve()
             wdir = complex_path.parent
             # skip if input/ already exists (idempotent batch re-run)
