@@ -130,7 +130,7 @@ def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Unio
     mode = check_support_mode(mode)
     # else: mode = mode
     # prepare interactions
-    receptor_chain = cmd.get_chains(receptor)[0]
+    receptor_chain = cmd.get_chains(receptor)
     all_interactions, interaction_df = {}, pd.DataFrame()
     # calcu for each ligand
     for ligand in tqdm(poses, desc=f'PLIP', disable=not verbose):
