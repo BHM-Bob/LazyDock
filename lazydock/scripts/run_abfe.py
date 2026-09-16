@@ -211,7 +211,11 @@ class _RunBase(Command):
                         .setdefault(lam, {}).setdefault('prod', {})
                     prod.setdefault('nsteps', str(nsteps))
         if self.args.equi_prod_ns is not None:
-            nsteps = int(round(self.args.equi_prod_ns * 1000 / self.args.dt_max))
+            # equil 各步模板 dt 均 <= 0.004 (配 HMR), 且 _make_equi_mdps 只把 dt
+            # 钳制到 <= dt_max, 即实际生效 dt = min(dt_max, 0.004). 换算基准必须用
+            # 该实际生效 dt, 否则 --dt-max 默认 0.008 时 10ns 会被算成 5ns.
+            eff_dt = min(self.args.dt_max, 0.004)
+            nsteps = int(round(self.args.equi_prod_ns * 1000 / eff_dt))
             for sys_type in ('ligand', 'complex'):
                 prod = mdp_overrides.setdefault(sys_type, {}).setdefault('equi', {}) \
                     .setdefault('prod', {})
