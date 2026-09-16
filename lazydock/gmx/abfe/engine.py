@@ -20,21 +20,20 @@ Differences with the BindFlow engine (by design):
 """
 
 import copy
-import logging
 import os
+import queue
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from mbapy_lite.base import put_err
+from mbapy_lite.base import put_err, put_log
 
-from lazydock.gmx.abfe import mdp
-from lazydock.gmx.abfe import templates
 from lazydock.gmx.abfe import boresch
 from lazydock.gmx.abfe import fep_analysis, gather_results
+from lazydock.gmx.abfe import mdp
+from lazydock.gmx.abfe import templates
 from lazydock.gmx.abfe import tools
 
-logger = logging.getLogger(__name__)
 
 __all__ = ["run_abfe", "prepare_out_dir_and_config"]
 
@@ -287,12 +286,42 @@ def _make_fep_mdps(global_config: dict, sys_type: str) -> None:
 # Simulation steps
 ###########################################################################
 
+def _make_gpu_queue(global_config: dict, n_workers: int) -> queue.Queue:
+    """Build a shared GPU slot queue for a parallel task pool.
+
+    The queue holds exactly ``n_workers`` slots (the CONCURRENCY, not the
+    total task count), filled round-robin as ``gpus[i % len(gpus)]``.  Each
+    GPU appears either ``ceil(n_workers / n_gpu)`` or ``floor(...)`` times,
+    i.e. exactly 1 slot per GPU when n_workers <= n_gpu -- so two workers can
+    never hold the same GPU simultaneously unless the user deliberately
+    over-subscribes via ``--n-parallel > n_gpu``.  (Do NOT index by
+    ``i // n_gpu``: that collapses every worker onto GPU 0 when n_workers
+    is a multiple of n_gpu.)
+    """
+    gpu_ids = list(global_config.get("gpu_ids") or [global_config.get("gpu_id", 0)])
+    n_gpu = max(1, len(gpu_ids))
+    gpu_queue = queue.Queue()
+    gpu_ids_records = []
+    for i in range(max(1, n_workers)):
+        gpu_queue.put(gpu_ids[i % n_gpu])
+        gpu_ids_records.append(gpu_ids[i % n_gpu])
+    put_log(f'GPU Queue: {gpu_ids_records}', bg_color='green')
+    return gpu_queue
+
+
 def _run_step_chain(global_config, sys_type, replica, chain):
     """Run a chain of [step][gro/cpt] entries.
 
     chain: list of dicts with keys: step, run_dir, mdp, top, gro (input),
            cpt (input, optional), out_gro, out_cpt, output_finished,
            minimize (bool, for 00_min steps)
+
+    GPU slot management: if ``global_config`` carries a shared ``gpu_queue``
+    (parallel task pool), each step first borrows a gpu id from it and
+    returns it in a ``finally`` block, so a failed step (retries exhausted)
+    does NOT permanently starve that GPU -- the next task immediately reuses
+    the returned slot.  Without a queue (serial runs) the static
+    ``gpu_id`` is used unchanged.
     """
     gmx = global_config.get("gmx")
     mdrun_extra = global_config["extra_directives"]["mdrun"][sys_type]
@@ -301,6 +330,7 @@ def _run_step_chain(global_config, sys_type, replica, chain):
     gpu_id = global_config.get("gpu_id")
     maxwarn = global_config.get("maxwarn", 2)
     retries = global_config.get("retries", 3)
+    gpu_queue = global_config.get("gpu_queue")
 
     for entry in chain:
         run_dir = Path(entry["run_dir"])
@@ -313,7 +343,7 @@ def _run_step_chain(global_config, sys_type, replica, chain):
         if (entry.get("out_finished") and (run_dir / f"{entry['step']}.finished").exists()
                 and Path(entry["out_gro"]).exists() and Path(entry["out_cpt"]).exists()) \
                 or (minimize and out_gro_entry and Path(out_gro_entry).exists()):
-            logger.info(f"step {entry['step']} already finished - skipping")
+            put_log(f"step {entry['step']} already finished - skipping")
             continue
         # 00_min: minimization has no update/bonded/pme switches
         mdrun_extra_use = mdrun_extra
@@ -322,43 +352,57 @@ def _run_step_chain(global_config, sys_type, replica, chain):
             for invalid_flag in ["update", "bonded", "pme"]:
                 mdrun_extra_use.pop(invalid_flag, None)
 
+        # Borrow a GPU slot when running inside a parallel task pool.
+        step_gpu = gpu_id
+        if gpu_queue is not None:
+            step_gpu = gpu_queue.get()
+            put_log(f"step {entry['step']} borrowed GPU {step_gpu}")
+
         # Retry the (grompp+mdrun) pair like the original ``retries`` rule
         # directive did. ``mdrun -cpi`` continues from any partial checkpoint.
         last_exc = None
-        for attempt in range(retries + 1):
-            try:
-                tools.gmx_runner(
-                    gmx=gmx,
-                    mdp=mdp_file,
-                    topology=entry["top"],
-                    structure=entry["gro"],
-                    checkpoint=entry.get("cpt"),
-                    index=entry.get("index"),
-                    nthreads=nthreads,
-                    run_dir=run_dir,
-                    maxwarn=maxwarn,
-                    minimize=minimize,
-                    gpu_id=gpu_id,
-                    ntmpi=ntmpi,
-                    **mdrun_extra_use,
-                )
-                last_exc = None
-                break
-            except RuntimeError as exc:
-                last_exc = exc
-                if attempt < retries:
-                    logger.warning(f"gmx step {entry['step']} failed (attempt "
-                                   f"{attempt + 1}/{retries + 1}): {exc} -- retrying")
-        if last_exc is not None:
-            raise RuntimeError(f"gmx step {entry['step']} failed after "
-                               f"{retries + 1} attempts: {last_exc}")
+        try:
+            for attempt in range(retries + 1):
+                try:
+                    tools.gmx_runner(
+                        gmx=gmx,
+                        mdp=mdp_file,
+                        topology=entry["top"],
+                        structure=entry["gro"],
+                        checkpoint=entry.get("cpt"),
+                        index=entry.get("index"),
+                        nthreads=nthreads,
+                        run_dir=run_dir,
+                        maxwarn=maxwarn,
+                        minimize=minimize,
+                        gpu_id=step_gpu,
+                        ntmpi=ntmpi,
+                        **mdrun_extra_use,
+                    )
+                    last_exc = None
+                    break
+                except RuntimeError as exc:
+                    last_exc = exc
+                    if attempt < retries:
+                        put_err(f"gmx step {entry['step']} failed (attempt "
+                                       f"{attempt + 1}/{retries + 1}): {exc} -- retrying")
+            if last_exc is not None:
+                raise RuntimeError(f"gmx step {entry['step']} failed after "
+                                   f"{retries + 1} attempts: {last_exc}")
 
-        if entry.get("out_finished"):
-            tools.paths_exist(
-                paths=[entry["out_gro"], entry["out_cpt"]],
-                raise_error=True,
-                out=entry["out_finished"],
-            )
+            if entry.get("out_finished"):
+                tools.paths_exist(
+                    paths=[entry["out_gro"], entry["out_cpt"]],
+                    raise_error=True,
+                    out=entry["out_finished"],
+                )
+        finally:
+            # Always return the borrowed slot (success, retries exhausted,
+            # or an unexpected non-RuntimeError exception), so the GPU is
+            # immediately available to the next task.
+            if gpu_queue is not None:
+                gpu_queue.put(step_gpu)
+                put_log(f"step {entry['step']} returned GPU {step_gpu}")
 
 
 def _equi_chain_steps(global_config, sys_type) -> list:
@@ -385,7 +429,7 @@ def _run_equilibration(global_config, sys_type, replica):
 
     prev_gro = structure
     prev_cpt = None
-    for idx, step in enumerate(steps):
+    for step in steps:
         run_dir = _replica_dir(out_root, replica) / sys_type / "equil-mdsim" / step
         mdp_file = run_dir / f"{step}.mdp"
         is_min = (step == steps[0])
@@ -442,7 +486,7 @@ def _run_boresch(global_config, replica):
     # could select a different anchor set, silently breaking consistency
     # between existing FEP windows and the analysis correction.
     if _boresch_finished(run_dir):
-        logger.info("Boresch restraints already generated - skipping")
+        put_log("Boresch restraints already generated - skipping")
         return
 
     # Fix trajectory.
@@ -530,7 +574,7 @@ def _collect_fep_chains(global_config, sys_type, replica):
 
 def _run_fep_simulation(global_config, sys_type, replica):
     """Equivalent of fep_{ligand|complex}_simulation.smk (sequential)."""
-    for chain, label in _collect_fep_chains(global_config, sys_type, replica):
+    for chain, _ in _collect_fep_chains(global_config, sys_type, replica):
         _run_step_chain(global_config, sys_type, replica, chain)
 
 
@@ -538,15 +582,16 @@ def _run_fep_simulation_parallel(global_config, replica):
     """Run all FEP windows (ligand + complex legs) concurrently.
 
     Two-level scheduler: a pool of ``n_parallel`` window workers; each worker
-    runs one full window chain (00_min -> ... -> prod) pinned to a GPU from
-    ``gpu_ids`` (round-robin).  Windows that already finished are skipped
-    inside ``_run_step_chain`` via the ``.finished`` marker, so re-runs only
-    execute the remaining windows.  Equilibration/Boresch are still sequential
-    (they must complete before any FEP window).
+    runs one full window chain (00_min -> ... -> prod), borrowing a GPU slot
+    from the shared ``gpu_queue`` for every step (see ``_run_step_chain``).
+    Windows that already finished are skipped inside ``_run_step_chain`` via
+    the ``.finished`` marker, so re-runs only execute the remaining windows.
+    Equilibration/Boresch are still sequential (they must complete before any
+    FEP window).
     """
     n_parallel = int(global_config.get("n_parallel", 1))
+    gpu_queue = _make_gpu_queue(global_config, n_parallel)
     gpu_ids = list(global_config.get("gpu_ids") or [global_config.get("gpu_id", 0)])
-    n_gpu = len(gpu_ids) if gpu_ids else 1
     # threads per window: keep a sane fraction of the requested total threads
     nthreads = int(global_config.get("threads", 12))
 
@@ -554,19 +599,16 @@ def _run_fep_simulation_parallel(global_config, replica):
     for sys_type in ("ligand", "complex"):
         for chain, label in _collect_fep_chains(global_config, sys_type, replica):
             jobs.append((sys_type, chain, label))
-    logger.info(f"FEP parallel: {len(jobs)} windows, {n_parallel} concurrent, "
+    put_log(f"FEP parallel: {len(jobs)} windows, {n_parallel} concurrent, "
                 f"GPUs={gpu_ids}, threads/window={nthreads}")
 
     def _worker(task):
         sys_type, chain, label = task
-        # pin this worker to one GPU (round-robin over gpu_ids).  The shared
-        # gmx object is safe: _run_step_chain -> tools._gmx_for_run_dir creates
-        # a per-run-dir Gromacs that inherits gpu_ids, and mdrun -gpu_id is set
-        # from this worker's gpu_id override.
-        wid = jobs.index(task)
-        gpu = gpu_ids[wid % n_gpu]
-        wcfg = dict(global_config)   # shallow: only gpu_id/threads overridden
-        wcfg["gpu_id"] = gpu
+        # the shared gmx object is safe: _run_step_chain -> tools._gmx_for_run_dir
+        # always creates a per-run-dir Gromacs that inherits only gpu_ids; the
+        # actual GPU slot is borrowed from gpu_queue inside _run_step_chain.
+        wcfg = dict(global_config)   # shallow: only gpu queue/threads overridden
+        wcfg["gpu_queue"] = gpu_queue
         # Divide the requested total threads across concurrent windows so we do
         # not oversubscribe the CPU (GROMACS OpenMP scales poorly beyond a few
         # threads per tiny window anyway).  Users can still force a value with
@@ -583,7 +625,7 @@ def _run_fep_simulation_parallel(global_config, replica):
         for label, exc in pool.map(_worker, jobs):
             results[label] = exc
             if exc is not None:
-                logger.error(f"FEP window {label} failed: {exc}")
+                put_err(f"FEP window {label} failed: {exc}")
     failed = {k: v for k, v in results.items() if v is not None}
     if failed:
         raise RuntimeError(f"{len(failed)} FEP window(s) failed: "
@@ -698,19 +740,23 @@ def _run_equil_parallel(global_configs: list, only_build: bool = False) -> None:
     main thread runs them serially after all equilibration tasks succeed.
     """
     # 1) directories + equil mdp generation (per case, per leg)
-    for cfg in global_configs:
+    # NOTE: prepare_out_dir_and_config deep-copies the config and fills in
+    # lambdas/complex_type/mdp; write the enriched copy back into the list so
+    # the task pool / serial fallback below uses it (otherwise the enriched
+    # cfg is lost and complex_type/lambdas are missing at runtime).
+    for i, cfg in enumerate(global_configs):
         cfg = prepare_out_dir_and_config(cfg)
         _make_equi_mdps(cfg, "ligand")
         _make_equi_mdps(cfg, "complex")
+        global_configs[i] = cfg
     if only_build:
-        logger.info("only_build=True: equil MDP structure generated; "
+        put_log("only_build=True: equil MDP structure generated; "
                     "no simulation launched")
         return
 
     n_parallel = int(global_configs[0].get("n_parallel", 1) or 1)
     nthreads = int(global_configs[0].get("threads", 12))
     gpu_ids = list(global_configs[0].get("gpu_ids") or [global_configs[0].get("gpu_id", 0)])
-    n_gpu = len(gpu_ids) if gpu_ids else 1
     tasks = _equil_tasks(global_configs)
     n_tasks = len(tasks)
 
@@ -724,15 +770,17 @@ def _run_equil_parallel(global_configs: list, only_build: bool = False) -> None:
         return
 
     n_workers = min(n_parallel, n_tasks)
-    logger.info(f"equil parallel: {n_tasks} tasks, {n_workers} concurrent, "
-                f"GPUs={gpu_ids}, threads/task={max(1, nthreads // n_workers)}")
+    gpu_queue = _make_gpu_queue(global_configs[0], n_workers)
+    put_log(f"equil parallel: {n_tasks} tasks, {n_workers} concurrent, "
+            f"GPUs={gpu_ids}, threads/task={max(1, nthreads // n_workers)}")
 
     def _worker(task):
         ci, leg, rep = task
-        wid = tasks.index(task)
-        gpu = gpu_ids[wid % n_gpu]
-        wcfg = dict(global_configs[ci])        # shallow: only gpu_id/threads overridden
-        wcfg["gpu_id"] = gpu
+        # the shared gmx object is safe: _run_step_chain -> tools._gmx_for_run_dir
+        # always creates a per-run-dir Gromacs that inherits only gpu_ids; the
+        # actual GPU slot is borrowed from gpu_queue inside _run_step_chain.
+        wcfg = dict(global_configs[ci])        # shallow: only gpu queue/threads overridden
+        wcfg["gpu_queue"] = gpu_queue
         wcfg["threads"] = max(1, nthreads // n_workers)
         _run_equilibration(wcfg, leg, rep)
         return task
@@ -746,7 +794,7 @@ def _run_equil_parallel(global_configs: list, only_build: bool = False) -> None:
                 fut.result()
             except Exception as exc:  # noqa: BLE001 - surface all task errors
                 errors.append((task, exc))
-                logger.error(f"equil task {task} failed: {exc}")
+                put_err(f"equil task {task} failed: {exc}")
     if errors:
         raise RuntimeError(
             f"{len(errors)} equil task(s) failed: "
@@ -787,12 +835,16 @@ def run_abfe_fep(global_configs: list, only_build: bool = False) -> None:
                 _exit=True)
 
     # 2) mdp generation (per case, per leg)
-    for cfg in global_configs:
+    # NOTE: prepare_out_dir_and_config deep-copies the config and fills in
+    # lambdas/complex_type/mdp; write the enriched copy back into the list so
+    # the simulation loop below uses it (previously the enriched cfg was lost).
+    for i, cfg in enumerate(global_configs):
         cfg = prepare_out_dir_and_config(cfg)
         _make_fep_mdps(cfg, "ligand")
         _make_fep_mdps(cfg, "complex")
+        global_configs[i] = cfg
     if only_build:
-        logger.info("only_build=True: FEP MDP structure generated; "
+        put_log("only_build=True: FEP MDP structure generated; "
                     "no simulation launched")
         return
 
