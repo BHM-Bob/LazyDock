@@ -7,7 +7,7 @@ Description:
 import argparse
 import os
 from pathlib import Path
-from typing import Callable, Dict, List, Set, Tuple
+from typing import Any, Callable, Dict, List, Set, Tuple
 
 import pandas as pd
 from mbapy_lite.base import put_err, put_log
@@ -62,7 +62,7 @@ class simple_analysis(Command):
                           help='distance cutoff for interaction calculation, default is %(default)s.')
         args.add_argument('--hydrogen-atom-only', default=False, action='store_true',
                           help='only consider hydrogen bond acceptor and donor atoms, this only works when method is pymol, default is %(default)s.')
-        args.add_argument('--output-style', type = str, default='receptor', choices=['receptor', 'ligand'],
+        args.add_argument('--output-style', type = str, default='receptor', choices=['receptor', 'receptor2', 'ligand'],
                           help='output style\n receptor: resn resi distance')
         args.add_argument('--ref-res', type = str, default='',
                           help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
@@ -105,6 +105,19 @@ class simple_analysis(Command):
             exit(1)
         
     @staticmethod
+    def output_fromater_receptor2(inter_value: Dict[str, float], method: str):
+        # pymol: [('receptor', '', 'GLY', '300', 'O', 2817), ('LIGAND_0', 'Z', 'UNK', '1', 'N', 74), 2.8066137153155943]
+        if method == 'pymol':
+            inter_value = sorted(inter_value, key=lambda x: int(x[0][3]))
+            return '; '.join(f'{v[0][1]}/{v[0][2]}{v[0][3]}-{v[2]:.2f}' for v in inter_value)
+        elif method in {'ligplus', 'plip'}:
+            inter_value = sorted(inter_value, key=lambda x: int(x[0][0]))
+            return '; '.join(f'{v[0][2]}/{v[0][1]}{v[0][0]}-{v[2]:.2f}' for v in inter_value)
+        else:
+            put_err(f"Unsupported method: {method}, exit.")
+            exit(1)
+        
+    @staticmethod
     def output_fromater_ligand(inter_value: Dict[str, float], method: str):
         # pymol: [('receptor', '', 'GLY', '300', 'O', 2817), ('LIGAND_0', 'Z', 'UNK', '1', 'N', 74), 2.8066137153155943]
         if method == 'pymol':
@@ -116,6 +129,13 @@ class simple_analysis(Command):
         else:
             put_err(f"Unsupported method: {method}, exit.")
             exit(1)
+    
+    @staticmethod
+    def prepare_lig(lig_pdbstr: str, name: str):
+        cmd.read_pdbstr(lig_pdbstr, name)
+        cmd.alter(name, 'chain="Z"')
+        cmd.alter(name, 'type="HETATM"')
+        return name
             
     @staticmethod
     def calc_interaction_from_dlg(receptor_path: str, dlg_path: str, method: str, mode: List[str], cutoff: float,
@@ -133,15 +153,10 @@ class simple_analysis(Command):
         cmd.alter(receptor_name, 'chain="A"')
         bar.set_description(f'receptor loaded from {receptor_path}')
         # load poses from dlg and perform analysis
-        def prepare_lig(lig_pdbstr: str, name: str):
-            cmd.read_pdbstr(lig_pdbstr, name)
-            cmd.alter(name, 'chain="Z"')
-            cmd.alter(name, 'type="HETATM"')
-            return name
         # load poses
         pose_names = []
         if dlg_path.endswith('.pdb'):
-            pose_names.append(prepare_lig(opts_file(dlg_path), 'LIGAND'))
+            pose_names.append(simple_analysis.prepare_lig(opts_file(dlg_path), 'LIGAND'))
             dlg = DlgFile()
             dlg.pose_lst = [ADModel()]
         else:
@@ -149,7 +164,7 @@ class simple_analysis(Command):
             bar.set_description(f'dlg loaded from {dlg_path}')
             dlg.sort_pose() # sort by docking energy
             for i, pose in enumerate(dlg.pose_lst):
-                pose_names.append(prepare_lig(pose.as_pdb_string(), f'LIGAND_{i}'))
+                pose_names.append(simple_analysis.prepare_lig(pose.as_pdb_string(), f'LIGAND_{i}'))
             bar.set_description(f'{len(pose_names)} pose loaded')
         # calcu interactions
         fn, _ = simple_analysis.METHODS[method]
@@ -232,6 +247,118 @@ class simple_analysis(Command):
                                             self.args.hydrogen_atom_only, self.args.ref_res, self.args.suffix)
             bar.update(1)
 
+# name alias
+dock_interaction = simple_analysis
+
+
+def calc_interaction_from_complex(path: str, ligand_chain: str, receptor_chain: List[str], exclude_chain: List[str],
+                                    method: str, mode: List[str], cutoff: float,
+                                    output_formater: Callable, hydrogen_atom_only: bool = True, ref_res: Set[str] = None) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    ref_res = sorted(list(ref_res or set()), key=lambda x: int(x[3:]))
+    # set path
+    root = os.path.abspath(os.path.dirname(path))
+    w_dir = os.path.join(root, 'ligplus') if method == 'ligplus' else root
+    cmd.reinitialize()
+    cmd.load(path, 'complex')
+    # find receptor
+    if not receptor_chain:
+        receptor_chain = list(set(cmd.get_chains()) - set(exclude_chain) - set(ligand_chain))
+    rec_n_atoms = cmd.select('receptor', ' or '.join(map(lambda x: f'chain {x}', receptor_chain)))
+    # prepare ligand
+    lig_n_atoms = cmd.select('ligand', f'chain {ligand_chain}')
+    cmd.alter('ligand', 'type="HETATM"')
+    # load poses
+    fn, _ = simple_analysis.METHODS[method]
+    interactions, _ = fn('receptor', ['ligand'], mode=mode, cutoff=cutoff, verbose=False, force_cwd=True, w_dir=w_dir, hydrogen_atom_only=hydrogen_atom_only)
+    if interactions is None:
+        cmd.reinitialize()
+        put_err(f'No interactions found in {path}, receptor has {rec_n_atoms} atoms, ligand has {lig_n_atoms} atoms')
+        return pd.DataFrame(), {}
+    if method == 'pymol':
+        interactions = {k:v[-1] for k,v in interactions.items()}
+    # format interactions
+    df = pd.DataFrame()
+    for i, interaction in enumerate(interactions.values()):
+        df.loc[i, 'path'] = path
+        df.loc[i, 'ref_res'] = ''
+        for inter_mode, inter_value in interaction.items():
+            fmt_string = output_formater(inter_value, method)
+            df.loc[i, inter_mode] = fmt_string
+            for r in ref_res:
+                if r in fmt_string and not r in df.loc[i,'ref_res']: # type: ignore
+                    df.loc[i,'ref_res'] += f'{r},' # type: ignore
+    return df, interactions
+
+class complex_interaction(simple_analysis):
+    HELP = """perform simple analysis on complex result, which already contains ONE receptor and ONE ligand"""
+    def __init__(self, args: argparse.Namespace, printf=print) -> None:
+        super().__init__(args, printf)
+        self.tasks = []
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
+                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
+        args.add_argument('-n', '--name', type = str,
+                          help=f"complex result file name, only pdb format.")
+        args.add_argument('-lc', '--ligand-chain', type = str, required=True,
+                          help='chain id of ligand, required.')
+        args.add_argument('-rc', '--receptor-chain', type = str, nargs='+', default=[],
+                          help='chain id of receptor, default is %(default)s.')
+        args.add_argument('-ec', '--exclude-chain', type = str, nargs='+', default=[],
+                          help='chain id to exclude, will be used to find receptor chain.')
+        args.add_argument('-o', '--output', type = str, default='complex_interaction.xlsx',
+                          help="output excel file, default is %(default)s.")
+        args.add_argument('--method', type = str, default='plip', choices=simple_analysis.METHODS.keys(),
+                          help='interaction detect method, default is %(default)s.')
+        args.add_argument('--mode', type = str, default='all',
+                          help=f'interaction mode, multple modes can be separated by comma, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nligplus: {",".join(ligplus_mode)}\nplip: {",".join(plip_mode)}')
+        args.add_argument('--cutoff', type = float, default=4,
+                          help='distance cutoff for interaction calculation, default is %(default)s.')
+        args.add_argument('--hydrogen-atom-only', default=False, action='store_true',
+                          help='only consider hydrogen bond acceptor and donor atoms, this only works when method is pymol, default is %(default)s.')
+        args.add_argument('--output-style', type = str, default='receptor2', choices=['receptor', 'receptor2', 'ligand'],
+                          help='output style\n receptor: resn resi distance\n receptor2: chain/resn resi distance\n ligand: resn resi distance')
+        args.add_argument('--ref-res', type = str, default='',
+                          help='reference residue name, input string shuld be like GLY300,ASP330, also support a text file contains this format string as a line.')
+        args.add_argument('-nw', '--n-workers', type = int, default=1,
+                          help='number of workers to run the analysis, default is %(default)s.')
+        args.add_argument('-F', '--force', default=False, action='store_true',
+                          help='force to re-run the analysis, default is %(default)s.')
+        return args
+
+    def main_process(self):
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        # run tasks
+        put_log(f'found {len(paths)} tasks.')
+        dfs = []
+        interactions = {}
+        pool = TaskPool('process', self.args.n_workers, report_error=True,
+                        mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
+        for path in tqdm(paths):
+            pool.add_task(path, calc_interaction_from_complex,
+                          path, self.args.ligand_chain, self.args.receptor_chain, self.args.exclude_chain,
+                        self.args.method, self.args.mode, self.args.cutoff,
+                        getattr(self, f'output_fromater_{self.args.output_style}'),
+                        self.args.hydrogen_atom_only, self.args.ref_res)
+            pool.wait_till_free()
+        pool.wait_till_all_done()
+        for path in paths:
+            result = pool.query_task(path, block=True, timeout=99)
+            if not isinstance(result, tuple):
+                put_err(f'error in {path}')
+                continue
+            df, inter = result
+            if not inter:
+                continue
+            dfs.append(df)
+            interactions[path] = inter
+        self.args.output = os.path.join(self.args.batch_dir, self.args.output)
+        df = pd.concat(dfs, axis=0)
+        df.to_excel(self.args.output, index=True)
+        opts_file(str(Path(self.args.output).with_suffix('.pkl')), 'wb', way='pkl', data=interactions)
+        put_log(f'interaction data saved to {self.args.output}')
+
 
 class vina_score(Command):
     HELP = """perform vina score on a complex.pdb file"""
@@ -299,6 +426,8 @@ class vina_score(Command):
 
 _str2func = {
     'simple-analysis': simple_analysis,
+    'dock-interaction': dock_interaction,
+    'complex-interaction': complex_interaction,
     'vina-score': vina_score,
 }
 
