@@ -6,18 +6,19 @@ Description:
 '''
 import time
 import traceback
-from typing import Callable, Dict, List, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
-from lazydock.pml.interaction_utils import sort_func, bond_length_score
-from lazydock.utils import uuid4
-from mbapy_lite.base import put_err
-from mbapy_lite.web import TaskPool
 from fplip.exchange.report import BindingSiteReport
 from fplip.structure.preparation import PDBComplex
+from mbapy_lite.base import put_err
+from mbapy_lite.web import TaskPool
 from pymol import cmd
 from tqdm import tqdm
+
+from lazydock.pml.interaction_utils import bond_length_score, sort_func
+from lazydock.utils import uuid4
 
 
 def get_atom_level_interactions(mol, receptor_chain: Union[str, List[str]], ligand_chain: str, mode: List[str], cutoff: float = 4.):
@@ -57,7 +58,7 @@ def get_atom_level_interactions(mol, receptor_chain: Union[str, List[str]], liga
     return interactions
 
 
-def run_plip_analysis(complex_pdbstr: str, receptor_chain: str, ligand_chain: str,
+def run_plip_analysis(complex_pdbstr: str, receptor_chain: Union[str, List[str]], ligand_chain: str,
                       mode: Union[str, List[str]] = 'all', cutoff: float = 4.):
     mol = PDBComplex()
     mol.load_pdb(complex_pdbstr, as_string=True)
@@ -76,7 +77,7 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str],
                          bond_length_score_fn: Callable[[float, float], float] = bond_length_score):
     """merge the interactions returned by calcu_atom_level_interactions to interaction_df."""
     # index format: CHAIN_ID:RESI:RESN
-    for interaction_type, values in interaction.items():
+    for interaction_type, values in interaction.items(): # type: ignore
         for single_inter in values:
             # single_inter: ((217, 'VAL', 'A'), (10, 'PHE', 'Z'), 3.71)
             receptor_res = f'{single_inter[0][2]}:{single_inter[0][0]}:{single_inter[0][1]}'
@@ -104,7 +105,7 @@ def check_support_mode(mode: Union[str, List[str]]):
         put_err(f'Unsupported mode: {mode}, supported: {SUPPORTED_MODE}', _exit=True)
 
 def calcu_receptor_poses_interaction(receptor: str, poses: List[str], mode: Union[str, List[str]] = 'all', cutoff: float = 4.,
-                                     taskpool: TaskPool = None, verbose: bool = False,
+                                     taskpool: Optional[TaskPool] = None, verbose: bool = False,
                                      bond_length_score_fn: Callable[[float, float], float] = bond_length_score, **kwargs):
     """
     calcu interactions between one receptor and one ligand with many poses using PLIP-python.
