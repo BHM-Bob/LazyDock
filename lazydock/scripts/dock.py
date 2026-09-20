@@ -158,7 +158,8 @@ class redock(Command):
                 path = Path(result_path)
                 pdb_path = str(path.parent / (path.stem + f'_{i}.pdb'))
                 rec_pdbstr = rec_pdbstr.replace('END', '')
-                opts_file(pdb_path, 'w', way='str', data = f'{rec_pdbstr}\nTER\n' + pose.as_pdb_string())
+                # avoid null line, which will cause openbabel error
+                opts_file(pdb_path, 'w', way='str', data = f'{rec_pdbstr}\nTER\n' + pose.as_pdb_string().strip('TER\n').strip('\n'))
                 self.summary_df.loc[pdb_path] = [os.path.relpath(pdb_path, self.args.batch_dir), pose.energy]
             return True
         return put_err(f'invalid result: {result}', False)
