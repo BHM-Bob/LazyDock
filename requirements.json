@@ -1,7 +1,7 @@
 {
     "std": 
     [
-        "mbapy>=0.11.6",
+        "mbapy>=0.11.7",
         "pygame",
         "nicegui",
         "openbabel-wheel",
@@ -20,7 +20,6 @@
         "rdkit",
         "openff-toolkit>=0.14.2",
         "openmmforcefields>=0.14.1",
-        "espaloma==0.4.0",
         "pyyaml"
     ],
     "all":
