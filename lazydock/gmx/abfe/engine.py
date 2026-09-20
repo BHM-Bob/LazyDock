@@ -795,15 +795,17 @@ def _run_equil_parallel(global_configs: list, only_build: bool = False) -> None:
             except Exception as exc:  # noqa: BLE001 - surface all task errors
                 errors.append((task, exc))
                 put_err(f"equil task {task} failed: {exc}")
-    if errors:
-        raise RuntimeError(
-            f"{len(errors)} equil task(s) failed: "
-            + "; ".join(f"{t}: {e}" for t, e in errors))
 
     # 2) boresch: deterministic per case/replica; run serially on the main thread
     for cfg in global_configs:
         for rep in map(str, range(1, int(cfg["replicas"]) + 1)):
             _run_boresch(cfg, rep)
+    
+    # throw if any task failed finally
+    if errors:
+        raise RuntimeError(
+            f"{len(errors)} equil task(s) failed: "
+            + "; ".join(f"{t}: {e}" for t, e in errors))
 
 
 def run_abfe_equil(global_configs: list, only_build: bool = False) -> None:
