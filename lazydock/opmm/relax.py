@@ -1,18 +1,29 @@
 # most of the code is from PepGLAD
 import io
-import logging
 import os
-import time
 from types import SimpleNamespace
 from typing import List, Optional, Union
 
 import openmm
 import pdbfixer
+from mbapy_lite.base import put_log
 from openmm import app as openmm_app
 from openmm import unit
 
+from lazydock.utils import get_storage_path
+
 ENERGY = unit.kilojoules_per_mole
 LENGTH = unit.nanometer  # pyright: ignore[reportAttributeAccessIssue]
+
+# 常见离子元素 -> 离子力场模板名(charmm36.xml 不含离子, 需额外加载 ions.xml)
+from openmm.app.element import (calcium, chlorine, magnesium, potassium,
+                                sodium, zinc)
+
+ION_ELEMENT_TO_TEMPLATE = {
+    calcium: 'CAL', magnesium: 'MG', zinc: 'ZN',
+    sodium: 'SOD', potassium: 'POT', chlorine: 'CLA',
+}
+ION_TEMPLATE_NAMES = set(ION_ELEMENT_TO_TEMPLATE.values())
 
 
 class ForceFieldMinimizer(object):
@@ -56,6 +67,26 @@ class ForceFieldMinimizer(object):
         fixer.findMissingAtoms()
         fixer.addMissingAtoms(seed=0)
         fixer.addMissingHydrogens()
+
+        # 上游(OpenMM PDBFile 解析)已经把离子残基的 element 识别好了:
+        #   - 读取 PDB 时优先用元素列(77-78列); 若无元素列则按原子名猜测,
+        #     其中 "单原子残基且原子名/残基名以 CA 开头" 会被猜为钙(elem.calcium).
+        #     (用"单原子残基"限定的原因: 蛋白的 alpha 碳原子名也叫 CA, 但其残基含多个原子,
+        #      不会触发这一分支, 从而避免把 alpha 碳误判为钙离子)
+        #   - 因此这里 res 中唯一的原子, 其 .element 已经是解析好的 Element 对象(如 elem.calcium).
+        # 本步(lazydock 侧): 以该 Element 对象为 key 查 ION_ELEMENT_TO_TEMPLATE, 命中则把
+        # 残基名/原子名改写成 charmm36 兼容的离子模板名(如 CA -> CAL), 与 ions.xml 中
+        # 的 Residue name 对齐; 否则 OpenMM 在 charmm36.xml 中找不到该单原子残基模板而报错.
+        for res in fixer.topology.residues():
+            atoms_ = list(res.atoms())
+            # 判定依据为：单原子残基 & 元素已解析(现有模板: CAL/MG/ZN/SOD/POT/CLA)
+            if len(atoms_) == 1 and atoms_[0].element is not None:
+                template = ION_ELEMENT_TO_TEMPLATE.get(atoms_[0].element)
+                if template and res.name != template:
+                    put_log(f'rename ion residue {res.name}({atoms_[0].name}) -> {template} '
+                            f'for OpenMM force field')
+                    res.name = template
+                    atoms_[0].name = template
 
         out_handle = io.StringIO()
         openmm_app.PDBFile.writeFile(fixer.topology, fixer.positions, out_handle, keepIds=True)
@@ -185,7 +216,15 @@ class ForceFieldMinimizer(object):
 
     def _minimize_pdb(self, pdb, restrain_chain: Optional[Union[str, List[str]]] = None,
                       restrain_backbone: bool = False):
-        force_field = openmm_app.ForceField("charmm36.xml") # referring to http://docs.openmm.org/latest/userguide/application/02_running_sims.html
+        # charmm36.xml 不含离子模板; 若拓扑中有单原子离子残基, 追加加载 ions.xml
+        ion_resids = ION_TEMPLATE_NAMES.intersection(
+            res.name for res in pdb.topology.residues())
+        if ion_resids:
+            ions_xml = get_storage_path('opmm/ions.xml')
+            force_field = openmm_app.ForceField("charmm36.xml", ions_xml)
+            put_log(f'loaded ions.xml for residues: {sorted(ion_resids)}', bg_col='blue')
+        else:
+            force_field = openmm_app.ForceField("charmm36.xml") # referring to http://docs.openmm.org/latest/userguide/application/02_running_sims.html
         # ignoreExternalBonds 判定:
         #   - 仅二硫键: False -> openmm 自动应用 CHARMM36 DISU patch (S-S 有真实键/角/二面参数, 收敛2.03A)
         #   - 仅碳骨架环: True -> 头尾跨残基键无标准 patch, 忽略后可手动加键势保护
