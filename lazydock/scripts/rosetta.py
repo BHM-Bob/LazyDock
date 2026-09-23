@@ -51,7 +51,8 @@ class calc_energy(Command):
         self.args.batch_dir = self.process_batch_dir_lst(self.args.batch_dir)
     
     def main_process(self):
-        pdb_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        pdb_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'],
+                                             name_substr=self.args.name, sort='natsort')
         df = None
         # parallel
         pool = TaskPool('process', self.args.n_workers, report_error=True).start()
@@ -113,7 +114,8 @@ class relax(calc_energy):
         return args
     
     def main_process(self):
-        pdb_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        pdb_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'],
+                                             name_substr=self.args.name, sort='natsort')
         df = pd.DataFrame(columns=['pdb_path', 'relaxed_pdb_path', 'energy_before', 'energy_after'])
         # parallel
         if self.args.n_workers > 1:

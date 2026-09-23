@@ -282,7 +282,7 @@ class _RunBase(Command):
                 continue
             if not d.is_dir():
                 put_err(f'dir argument should be a directory: {d}', _exit=True)
-            found = get_paths_with_extension(d, [], name_substr=self.args.name)
+            found = get_paths_with_extension(d, [], name_substr=self.args.name, sort='natsort')
             if not found:
                 put_log(f'no {self.args.name} found under {d} - nothing to do', head='ABFE')
                 continue

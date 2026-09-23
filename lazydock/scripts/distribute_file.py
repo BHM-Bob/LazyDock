@@ -44,7 +44,8 @@ def main(sys_args: List[str] = None):
         if os.path.isfile(args.source):
             sources = [args.source]
         else:
-            sources = get_paths_with_extension(args.source, args.source_type, name_substr=args.source_name)
+            sources = get_paths_with_extension(args.source, args.source_type,
+                                               name_substr=args.source_name, sort='natsort')
     else:
         sources = get_dir(args.source, 0, None, args.source_type, True, args.source_name)
     if not sources:

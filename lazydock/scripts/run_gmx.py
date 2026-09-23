@@ -284,7 +284,8 @@ class simple_protein(Command):
         proteins_path = []
         for bd in self.args.batch_dir:
             if os.path.isdir(bd):
-                proteins_path.extend(get_paths_with_extension(bd, [], name_substr=self.args.protein_name))
+                proteins_path.extend(get_paths_with_extension(bd, [], name_substr=self.args.protein_name,
+                                                              sort='natsort'))
             else:
                 put_err(f'dir argument should be a directory: {bd}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')

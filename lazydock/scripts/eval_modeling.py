@@ -56,7 +56,8 @@ def main(sys_args: List[str] = None):
     # process IO path
     args.dir = clean_path(args.dir)
     if os.path.isdir(args.dir):
-        paths = get_paths_with_extension(args.dir, [args.type], name_substr=args.name, recursive=args.recursive)
+        paths = get_paths_with_extension(args.dir, [args.type], name_substr=args.name,
+                                         recursive=args.recursive, sort='natsort')
         paths = list(map(lambda p: Path(p).resolve(), paths))
     else:
         return put_err(f'Input dir {args.dir} is not a dir, exit.', _exit=True)

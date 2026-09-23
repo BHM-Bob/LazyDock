@@ -211,8 +211,10 @@ class simple_analysis(Command):
         self.tasks = []
         # load origin dfs from data file
         if self.args.batch_dir:
-            r_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb', '.pdbqt'], name_substr=self.args.receptor)
-            l_paths = get_paths_with_extension(self.args.batch_dir, ['.pdbqt', '.pdb', '.dlg'], name_substr=self.args.ligand)
+            r_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb', '.pdbqt'],
+                                               name_substr=self.args.receptor, sort='natsort')
+            l_paths = get_paths_with_extension(self.args.batch_dir, ['.pdbqt', '.pdb', '.dlg'],
+                                               name_substr=self.args.ligand, sort='natsort')
             if not self.check_file_num_paried(r_paths, l_paths):
                 if self.args.skip_mismatch:
                     put_log('skip mismatch and check path based on receptor, make sure you pass the full file name!')
@@ -328,7 +330,8 @@ class complex_interaction(simple_analysis):
         return args
 
     def main_process(self):
-        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'],
+                                         name_substr=self.args.name, sort='natsort')
         # run tasks
         put_log(f'found {len(paths)} tasks.')
         dfs = []
@@ -398,7 +401,8 @@ class vina_score(Command):
         if not check_memory_usage(self.args.n_workers):
             return put_log('aborted by user.')
         # search for pdb files
-        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'],
+                                         name_substr=self.args.name, sort='natsort')
         if not paths:
             put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
             return

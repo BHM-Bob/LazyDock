@@ -98,7 +98,8 @@ Yang, Z., Zhong, W., Lv, Q., Dong, T., Chen, G., and Chen, C.Y.-C. (2024). Inter
         
     def main_process(self):
         # search for pdb files
-        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'],
+                                         name_substr=self.args.name, sort='natsort')
         if not paths:
             put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
             return

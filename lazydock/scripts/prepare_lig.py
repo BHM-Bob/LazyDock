@@ -126,7 +126,8 @@ class cif2pdb(Command):
         
     def main_process(self):
         # get complex paths
-        cif_paths = get_paths_with_extension(self.args.batch_dir, ['.cif'], name_substr=self.args.main_name)
+        cif_paths = get_paths_with_extension(self.args.batch_dir, ['.cif'],
+                                             name_substr=self.args.main_name, sort='natsort')
         put_log(f'get {len(cif_paths)} task(s)')
         # process each
         for cif_path in tqdm(cif_paths, total=len(cif_paths)):
@@ -542,7 +543,7 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
 
     def main_process(self):
         pdb_paths = [Path(p).resolve() for p in get_paths_with_extension(
-            self.args.batch_dir, ['.pdb'], name_substr=self.args.name)]
+            self.args.batch_dir, ['.pdb'], name_substr=self.args.name, sort='natsort')]
         put_log(f'get {len(pdb_paths)} pdb file(s) in {self.args.batch_dir}')
         
         # GPU 槽位: 把 --gpus 展开成 [g0 x n_task_per_gpu, g1 x n_task_per_gpu, ...],

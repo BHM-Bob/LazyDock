@@ -209,7 +209,8 @@ class Complex(Command):
         complex_files = []
         for _dir in (self.args.dir if isinstance(self.args.dir, list) else [self.args.dir]):
             if os.path.isdir(_dir):
-                complex_files.extend(get_paths_with_extension(_dir, [], name_substr=self.args.name))
+                complex_files.extend(get_paths_with_extension(_dir, [],
+                                                              name_substr=self.args.name, sort='natsort'))
             else:
                 put_err(f'dir argument should be a directory: {_dir}', _exit=True)
         if not complex_files:

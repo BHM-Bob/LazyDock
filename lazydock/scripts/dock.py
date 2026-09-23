@@ -98,7 +98,8 @@ class vina(Command):
     def main_process(self):
         if not check_memory_usage(self.args.n_workers):
             return put_log('aborted by user.')
-        configs_path = get_paths_with_extension(self.args.batch_dir, ['.txt'], name_substr=self.args.config_name)
+        configs_path = get_paths_with_extension(self.args.batch_dir, ['.txt'],
+                                                name_substr=self.args.config_name, sort='natsort')
         print(f'get {len(configs_path)} config(s) for docking')
         self.taskpool = TaskPool('threads', self.args.n_workers, report_error=True).start()
         for config_path in tqdm(configs_path, total=len(configs_path)):
@@ -168,7 +169,8 @@ class redock(Command):
         if not check_memory_usage(self.args.n_workers):
             return put_log('aborted by user.')
         # search for pdb files
-        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'],
+                                         name_substr=self.args.name, sort='natsort')
         if not paths:
             put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
             return
@@ -238,7 +240,7 @@ class redock_gpu(redock):
         
     def main_process(self):
         # search for pdb files
-        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name)
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name, sort='natsort')
         if not paths:
             put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
             return
@@ -356,8 +358,10 @@ class hdock(vina):
         if not os.path.isdir(self.args.batch_dir):
             return put_err(f'dir argument should be a directory: {self.args.config}.')
         if self.args.receptor is not None and self.args.ligand is not None:
-            r_paths = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.receptor)
-            l_paths = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.ligand)
+            r_paths = get_paths_with_extension(self.args.batch_dir, [],
+                                               name_substr=self.args.receptor, sort='natsort')
+            l_paths = get_paths_with_extension(self.args.batch_dir, [],
+                                               name_substr=self.args.ligand, sort='natsort')
             if len(r_paths) != len(l_paths):
                 r_roots = [os.path.dirname(p) for p in r_paths]
                 l_roots = [os.path.dirname(p) for p in l_paths]
@@ -366,7 +370,8 @@ class hdock(vina):
                 return put_err(f"The number of receptor and ligand files is not equal, please check the input files.\ninvalid roots:\n{invalid_roots}")
             configs_path = [(r, l) for r, l in zip(r_paths, l_paths)]
         elif self.args.config_name is not None:
-            configs_path = get_paths_with_extension(self.args.batch_dir, ['.txt'], name_substr=self.args.config_name)
+            configs_path = get_paths_with_extension(self.args.batch_dir, ['.txt'],
+                                                    name_substr=self.args.config_name, sort='natsort')
         else:
             return put_err('config_name or receptor and ligand should be provided, skip.')
         print(f'get {len(configs_path)} config(s) for docking')
@@ -497,7 +502,8 @@ class convert_result(vina):
         os.system(f'obabel -i{ty1} "{str(input_path)}" -o{ty2} -O "{str(output_path)}"')
 
     def main_process(self):
-        input_paths = get_paths_with_extension(self.args.batch_dir, self.args.input_type, name_substr=self.args.name)
+        input_paths = get_paths_with_extension(self.args.batch_dir, self.args.input_type,
+                                               name_substr=self.args.name, sort='natsort')
         print(f'get {len(input_paths)} input(s) for convert:\n', '\n'.join([f'{i+1}. {x}' for i, x in enumerate(input_paths)]))
         if input('start convert? (y/n) ').lower() != 'y':
             return 
@@ -574,7 +580,8 @@ class cluster_result(vina):
         raise NotImplementedError('interaction clustering not implemented yet.')
 
     def main_process(self):
-        input_paths = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.name)
+        input_paths = get_paths_with_extension(self.args.batch_dir, [],
+                                               name_substr=self.args.name, sort='natsort')
         for input_path in tqdm(input_paths, total=len(input_paths)):
             input_path = Path(input_path)
             self.taskpool.add_task(None, getattr(self, f'cluster_on_{self.args.method}'),

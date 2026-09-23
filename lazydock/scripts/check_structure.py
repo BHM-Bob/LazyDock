@@ -307,7 +307,7 @@ Filtering:
     def main_process(self):
         pdb_paths = [Path(p).resolve() for p in get_paths_with_extension(
             self.args.batch_dir, self.args.file_type, name_substr=self.args.name,
-            exact_match=self.args.file_name_exact_match)]
+            exact_match=self.args.file_name_exact_match, sort='natsort')]
         put_log(f'get {len(pdb_paths)} pdb file(s) in {self.args.batch_dir}')
         
         tasks = []

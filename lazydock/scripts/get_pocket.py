@@ -39,7 +39,8 @@ def main(sys_args: List[str] = None):
     if os.path.isfile(args.receptor):
         receptor_paths = [args.receptor]
     elif os.path.isdir(args.receptor):
-        receptor_paths = get_paths_with_extension(args.receptor, ['.pdb'], recursive=args.recursive)
+        receptor_paths = get_paths_with_extension(args.receptor, ['.pdb'],
+                                                  recursive=args.recursive, sort='natsort')
     else:
         raise ValueError(f'Input path {args.receptor} is not a pdb file or directory.')
     if not receptor_paths:
@@ -58,7 +59,8 @@ def main(sys_args: List[str] = None):
         # get pocket box
         get_pocket_box_from_ProteinPlus(os.path.join(output_dir, Path(receptor_path).name), ligand_path=args.ligand)
         # parse pocket box
-        zip_path = get_paths_with_extension(output_dir, ['.zip'], recursive=False)[0]
+        zip_path = get_paths_with_extension(output_dir, ['.zip'],
+                                            recursive=False, sort='natsort')[0]
         for index in [[0], [1], [2], [0, 1], [0, 1, 2]]:
             idx_str = ','.join(map(str, index))
             if args.method == 'extend':

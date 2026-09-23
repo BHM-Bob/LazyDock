@@ -32,7 +32,7 @@ def main(sys_args: List[str] = None):
     if os.path.isfile(args.input):
         paths = [args.input]
     elif os.path.isdir(args.input):
-        paths = get_paths_with_extension(args.input, ['.mol2'], recursive=args.recursive)
+        paths = get_paths_with_extension(args.input, ['.mol2'], recursive=args.recursive, sort='natsort')
     else:
         assert False, f'Input path {args.input} is not a file or dir.'
     # show args

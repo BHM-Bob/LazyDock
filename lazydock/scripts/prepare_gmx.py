@@ -76,7 +76,8 @@ class protein(Command):
     def main_process(self):
         # get protein paths
         if os.path.isdir(self.args.dir):
-            proteins_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.protein_name)
+            proteins_path = get_paths_with_extension(self.args.dir, [],
+                                                     name_substr=self.args.protein_name, sort='natsort')
         else:
             put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')
@@ -220,7 +221,8 @@ the program will use the ff-dir in sub-directory.')
             self.browser = self.get_login_browser(str(self.args.dir))
         # get ligand paths
         if os.path.isdir(self.args.dir):
-            ligands_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.ligand_name)
+            ligands_path = get_paths_with_extension(self.args.dir, [],
+                                                    name_substr=self.args.ligand_name, sort='natsort')
         else:
             put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
         put_log(f'get {len(ligands_path)} ligand(s)')
@@ -329,7 +331,8 @@ class complex(ligand):
             self.browser = self.get_login_browser(str(self.args.dir))
         # get complex paths
         if os.path.isdir(self.args.dir):
-            complexs_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.complex_name)
+            complexs_path = get_paths_with_extension(self.args.dir, [],
+                                                     name_substr=self.args.complex_name, sort='natsort')
         else:
             put_err(f'dir argument should be a directory: {self.args.config}, exit.', _exit=True)
         put_log(f'get {len(complexs_path)} complex(s)')
@@ -424,7 +427,8 @@ class complex_sobtop(complex):
     def main_process(self):
         # get complex paths
         if os.path.isdir(self.args.dir):
-            complexs_path = get_paths_with_extension(self.args.dir, [], name_substr=self.args.complex_name)
+            complexs_path = get_paths_with_extension(self.args.dir, [],
+                                                     name_substr=self.args.complex_name, sort='natsort')
         else:
             put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
         put_log(f'get {len(complexs_path)} complex(s)')

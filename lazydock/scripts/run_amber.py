@@ -405,12 +405,12 @@ class simple_md(AmberRunner):
         prmtop_paths = get_paths_with_extension(
             batch_dir,
             [os.path.split(self.args.prmtop_name)[-1]],
-            name_substr=self.args.prmtop_name
+            name_substr=self.args.prmtop_name, sort='natsort'
         )
         inpcrd_paths = get_paths_with_extension(
             batch_dir,
             [os.path.split(self.args.inpcrd_name)[-1]],
-            name_substr=self.args.inpcrd_name
+            name_substr=self.args.inpcrd_name, sort='natsort'
         )
         
         invalid_roots = check_file_num_paried(prmtop_paths, inpcrd_paths)
@@ -827,12 +827,12 @@ class gamd_md(AmberRunner):
         prmtop_paths = get_paths_with_extension(
             batch_dir,
             [os.path.split(self.args.prmtop_name)[-1]],
-            name_substr=self.args.prmtop_name
+            name_substr=self.args.prmtop_name, sort='natsort'
         )
         inpcrd_paths = get_paths_with_extension(
             batch_dir,
             [os.path.split(self.args.inpcrd_name)[-1]],
-            name_substr=self.args.inpcrd_name
+            name_substr=self.args.inpcrd_name, sort='natsort'
         )
 
         invalid_roots = check_file_num_paried(prmtop_paths, inpcrd_paths)

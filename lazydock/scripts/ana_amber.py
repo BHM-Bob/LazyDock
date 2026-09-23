@@ -85,7 +85,7 @@ class trajconv(Command):
         # Find prmtop files - extract extension from pattern
         # Handle patterns like "*.prmtop" -> ["prmtop"]
         prmtop_ext = self.args.prmtop_name.replace('*.', '').split('.')[-1]
-        p_paths = get_paths_with_extension(bdir, [prmtop_ext])
+        p_paths = get_paths_with_extension(bdir, [prmtop_ext], sort='natsort')
         
         for p_path in p_paths:
             p_path = Path(p_path)
@@ -299,7 +299,7 @@ class simple(Command):
         for bdir in batch_dirs:
             # Find prmtop files - extract extension from pattern
             prmtop_ext = self.args.prmtop_name.split('.')[-1]
-            p_paths = get_paths_with_extension(bdir, [prmtop_ext])
+            p_paths = get_paths_with_extension(bdir, [prmtop_ext], sort='natsort')
             
             for p_path in p_paths:
                 p_path = Path(p_path)

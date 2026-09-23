@@ -186,7 +186,8 @@ class pull(_simple_protein):
     def main_process(self):
         # get protein paths
         if os.path.isdir(self.args.batch_dir):
-            proteins_path = get_paths_with_extension(self.args.batch_dir, [], name_substr=self.args.protein_name)
+            proteins_path = get_paths_with_extension(self.args.batch_dir, [],
+                                                     name_substr=self.args.protein_name, sort='natsort')
         else:
             put_err(f'dir argument should be a directory: {self.args.batch_dir}, exit.', _exit=True)
         put_log(f'get {len(proteins_path)} protein(s)')

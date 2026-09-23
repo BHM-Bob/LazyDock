@@ -75,7 +75,8 @@ class trjconv(Command):
         
     def main_process(self):
         # get complex paths
-        complexs_path = get_paths_with_extension(self.args.batch_dir, [self.args.main_name], name_substr=self.args.main_name)
+        complexs_path = get_paths_with_extension(self.args.batch_dir, [self.args.main_name],
+                                                 name_substr=self.args.main_name, sort='natsort')
         put_log(f'get {len(complexs_path)} task(s)')
         pool = TaskPool('threads', self.args.n_workers).start()
         exp_acts = []
@@ -127,7 +128,8 @@ class make_ndx(trjconv):
         
     def main_process(self):
         # get complex paths
-        complexs_path = get_paths_with_extension(self.args.batch_dir, [self.args.main_name], name_substr=self.args.main_name)
+        complexs_path = get_paths_with_extension(self.args.batch_dir, [self.args.main_name],
+                                                 name_substr=self.args.main_name, sort='natsort')
         put_log(f'get {len(complexs_path)} task(s)')
         # process each complex
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
@@ -436,7 +438,8 @@ class simple(trjconv):
         
     def main_process(self):
         # get complex paths
-        complexs_path = get_paths_with_extension(self.args.batch_dir, self.args.main_type, name_substr=self.args.main_name)
+        complexs_path = get_paths_with_extension(self.args.batch_dir, self.args.main_type,
+                                                 name_substr=self.args.main_name, sort='natsort')
         put_log(f'get {len(complexs_path)} task(s)')
         pool = TaskPool('threads', self.args.num_workers).start()
         # process each complex
@@ -551,8 +554,10 @@ class mmpbsa(simple):
     
     def check_top_traj(self, bdir = None):
         bdir = bdir or self.args.batch_dir
-        top_paths = get_paths_with_extension(bdir, [os.path.split(self.args.top_name)[-1]], name_substr=self.args.top_name)
-        traj_paths = get_paths_with_extension(bdir, [os.path.split(self.args.traj_name)[-1]], name_substr=self.args.traj_name)
+        top_paths = get_paths_with_extension(bdir, [os.path.split(self.args.top_name)[-1]],
+                                             name_substr=self.args.top_name, sort='natsort')
+        traj_paths = get_paths_with_extension(bdir, [os.path.split(self.args.traj_name)[-1]],
+                                              name_substr=self.args.traj_name, sort='natsort')
         invalid_roots = check_file_num_paried(top_paths, traj_paths)
         if invalid_roots:
             put_err(f"The number of top and traj files is not equal, please check the input files.\ninvalid roots:{invalid_roots}", _exit=True)

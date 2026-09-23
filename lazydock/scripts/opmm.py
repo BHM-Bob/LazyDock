@@ -116,7 +116,8 @@ class relax(Command):
         # 处理多个目录
         pdb_paths = []
         for batch_dir in self.args.batch_dir:
-            dir_paths = get_paths_with_extension(batch_dir, ['.pdb'], name_substr=self.args.name)
+            dir_paths = get_paths_with_extension(batch_dir, ['.pdb'],
+                                                 name_substr=self.args.name, sort='natsort')
             pdb_paths.extend(dir_paths)
         
         if not pdb_paths:

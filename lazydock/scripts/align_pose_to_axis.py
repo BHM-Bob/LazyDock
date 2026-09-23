@@ -36,7 +36,8 @@ def main(sys_args: List[str] = None):
     # process IO path
     args.dir = clean_path(args.dir)
     args.type = args.type.split(',') if ',' in args.type else [args.type]
-    paths = get_paths_with_extension(args.dir, args.type, recursive=args.recursive, name_substr=args.name)
+    paths = get_paths_with_extension(args.dir, args.type, recursive=args.recursive,
+                                     name_substr=args.name, sort='natsort')
     if not paths:
         raise ValueError(f'No file found in {args.receptor}.')
     # show args

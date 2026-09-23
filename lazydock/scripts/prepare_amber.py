@@ -236,7 +236,7 @@ quit
         # 获取蛋白质路径
         if os.path.isdir(self.args.dir):
             proteins_path = get_paths_with_extension(self.args.dir, [], 
-                                                      name_substr=self.args.protein_name)
+                                                      name_substr=self.args.protein_name, sort='natsort')
         else:
             put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
         
@@ -433,7 +433,7 @@ quit
         # 获取配体路径
         if os.path.isdir(self.args.dir):
             ligands_path = get_paths_with_extension(self.args.dir, ['.pdb', '.mol2', '.sdf'],
-                                                     name_substr=self.args.ligand_name)
+                                                     name_substr=self.args.ligand_name, sort='natsort')
         else:
             put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
         
@@ -721,7 +721,7 @@ quit
         # 获取复合物文件
         if os.path.isdir(self.args.dir):
             complexes_path = get_paths_with_extension(self.args.dir, ['.pdb'],
-                                                       name_substr=self.args.complex_name)
+                                                       name_substr=self.args.complex_name, sort='natsort')
         else:
             put_err(f'dir argument should be a directory: {self.args.dir}, exit.', _exit=True)
         
