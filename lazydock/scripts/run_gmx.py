@@ -253,6 +253,12 @@ class simple_protein(Command):
         return False
     
     def perform_single_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
+        GPU_IDS_STR = ','.join(map(str, gmx.gpu_ids))
+        if os.path.exists(protein_path.parent / 'md.tpr'):
+            put_log(f'{protein_path} has existing md.tpr, continue run with it.', bg_color='blue')
+            # gmx mdrun -s md.tpr -cpi md.cpt -v -ntomp 4 -deffnm md -gpu_id GPU_IDS
+            gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', s='md.tpr', cpi='md.cpt', deffnm='md', gpu_id=GPU_IDS_STR)
+            return
         # STEP 1 ~ 4: make box, solvate, ions
         self.make_box(protein_path, main_name, gmx, mdps)
         # STEP 5 ~ 7: energy minimization
@@ -311,8 +317,8 @@ class simple_protein(Command):
             protein_path = Path(protein_path).resolve()
             main_name = protein_path.stem
             # check if md.tpr exists, if yes, skip
-            if os.path.exists(protein_path.parent / 'md.tpr'):
-                put_log(f'{protein_path} already done with md.tpr, skip.')
+            if os.path.exists(protein_path.parent / 'md.gro'):
+                put_log(f'{protein_path} already done with md.gro, skip.')
                 continue
             task_queue.put((protein_path, main_name))
             pool.wait_till(lambda: task_queue.empty())
