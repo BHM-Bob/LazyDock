@@ -1,0 +1,71 @@
+<?xml version="1.0" ?>
+<ForceField>
+<Residues>
+<Residue name="LE1">
+      <!-- Penicillamine (青霉胺, 3-mercapto-valine). 侧链 Cβ(带SG3) 双甲基 CG1/CG2.
+           参数来源: GROMACS CHARMM36 (charmm36-jul2022.ff/aminoacids.rtp) 官方模板.
+           HG3(hydrogen on SG3) 为 leaving 原子: SG3 参与二硫键(如 LE1-CYS)时不加,
+           等价于 CYS 的 CYX 变体; PDBFixer 模板注册按 leaving 标记自动处理. -->
+      <Atom charge="-0.47" name="N" type="NH1"/>
+      <Atom charge="0.31" name="HN" type="H"/>
+      <Atom charge="0.07" name="CA" type="CT1"/>
+      <Atom charge="0.09" name="HA" type="HB1"/>
+      <Atom charge="0.107" name="CB" type="CG301"/>
+      <Atom charge="-0.279" name="SG3" type="SG311"/>
+      <Atom charge="0.114" name="HG3" type="HGP3"/>
+      <Atom charge="-0.241" name="CG1" type="CG331"/>
+      <Atom charge="0.09" name="HG11" type="HGA3"/>
+      <Atom charge="0.09" name="HG12" type="HGA3"/>
+      <Atom charge="0.09" name="HG13" type="HGA3"/>
+      <Atom charge="-0.241" name="CG2" type="CG331"/>
+      <Atom charge="0.09" name="HG21" type="HGA3"/>
+      <Atom charge="0.09" name="HG22" type="HGA3"/>
+      <Atom charge="0.09" name="HG23" type="HGA3"/>
+      <Atom charge="0.51" name="C" type="C"/>
+      <Atom charge="-0.51" name="O" type="O"/>
+      <Bond atomName1="N" atomName2="HN"/>
+      <Bond atomName1="N" atomName2="CA"/>
+      <Bond atomName1="C" atomName2="CA"/>
+      <Bond atomName1="CA" atomName2="HA"/>
+      <Bond atomName1="CA" atomName2="CB"/>
+      <Bond atomName1="CB" atomName2="SG3"/>
+      <Bond atomName1="SG3" atomName2="HG3"/>
+      <Bond atomName1="CB" atomName2="CG1"/>
+      <Bond atomName1="CB" atomName2="CG2"/>
+      <Bond atomName1="CG1" atomName2="HG11"/>
+      <Bond atomName1="CG1" atomName2="HG12"/>
+      <Bond atomName1="CG1" atomName2="HG13"/>
+      <Bond atomName1="CG2" atomName2="HG21"/>
+      <Bond atomName1="CG2" atomName2="HG22"/>
+      <Bond atomName1="CG2" atomName2="HG23"/>
+      <Bond atomName1="O" atomName2="C"/>
+      <ExternalBond atomName="N"/>
+      <ExternalBond atomName="C"/>
+      <AllowPatch name="NTER"/>
+      <AllowPatch name="ACE"/>
+      <AllowPatch name="NNEU"/>
+      <AllowPatch name="CTER"/>
+      <AllowPatch name="CNEU"/>
+      <AllowPatch name="CT1"/>
+      <AllowPatch name="CT2"/>
+      <AllowPatch name="CT3"/>
+    </Residue>
+</Residues>
+<Patches>
+    <!-- LE1-CYS 二硫键 patch(仿照 CYS 的 DISU):
+         拓扑中 SG3-SG 已有键且无氢时, RemoveAtom 去掉两侧巯基氢(HG3/HG1),
+         把 SG3/SG 改为 SM 原子类型(CHARMM36 二硫硫), 电荷按 GMX CYS2 惯例:
+         SG -0.08, 并微调 CB 电荷使侧链净电荷与 LE1 一致(0.107-0.279+0.114 →
+         0.022-0.08; CG1/CG2 及其 H 不变). -->
+    <Patch name="LE1SS" residues="2">
+      <RemoveAtom name="1:HG3"/>
+      <RemoveAtom name="2:HG1"/>
+      <ChangeAtom charge="0.022" name="1:CB" type="CG301"/>
+      <ChangeAtom charge="-0.08" name="1:SG3" type="SM"/>
+      <ChangeAtom charge="-0.08" name="2:SG" type="SM"/>
+      <AddBond atomName1="1:SG3" atomName2="2:SG"/>
+      <ApplyToResidue name="1:LE1"/>
+      <ApplyToResidue name="2:CYS"/>
+    </Patch>
+  </Patches>
+</ForceField>
