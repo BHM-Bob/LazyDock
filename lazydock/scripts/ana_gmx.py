@@ -1,10 +1,10 @@
 import argparse
 import copy
 import os
+import re
 import shutil
 from pathlib import Path
 from threading import Lock
-import time
 from typing import Dict, List, Optional, Tuple, Union
 
 if 'MBAPY_PLT_AGG' in os.environ:
@@ -16,17 +16,19 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.ticker import FuncFormatter
-from mbapy_lite.plot import save_show
 from mbapy_lite.base import put_err, put_log, split_list
 from mbapy_lite.file import get_paths_with_extension, opts_file
+from mbapy_lite.plot import save_show
 from mbapy_lite.web import TaskPool
 from MDAnalysis import AtomGroup, Universe
+from pymol import cmd
 from scipy.stats import gaussian_kde
 from tqdm import tqdm
-from pymol import cmd
 
 from lazydock.algorithm.utils import vectorized_sliding_average
-from lazydock.gmx.mda.convert import PDBConverter, FakeAtomGroup
+from lazydock.gmx.mda.convert import FakeAtomGroup, PDBConverter
+from lazydock.gmx.qmmm_charge import (parse_pdb_residue_serials, qm_charges,
+                                      update_input_file)
 from lazydock.gmx.run import Gromacs
 from lazydock.pml.interaction_utils import calcu_pdbstr_interaction
 from lazydock.pml.plip_interaction import check_support_mode, run_plip_analysis
@@ -37,7 +39,6 @@ from lazydock.scripts._script_utils_ import (Command, check_file_num_paried,
                                              process_batch_dir_lst)
 from lazydock.scripts.ana_interaction import (plip_mode, pml_mode,
                                               simple_analysis)
-from lazydock.gmx.qmmm_charge import parse_pdb_residue_serials, qm_charges, update_input_file
 
 
 class trjconv(Command):
@@ -52,7 +53,10 @@ class trjconv(Command):
         args.add_argument('-n', '--main-name', type=str, default='md.tpr',
                           help='main name in each sub-directory, such as md.tpr, default is %(default)s.')
         args.add_argument('-g', '--groups', type=str, nargs='+', default=['1', '0'],
-                          help='groups for gmx trjconv, default is %(default)s.')
+                          help='groups for gmx trjconv, each string is sent to the "Select a group:" prompt of gmx trjconv in order. '
+                               'A string can be a group index of gmx (such as "4"), or a group name wrapped by square brackets (such as "[Protein]"), '
+                               'the bracketed name will be automatically replaced by its index in the tpr file, '
+                               'and a string can also be an expression of group indexes (such as "[CAL] | [Protein]" -> "2 | 4"), default is %(default)s.')
         args.add_argument('-ndx', '--index', type=str, default=None,
                           help='index file name in each sub-directory, such as tc_index.ndx, default is %(default)s.')
         args.add_argument('-pbc', type=str, default='mol', choices=['mol', 'atom', 'res', 'whole', 'cluster', 'nojump'],
@@ -69,9 +73,29 @@ class trjconv(Command):
     def process_args(self):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         
+    def replace_groups(self, tpr_name: str, gmx: Gromacs, groups: List[str]):
+        """Replace group name in groups with its index in tpr_name.
+        e.g.: groups = ['[CAL] | [Protein]'] -> ['2 | 4'] with exist_groups = {'CAL': 2, 'Protein': 4}
+        """
+        exist_groups = gmx.get_groups(tpr_name)
+        new_groups = []
+        for g in groups:
+            # replace group name in [] with its index, e.g. [CAL] | [Protein] -> 2 | 4
+            for g_name in re.findall(r'\[([^\[\]]+)\]', g):
+                if g_name in exist_groups:
+                    g = g.replace(f'[{g_name}]', str(exist_groups[g_name]))
+                else:
+                    put_err(f'group {g_name} not found, will keep it as is.')
+            new_groups.append(g)
+        return new_groups
+        
     def run_gmx_cmd(self, working_dir, *args, **kwargs):
         gmx = Gromacs(working_dir=working_dir)
-        gmx.run_gmx_with_expect(*args, **kwargs)
+        groups = self.replace_groups(f'{self.args.main_name}.tpr', gmx, self.args.groups)
+        exp_acts = []
+        for g in groups:
+            exp_acts.append({'Select a group:': f'{g}\r', '\\timeout': f'{g}\r'})
+        gmx.run_gmx_with_expect(*args, **kwargs, exp_acts=exp_acts, expect_settings={'timeout': 10})
         
     def main_process(self):
         # get complex paths
@@ -79,9 +103,6 @@ class trjconv(Command):
                                                  name_substr=self.args.main_name, sort='natsort')
         put_log(f'get {len(complexs_path)} task(s)')
         pool = TaskPool('threads', self.args.n_workers).start()
-        exp_acts = []
-        for g in self.args.groups:
-            exp_acts.append({'Select a group:': f'{g}\r', '\\timeout': f'{g}\r'})
         # process each complex
         for complex_path in tqdm(complexs_path, total=len(complexs_path)):
             complex_path = Path(complex_path).resolve()
@@ -97,8 +118,7 @@ class trjconv(Command):
             # perform trjconv, to avoid threads data conflict, just pass a nameless instance to pool
             pool.add_task(str(complex_path), self.run_gmx_cmd, complex_path.parent,
                           'trjconv', s=f'{main_name}.tpr', f=f'{main_name}.xtc', o=f'{main_name}_center.xtc',
-                          n=self.args.index, pbc=self.args.pbc, ur=self.args.ur, center=True,
-                          expect_actions=exp_acts, expect_settings={'timeout': 10})
+                          n=self.args.index, pbc=self.args.pbc, ur=self.args.ur, center=True)
             pool.wait_till(lambda: pool.count_waiting_tasks() == 0, 1)
         pool.wait_till_all_done()
         pool.close(1)
@@ -116,7 +136,10 @@ class make_ndx(trjconv):
         args.add_argument('-f', '--main-name', type=str, default='md.tpr',
                           help='main name in each sub-directory, such as md.tpr, default is %(default)s.')
         args.add_argument('-g', '--groups', type=str, nargs='+', default=['1', '0'],
-                          help='groups option for make_ndx, will send each string to gmx make_ndx and automatically add a "q" in the last, default is %(default)s.')
+                          help='groups option for make_ndx, will send each string to gmx make_ndx and automatically add a "q" in the last. '
+                               'A string can be a group index of gmx (such as "4"), or a group name wrapped by square brackets (such as "[Protein]"), '
+                               'the bracketed name will be automatically replaced by its index in the tpr file, '
+                               'and a string can also be an expression of group indexes (such as "[CAL] | [Protein]" -> "2 | 4"), default is %(default)s.')
         args.add_argument('-o', '--output', type=str, default='ana_index.ndx',
                           help='output index file name in each sub-directory, such as ana_index.ndx, default is %(default)s.')
         args.add_argument('-n', '--index', type=str, default=None,
@@ -146,7 +169,8 @@ class make_ndx(trjconv):
                     continue
             # perform make_ndx
             exp_acts = []
-            for g in self.args.groups:
+            groups = self.replace_groups(f'{main_name}.tpr', gmx, self.args.groups)
+            for g in groups:
                 exp_acts.append({'>': f'{g}\r', '\\timeout': f'{g}\r'})
             exp_acts.append({'>': 'q\r'})
             gmx.run_gmx_with_expect('make_ndx', f=f'{main_name}.tpr', n=self.args.index, o=self.args.output,
