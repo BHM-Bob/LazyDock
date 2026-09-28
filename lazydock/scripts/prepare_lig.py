@@ -170,6 +170,8 @@ def _fix_cp_relax_one(fix_path: Path, cyclic_chains: List[str], disulfide_chains
         device_index=gpu_index,
     )
     result_pdb, ret = relaxer(str(fix_path), None, return_info=True)
+    if not result_pdb:
+        raise RuntimeError(f'relaxation returned empty structure for {fix_path.name}')
     with open(fix_path, 'w') as f:
         f.write(result_pdb)
     put_log(f'relaxed: {fix_path.name} (efinal={ret["efinal"]:.1f} kJ/mol)')
@@ -573,18 +575,33 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
             self.printf(f'fixed: {pdb_path.name} -> {out_path.name}')
             if self.args.relax and self._last_fixed_chains:
                 if self._last_fixed_case == 'disulfide':
-                    pool.add_task(None, _fix_cp_relax_one, out_path, [], self._last_fixed_chains,
-                                  constraints=self.args.constraints, max_iter=self.args.max_iter,
-                                  tolerance=self.args.tolerance, platform=self.args.platform,
-                                  gpu_index=gpu_slots[task_i % len(gpu_slots)])
+                    task_name = pool.add_task(None, _fix_cp_relax_one, out_path, [], self._last_fixed_chains,
+                                              constraints=self.args.constraints, max_iter=self.args.max_iter,
+                                              tolerance=self.args.tolerance, platform=self.args.platform,
+                                              gpu_index=gpu_slots[task_i % len(gpu_slots)])
                 else:
-                    pool.add_task(None, _fix_cp_relax_one, out_path, self._last_fixed_chains, [],
-                                  constraints=self.args.constraints, max_iter=self.args.max_iter,
-                                  tolerance=self.args.tolerance, platform=self.args.platform,
-                                  gpu_index=gpu_slots[task_i % len(gpu_slots)])
+                    task_name = pool.add_task(None, _fix_cp_relax_one, out_path, self._last_fixed_chains, [],
+                                              constraints=self.args.constraints, max_iter=self.args.max_iter,
+                                              tolerance=self.args.tolerance, platform=self.args.platform,
+                                              gpu_index=gpu_slots[task_i % len(gpu_slots)])
+                relax_tasks[task_name] = out_path
             pool.wait_till_free()
         pool.wait_till_all_done()
+        # relax 失败时磁盘上留下的仍是 pre-relax(仅拓扑修复)版本, 不能以成功流程静默结束.
+        # _fix_cp_relax_one 成功时返回 None, 因此任何非 None 结果(异常对象或 TaskStatus)都视为失败.
+        failed = []
+        for task_name, out_path in relax_tasks.items():
+            result = pool.query_task(task_name)
+            if result is not None:
+                failed.append((out_path, result))
         pool.close(1)
+        if failed:
+            for out_path, err in failed:
+                put_err(f'relax FAILED for {out_path.name}: {err!r} '
+                        f'-- file on disk is the pre-relax (topology-fixed only) version',
+                        warning_level=3)
+            put_err(f'{len(failed)}/{len(relax_tasks)} relax task(s) failed, '
+                    f'outputs are NOT relaxed', warning_level=3, _exit=1)
 
     def _fix_one(self, pdb_path: Path):
         """按 case 分发单个文件修复: backbone / disulfide / auto."""
