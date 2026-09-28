@@ -56,8 +56,8 @@ class simple_analysis(Command):
                           help='skip the docking result file if the receptor and ligand do not match, default is %(default)s.')
         args.add_argument('--method', type = str, default='pymol', choices=simple_analysis.METHODS.keys(),
                           help='interaction detect method, default is %(default)s.')
-        args.add_argument('--mode', type = str, default='all',
-                          help=f'interaction mode, multple modes can be separated by comma, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nligplus: {",".join(ligplus_mode)}\nplip: {",".join(plip_mode)}')
+        args.add_argument('--mode', type = str, default='all', nargs='+',
+                          help=f'interaction mode, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nligplus: {",".join(ligplus_mode)}\nplip: {",".join(plip_mode)}')
         args.add_argument('--cutoff', type = float, default=4,
                           help='distance cutoff for interaction calculation, default is %(default)s.')
         args.add_argument('--hydrogen-atom-only', default=False, action='store_true',
@@ -74,9 +74,9 @@ class simple_analysis(Command):
         # process IO
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         # check method and mode
-        if ',' in self.args.mode:
-            self.args.mode = [m.strip() for m in self.args.mode.split(',')]
         all_modes = set(simple_analysis.METHODS[self.args.method][1] + ['all'])
+        if self.args.mode == ['all']:
+            self.args.mode = 'all'
         if isinstance(self.args.mode, str) and self.args.mode not in all_modes:
             put_err(f"Unsupported mode: {self.args.mode}, supported mode: {simple_analysis.METHODS[self.args.method][1]}, exit.", _exit=True)
         elif isinstance(self.args.mode, list) and any(m not in all_modes for m in self.args.mode):
