@@ -112,7 +112,9 @@ class Gromacs(BaseInfo):
                 else:
                     expect_lines.append(f'    "{key}" {{\n        send "{value}"}}')
             expect_lines.append('}\n')
-        expect_lines.append('interact')
+        expect_lines.append('expect eof')
+        expect_lines.append('catch wait result')
+        expect_lines.append('exit [lindex $result 3]')
         expect_script = '\n'.join(expect_lines)
         # save expect script to file and run it
         script_path = os.path.join(scripts_dir, f'{scripts_name}.exp')
