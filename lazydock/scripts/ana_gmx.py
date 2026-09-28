@@ -73,11 +73,11 @@ class trjconv(Command):
     def process_args(self):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         
-    def replace_groups(self, tpr_name: str, gmx: Gromacs, groups: List[str]):
+    def replace_groups(self, tpr_name: str, gmx: Gromacs, groups: List[str], ndx_name: str = None):
         """Replace group name in groups with its index in tpr_name.
         e.g.: groups = ['[CAL] | [Protein]'] -> ['2 | 4'] with exist_groups = {'CAL': 2, 'Protein': 4}
         """
-        exist_groups = gmx.get_groups(tpr_name)
+        exist_groups = gmx.get_groups(tpr_name, ndx_name)
         new_groups = []
         for g in groups:
             # replace group name in [] with its index, e.g. [CAL] | [Protein] -> 2 | 4
@@ -91,11 +91,11 @@ class trjconv(Command):
         
     def run_gmx_cmd(self, working_dir, *args, **kwargs):
         gmx = Gromacs(working_dir=working_dir)
-        groups = self.replace_groups(f'{self.args.main_name}.tpr', gmx, self.args.groups)
+        groups = self.replace_groups(self.args.main_name, gmx, self.args.groups, self.args.index)
         exp_acts = []
         for g in groups:
             exp_acts.append({'Select a group:': f'{g}\r', '\\timeout': f'{g}\r'})
-        gmx.run_gmx_with_expect(*args, **kwargs, exp_acts=exp_acts, expect_settings={'timeout': 10})
+        gmx.run_gmx_with_expect(*args, **kwargs, expect_actions=exp_acts, expect_settings={'timeout': 10})
         
     def main_process(self):
         # get complex paths
