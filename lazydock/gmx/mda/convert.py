@@ -155,7 +155,8 @@ class PDBConverter(PDBWriter):
         )
         return charges
 
-    def _write_single_timestep_fast(self, alter_chain=None, alter_res=None, alter_atm=None):
+    def _write_single_timestep_fast(self, alter_chain=None, alter_res=None,
+                                    alter_atm=None, alter_aname=None):
         # 批量替换函数
         def batch_replace(arr, mapping):
             if mapping:
@@ -167,6 +168,11 @@ class PDBConverter(PDBWriter):
         fag = self.fake_ag
         resnames = batch_replace(fag.resnames.copy(), alter_res or {})
         chainIDs = batch_replace(fag.chainIDs.copy(), alter_chain or {})
+        # replace atom name by chain and old name
+        if alter_aname:
+            for chain, old_name, new_name in alter_aname:
+                fag.names[chainIDs == chain] = batch_replace(fag.names[chainIDs == chain], {old_name: new_name})
+        
         # 在写入前截断为1个字符（符合PDB规范）
         chainIDs = np.array([c[:1] for c in chainIDs], dtype='U1')
         
@@ -208,7 +214,8 @@ class PDBConverter(PDBWriter):
         self.frames_written += 1
     
     def fast_convert(self, alter_chain: Dict[str,str] = None,
-                     alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None):
+                     alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None,
+                     alter_aname=None):
         """
         Convert the AtomGroup to a PDB string.
         
@@ -216,6 +223,7 @@ class PDBConverter(PDBWriter):
             - alter_chain: Dict[str,str]: key is orignal chain name, value is target chain name
             - alter_res: Dict[str,str]: key is orignal res name, value is target res name
             - alter_atm: Dict[str,str]: key is target chain name, value is target atom record type
+            - alter_aname: List[Tuple[str,str,str]]: each tuple is ( chain name, old atom name, new atom name)
             
         Returns
         str
@@ -223,7 +231,7 @@ class PDBConverter(PDBWriter):
         """
         # self.ts = self.obj.universe.trajectory.ts
         # self.frames_written = 1
-        self._write_single_timestep_fast(alter_chain, alter_res, alter_atm)
+        self._write_single_timestep_fast(alter_chain, alter_res, alter_atm, alter_aname)
         return ''.join(self.pdbfile.str_lst)
     
     def close(self):
