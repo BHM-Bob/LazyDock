@@ -76,7 +76,7 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str],
     return interaction_df
 
 def check_support_mode(mode: Union[str, List[str]]):
-    if mode == 'all':
+    if mode == 'all' or mode == ['all']:
         return SUPPORTED_MODE
     elif isinstance(mode, str) and mode in SUPPORTED_MODE:
         return [mode]
