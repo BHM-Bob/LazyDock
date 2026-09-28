@@ -767,10 +767,10 @@ class interaction(simple_analysis, mmpbsa):
                           help='alter ligand atom type from topology to user-define, such as "Z=HETATM", will replace chain Z to HETATM.')
         args.add_argument('--alter-aname', type = str, nargs='+', default=None,
                           help='alter ligand atom name from topology to user-define, such as "Z=CAL=CA", will replace CAL to CA in chain Z.')
-        args.add_argument('--method', type = str, default='pymol', choices=['pymol', 'plip'],
+        args.add_argument('--method', type = str, default='fplip', choices=['pymol', 'fplip'],
                           help='interaction method, default is %(default)s.')
-        args.add_argument('--mode', type = str, default='all',
-                          help=f'interaction mode, multple modes can be separated by comma, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nplip: {",".join(plip_mode)}')
+        args.add_argument('--mode', type = str, default='all', nargs='+',
+                          help=f'interaction mode, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nplip: {",".join(plip_mode)}')
         args.add_argument('--cutoff', type = float, default=4,
                           help='distance cutoff for interaction calculation, default is %(default)s.')
         args.add_argument('--hydrogen-atom-only', default=False, action='store_true',
