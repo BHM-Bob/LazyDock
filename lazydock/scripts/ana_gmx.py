@@ -679,8 +679,8 @@ class mmpbsa(simple):
     
 def _interaction_ana_worker(fake_ag: FakeAtomGroup, receptor_chain: List[str], ligand_chain: str,
                             method: str, mode: str, cutoff: float, hydrogen_atom_only: bool,
-                            alter_chain: Dict[str,str] = None, alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None):
-    pdbstr = PDBConverter(fake_ag).fast_convert(alter_chain=alter_chain, alter_res=alter_res, alter_atm=alter_atm)
+                            alter_chain: Dict[str,str] = None, alter_res: Dict[str,str] = None, alter_atm: Dict[str,str] = None, alter_aname: List[Tuple[str,str,str]] = None):
+    pdbstr = PDBConverter(fake_ag).fast_convert(alter_chain=alter_chain, alter_res=alter_res, alter_atm=alter_atm, alter_aname=alter_aname)
     if method == 'pymol':
         inter = calcu_pdbstr_interaction(' or '.join([f'chain {chain}' for chain in receptor_chain]),
                                          f'chain {ligand_chain}', pdbstr, mode, cutoff, hydrogen_atom_only)
@@ -721,7 +721,7 @@ def _interaction_data_worker(interactions: Dict[str, pd.DataFrame], args: argpar
     plot_df = plot_df[sorted(list(plot_df.columns), key=lambda x: int(x[3:]))]
     # save to csv and plot
     plot_df.to_csv(str(top_path.parent / f'{top_path.stem}_{args.method}_plot_df{suffix}.csv'), index=False)
-    put_log(f'save {top_path.parent / f"{top_path.stem}_{args.method}_plot_df{suffix}.csv"}')
+    put_log('save ' + str(top_path.parent / f'{top_path.stem}_{args.method}_plot_df{suffix}.csv'))
     if not plot_df.empty:
         fig, ax = plt.subplots(figsize=args.fig_size)
         sns.heatmap(plot_df, xticklabels=list(plot_df.columns),
@@ -736,7 +736,7 @@ def _interaction_data_worker(interactions: Dict[str, pd.DataFrame], args: argpar
         cbar.ax.set_ylabel('Interaction frequency', fontsize=16)
         save_show(str(top_path.parent / f'{top_path.stem}_{args.method}_interactions{suffix}.png'), 600, show=False)
         plt.close(fig)
-        put_log(f'save {top_path.parent / f'{top_path.stem}_{args.method}_interactions{suffix}.png'}')
+        put_log('save ' + str(top_path.parent / f'{top_path.stem}_{args.method}_interactions{suffix}.png'))
 
 
 class interaction(simple_analysis, mmpbsa):
@@ -746,8 +746,9 @@ class interaction(simple_analysis, mmpbsa):
     def __init__(self, args, printf=print):
         Command.__init__(self, args, printf, ['batch_dir'])
         self.alter_chain = {}
-        self.alter_res = None
-        self.alter_atm = None
+        self.alter_res = {}
+        self.alter_atm = {}
+        self.alter_aname = []
 
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
@@ -756,14 +757,16 @@ class interaction(simple_analysis, mmpbsa):
                           help=f"gro file name in each sub-folder.")
         args.add_argument('--suffix', type = str, default='',
                           help='suffix for output file name, default is %(default)s.')
-        args.add_argument('--alter-receptor-chain', type = str, default=None,
-                          help='alter receptor chain name from topology to user-define, such as "A". Not work when rec chain is multiple or None.')
+        args.add_argument('--alter-receptor-chain', type = str, nargs='+', default=None,
+                          help='alter receptor chain name from topology to user-define, such as "A=R", will replace A to R. Not work when rec chain is None.')
         args.add_argument('--alter-ligand-chain', type = str, default=None,
                           help='alter ligand chain name from topology to user-define, such as "Z".')
-        args.add_argument('--alter-ligand-res', type = str, default=None,
-                          help='alter ligand res name from topology to user-define, such as "UNK".')
-        args.add_argument('--alter-ligand-atm', type = str, default=None,
-                          help='alter ligand atom type from topology to user-define, such as "HETATM".')
+        args.add_argument('--alter-res', type = str, nargs='+', default=None,
+                          help='alter ligand res name from topology to user-define, such as "CAL=CA".')
+        args.add_argument('--alter-atm', type = str, nargs='+', default=None,
+                          help='alter ligand atom type from topology to user-define, such as "Z=HETATM", will replace chain Z to HETATM.')
+        args.add_argument('--alter-aname', type = str, nargs='+', default=None,
+                          help='alter ligand atom name from topology to user-define, such as "Z=CAL=CA", will replace CAL to CA in chain Z.')
         args.add_argument('--method', type = str, default='pymol', choices=['pymol', 'plip'],
                           help='interaction method, default is %(default)s.')
         args.add_argument('--mode', type = str, default='all',
@@ -800,14 +803,29 @@ class interaction(simple_analysis, mmpbsa):
         else:
             self.args.alter_ligand_chain = self.args.ligand_chain_name
         # in lazydock, default ligand res name is the chain name too, so alter chain name to alter-ligand-res
-        if self.args.alter_ligand_res is not None:
-            self.alter_res = {self.args.ligand_chain_name: self.args.alter_ligand_res}
+        if self.args.alter_res is not None:
+            for alter_string in self.args.alter_res:
+                if '=' in alter_string:
+                    old_res, new_res = alter_string.split('=')
+                    self.alter_res[old_res] = new_res
         # set self.alter_atm
-        if self.args.alter_ligand_atm is not None:
-            self.alter_atm = {self.args.alter_ligand_chain: self.args.alter_ligand_atm}
+        if self.args.alter_atm is not None:
+            for alter_string in self.args.alter_atm:
+                if '=' in alter_string:
+                    trg_chain, new_atm = alter_string.split('=')
+                    self.alter_atm[trg_chain] = new_atm
+        # set self.alter_aname
+        if self.args.alter_aname is not None:
+            for alter_string in self.args.alter_aname:
+                if '=' in alter_string:
+                    trg_chain, old_name, new_name = alter_string.split('=')
+                    self.alter_aname.append((trg_chain, old_name, new_name))
         # set alter receptor chain
         if self.args.alter_receptor_chain is not None:
-            self.alter_chain[self.args.receptor_chain_name] = self.args.alter_receptor_chain
+            for alter_string in self.args.alter_receptor_chain:
+                if '=' in alter_string:
+                    old_chain, new_chain = alter_string.split('=')
+                    self.alter_chain[old_chain] = new_chain
         else:
             self.args.alter_receptor_chain = self.args.receptor_chain_name
         # output formater
@@ -821,7 +839,10 @@ class interaction(simple_analysis, mmpbsa):
         u, u2 = Universe(top_path, traj_path), Universe(gro_path)
         u.atoms.residues.resids = u2.atoms.residues.resids
         rec_idx, lig_idx = self.get_complex_atoms_index(u) # this will assign rec chain if is None
-        self.args.alter_receptor_chain = self.rec_chains_no_lock # assign alter_receptor_chain
+        if self.args.alter_receptor_chain is not None:
+            alter_receptor_chain = [self.alter_chain.get(chain, chain) for chain in self.args.receptor_chain_name]
+        else:
+            alter_receptor_chain = self.rec_chains_no_lock # assign alter_receptor_chain
         if rec_idx.sum() == 0 or lig_idx.sum() == 0:
             return put_err(f"no atoms found in receptor or ligand, skip.", (None, None))
         complex_ag = u.atoms[rec_idx | lig_idx]
@@ -831,9 +852,10 @@ class interaction(simple_analysis, mmpbsa):
                         total=sum_frames//self.args.traj_step, desc='Calculating frames', leave=False):
             fake_ag = FakeAtomGroup(complex_ag)
             pool.add_task(frame.time, _interaction_ana_worker, fake_ag,
-                        self.args.alter_receptor_chain, self.args.alter_ligand_chain,
+                        alter_receptor_chain, self.args.alter_ligand_chain,
                         self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only,
-                        alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm)
+                        alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm,
+                        alter_aname=self.alter_aname)
             pool.wait_till_free(wait_each_loop=0.001, update_result_queue=False)
         # merge interactions
         interactions, df = {}, pd.DataFrame()
@@ -855,8 +877,8 @@ class interaction(simple_analysis, mmpbsa):
     
     def init(self):
         self.pool = TaskPool('process', self.args.n_workers,
-                            mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
-        
+                            mp_pool_init_kwargs={'maxtasksperchild': 100},
+                            report_error=True).start()
         
     def main_process(self):
         # load origin dfs from data file
@@ -869,7 +891,7 @@ class interaction(simple_analysis, mmpbsa):
         for top_path, traj_path in self.tasks:
             wdir = os.path.dirname(top_path)
             wdir_repr = os.path.relpath(wdir, self.args.batch_dir) # relative path to batch_dir, shorter
-            bar.set_description(f"{wdir_repr}: {os.path.basename(top_path)} and {os.path.basename(traj_path)}")
+            bar.set_description(f"{wdir_repr}:")
             # calcu interaction and save to file OR load results if have been calculated before and not force recalculate
             top_path = Path(top_path).resolve()
             gro_path = str(top_path.parent / self.args.gro_name)
