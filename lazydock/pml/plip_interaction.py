@@ -10,8 +10,8 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
-from fplip.exchange.report import BindingSiteReport
-from fplip.structure.preparation import PDBComplex
+from fplip.all_atom import _analyze_complex
+from fplip.all_atom.interaction_catalog import InteractionCatalog
 from mbapy_lite.base import put_err
 from mbapy_lite.web import TaskPool
 from pymol import cmd
@@ -20,53 +20,37 @@ from tqdm import tqdm
 from lazydock.pml.interaction_utils import bond_length_score, sort_func
 from lazydock.utils import uuid4
 
+SUPPORTED_MODE = ['hydrophobic', 'hbond', 'saltbridge', 'pistacking', 'pication', 'halogen', 'metal', 'water_bridge',
+                  'hbond_possible', 'hbond_heavy_atom', 'metal_possible', 'water_bridge_possible']
 
-def get_atom_level_interactions(mol, receptor_chain: Union[str, List[str]], ligand_chain: str, mode: List[str], cutoff: float = 4.):
+
+def get_atom_level_interactions(interaction_sets: Dict[str, InteractionCatalog], receptor_chain: Union[str, List[str]], ligand_chain: Union[str, List[str]], mode: List[str], cutoff: float = 4.):
     """
     """
     receptor_chain = set(receptor_chain)
-    interactions = {}
-    for _, interaction in mol.interaction_sets.items():
-        info = BindingSiteReport(interaction)
-        mode_dict = {
-            'Hydrophobic Interactions': [info.hydrophobic_features, info.hydrophobic_info],
-            'Hydrogen Bonds': [info.hbond_features, info.hbond_info],
-            'Water Bridges': [info.waterbridge_features, info.waterbridge_info],
-            'Salt Bridges': [info.saltbridge_features, info.saltbridge_info],
-            'pi-Stacking': [info.pistacking_features, info.pistacking_info],
-            'pi-Cation Interactions': [info.pication_features, info.pication_info],
-            'Halogen Bonds': [info.halogen_features, info.halogen_info],
-            'Metal Complexes': [info.metal_features, info.metal_info],
-        }
-        modes = [[n, mode_dict[n][0], mode_dict[n][1]] for n in mode]
-        for name, feat, values in modes:
-            interactions.setdefault(name, [])
-            for value in values:
-                find_idx_fn = lambda x: feat.index(list(filter(lambda y: x == y, feat))[0])
-                rec_idx, lig_idx = find_idx_fn('RESNR'), find_idx_fn('RESNR_LIG')
-                dist_term = 'DIST'
-                if name == 'Hydrogen Bonds':
-                    dist_term = 'DIST_H-A'
-                elif name == 'Water Bridges':
-                    dist_term = 'DIST_A-W'
-                elif name == 'pi-Stacking':
-                    dist_term = 'CENTDIST'
-                dist_idx = find_idx_fn(dist_term)
-                rec_res, lig_res, dist = value[rec_idx:rec_idx+3], value[lig_idx:lig_idx+3], float(value[dist_idx])
-                if dist <= cutoff and rec_res[-1] in receptor_chain and lig_res[-1] == ligand_chain:
-                    interactions[name].append((rec_res, lig_res, dist))
-    return interactions
+    ligand_chain = set(ligand_chain)
+    result = {}
+    for _type, interactions in interaction_sets.items():
+        if _type not in mode:
+            continue
+        result[_type] = []
+        for i in interactions:
+            has_rec_res = i.res_a_chain in receptor_chain or i.res_b_chain in receptor_chain
+            has_lig_res = i.res_a_chain in ligand_chain or i.res_b_chain in ligand_chain
+            if has_rec_res and has_lig_res and i.distance <= cutoff:
+                res_res = 'a' if i.res_a_chain in receptor_chain else 'b'
+                lig_res = 'a' if i.res_a_chain in ligand_chain else 'b'
+                result[_type].append(((getattr(i, f'res_{res_res}_num'), getattr(i, f'res_{res_res}_name'), getattr(i, f'res_{res_res}_chain')),
+                                      (getattr(i, f'res_{lig_res}_num'), getattr(i, f'res_{lig_res}_name'), getattr(i, f'res_{lig_res}_chain')),
+                                      i.distance))
+    return result
 
 
 def run_plip_analysis(complex_pdbstr: str, receptor_chain: Union[str, List[str]], ligand_chain: str,
-                      mode: Union[str, List[str]] = 'all', cutoff: float = 4.):
-    mol = PDBComplex()
-    mol.load_pdb(complex_pdbstr, as_string=True)
-    mode = check_support_mode(mode)
-    
-    try:
-        mol.analyze()
-        return get_atom_level_interactions(mol, receptor_chain, ligand_chain, mode, cutoff)
+                      mode: Union[str, List[str]] = 'all', cutoff: float = 4.):  
+    try:  
+        interactions, _, _ = _analyze_complex(complex_pdbstr, as_string=True)
+        return get_atom_level_interactions(interactions, receptor_chain, ligand_chain, mode, cutoff)
     except Exception as e:
         traceback.print_exc()
         return e
@@ -90,9 +74,6 @@ def merge_interaction_df(interaction: Dict[str, List[Tuple[Tuple[int, str, str],
             else:
                 interaction_df.loc[ligand_res, receptor_res] += points
     return interaction_df
-
-
-SUPPORTED_MODE = ['Hydrophobic Interactions', 'Hydrogen Bonds', 'Water Bridges', 'Salt Bridges', 'pi-Stacking', 'pi-Cation Interactions', 'Halogen Bonds', 'Metal Complexes']
 
 def check_support_mode(mode: Union[str, List[str]]):
     if mode == 'all':
