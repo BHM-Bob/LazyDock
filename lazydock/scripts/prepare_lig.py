@@ -6,7 +6,7 @@ Description: Prepare ligand files for docking
 '''
 
 import argparse
-import os
+import multiprocessing
 import traceback
 from collections import defaultdict
 from pathlib import Path
@@ -554,6 +554,12 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         if self.args.gpus:
             for g in self.args.gpus:
                 gpu_slots.extend([g] * max(1, self.args.n_task_per_gpu))
+        # 用 spawn 启动子进程: CUDA Runtime 不是 fork-safe 的, 从已加载 CUDA/pymol 的父进程
+        # fork 出的子进程一旦初始化 CUDA 就会死锁, spawn 让子进程全新解释器启动以规避该问题.
+        # 注: mbapy_lite 的 TaskPool 只把 mp_pool_init_kwargs 原样转发给 multiprocessing.Pool,
+        # 而 multiprocessing.Pool 本身就是"绑定默认 context"的 BaseContext.Pool, 不接受 context
+        # 参数(传了会 TypeError), 因此这里改为切换默认 start method.
+        multiprocessing.set_start_method('spawn', force=True)
         pool = TaskPool('process', self.args.n_workers, report_error=True).start()
                 
         for task_i, pdb_path in tqdm(enumerate(pdb_paths), total=len(pdb_paths)):
