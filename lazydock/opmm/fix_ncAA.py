@@ -25,8 +25,18 @@ NCAA_ATOM_RENAME = {
 }
 NCAA_RESIDUES = set(NCAA_ATOM_RENAME)
 
+# 封端残基(ACE/NH2): 原子名与模板一致, 无规范化需求, 但需注册模板补氢.
+# ACE 在 PDBFixer 内置 _standardTemplates 中(内置 ACE.pdb 无氢, 会补不上),
+# 注册时需把它移出 _standardTemplates 以强制走注册模板分支.
+CAPS_RESIDUES = {'ACE', 'NH2'}
+
+# N-甲基氨基酸(SAR/MLE): PDBFixer 替换表会把 SAR->GLY、MLE->LEU(静默去甲基),
+# 与 D-aa 同款问题; 但这里模板自带 CN 甲基, 需先"替换补氢再改回名"(与 D-aa 同款).
+# 原子名与模板一致(CN/CA/...), 无规范化需求.
+NCME_RESIDUES = {'SAR', 'MLE'}
+
 # ncAA OpenMM XML 模板文件(storage/opmm 相对路径), 与 relax.py 加载列表保持一致
-NCAA_TEMPLATE_FILES = ['opmm/charmm36_nc_aa.xml']
+NCAA_TEMPLATE_FILES = ['opmm/charmm36_nc_aa.xml', 'opmm/charmm36_caps.xml']
 
 
 def fix_ncAA_pdb(lines, pdb_path=None):
@@ -99,16 +109,19 @@ def _parse_ncAA_xml(xml_path):
 
 
 def register_ncAA_templates(fixer, resnames=None):
-    """把 storage/opmm 的 ncAA 模板(带氢)注册到 PDBFixer, 使其能为 ncAA 补氢.
+    """把 storage/opmm 的 ncAA/封端模板(带氢)注册到 PDBFixer, 使其能为这些残基补氢.
     resnames: 只注册给定残基名(建议传拓扑中出现过的), None 则全部注册.
     必须在 fixer.addMissingHydrogens() 之前调用. 返回注册模板数."""
     if resnames is None:
-        resnames = set(NCAA_RESIDUES)
+        resnames = set(NCAA_RESIDUES) | CAPS_RESIDUES | NCME_RESIDUES
     n_registered = 0
     for rel in NCAA_TEMPLATE_FILES:
         for name, (topology, positions, terminal) in _parse_ncAA_xml(get_storage_path(rel)).items():
-            if name not in resnames or name in fixer._standardTemplates:
+            if name not in resnames:
                 continue
+            # ACE 在 PDBFixer 内置模板中(ACE.pdb 无氢), 用它补氢会失败;
+            # 移出 _standardTemplates, 强制 _describeVariant 走注册模板分支(带氢).
+            fixer._standardTemplates.discard(name)
             fixer.registerTemplate(topology, positions, terminal=terminal)
             n_registered += 1
     return n_registered
