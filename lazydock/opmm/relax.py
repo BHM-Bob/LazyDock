@@ -10,7 +10,14 @@ from mbapy_lite.base import put_log
 from openmm import app as openmm_app
 from openmm import unit
 
+from lazydock.opmm.fix_ncAA import register_ncAA_templates
 from lazydock.utils import get_storage_path
+
+# 二硫键可能出现在标准 CYS(SG) 或含硫修饰氨基酸(如 LE1 青霉胺 SG3)上, 统一识别:
+#   - 缝接/保护二硫键时按原子名匹配
+#   - 注意: 输入 PDB 中 LE1 的硫原子原始名为 SG, 会在 fix-cp 阶段被
+#     fix_ncAA 规范化为 SG3, 故两处均需兼容
+SULFUR_ATOM_NAMES = ('SG', 'SG3')
 
 ENERGY = unit.kilojoules_per_mole
 LENGTH = unit.nanometer  # pyright: ignore[reportAttributeAccessIssue]
@@ -24,6 +31,29 @@ ION_ELEMENT_TO_TEMPLATE = {
     sodium: 'SOD', potassium: 'POT', chlorine: 'CLA',
 }
 ION_TEMPLATE_NAMES = set(ION_ELEMENT_TO_TEMPLATE.values())
+
+# D-氨基酸: PDB 三字码(DAL/DPN/...) -> GROMACS 约定名(DALA/DPHE/...), 需要时用于改名.
+# PDBFixer 的 substitutions 表会把 D* 替换成 L* (DAL->ALA 等), 从而丢失 D 型手性;
+# 我们通过"先记录位置 -> 允许补H(替换成L) -> 再把残基名改回 D"来保留 D 型.
+# 映射: PDB D名 -> pdbfixer 替换目标(L名) -> GROMACS D名(实测自 charmm36-jul2022 aminoacids.rtp)
+D_AMINO_ACID_PDB_TO_L = {
+    # 实测自 pdbfixer.substitutions
+    'DAH': 'PHE', 'DAL': 'ALA', 'DAR': 'ARG', 'DAS': 'ASP',
+    'DCY': 'CYS', 'DGL': 'GLU', 'DGN': 'GLN', 'DHA': 'ALA',
+    'DHI': 'HIS', 'DIL': 'ILE', 'DIV': 'VAL', 'DLE': 'LEU',
+    'DLY': 'LYS', 'DNP': 'ALA', 'DPN': 'PHE', 'DPR': 'PRO',
+    'DSN': 'SER', 'DSP': 'ASP', 'DTH': 'THR', 'DTR': 'TRP',
+    'DTY': 'TYR', 'DVA': 'VAL',
+}
+# L名(按 CHARMM 组氨酸三码 HSD/HSE/HSP 处理) -> GROMACS D名(实测自 aminoacids.rtp)
+D_AMINO_ACID_L_TO_GMX = {
+    'ALA': 'DALA', 'ARG': 'DARG', 'ASN': 'DASN', 'ASP': 'DASP',
+    'CYS': 'DCYS', 'GLN': 'DGLN', 'GLU': 'DGLU', 'GLY': 'DGLY',
+    'HSD': 'DHSD', 'HSE': 'DHSE', 'HSP': 'DHSP', 'ILE': 'DILE',
+    'LEU': 'DLEU', 'LYS': 'DLYS', 'MET': 'DMET', 'PHE': 'DPHE',
+    'PRO': 'DPRO', 'SER': 'DSER', 'THR': 'DTHR', 'TRP': 'DTRP',
+    'TYR': 'DTYR', 'VAL': 'DVAL',
+}
 
 
 class ForceFieldMinimizer(object):
@@ -59,16 +89,46 @@ class ForceFieldMinimizer(object):
         self.device_index = device_index
 
     def _fix(self, pdb_str):
+        # D-氨基酸处理: PDB 三字码(DAL/...) 会被 pdbfixer 替换成 L 型, 丢失 D 手性.
+        # 策略: 记录 D 残基位置 -> 正常替换+补H(用 L 模板补 H) -> 再把残基名改回 D 名,
+        # 以保留 D 型标记(坐标本就不动, 手性靠坐标保持).
+        d_res_pos = {}  # (chain_id, resSeq) -> (L名, GROMACS D名)
+        for ln in pdb_str.splitlines():
+            if ln.startswith(('ATOM', 'HETATM')):
+                rn = ln[17:20]
+                if rn in D_AMINO_ACID_PDB_TO_L:
+                    l_name = D_AMINO_ACID_PDB_TO_L[rn]
+                    gmx_d_name = D_AMINO_ACID_L_TO_GMX.get(l_name)
+                    if gmx_d_name:
+                        d_res_pos[(ln[21], ln[22:26].strip())] = (l_name, gmx_d_name)
+
         fixer = pdbfixer.PDBFixer(pdbfile=io.StringIO(pdb_str))
         fixer.findNonstandardResidues()
         fixer.replaceNonstandardResidues()
 
         fixer.findMissingResidues()
         fixer.findMissingAtoms()
+        # 非标准氨基酸(ncAA, 如 LE1 青霉胺): 将 storage/opmm 下的 ncAA 模板
+        # 注册到 PDBFixer(registerTemplate), 使 addMissingHydrogens 能为其补氢.
+        # 不注册的话 LE1 补不上氢, OpenMM createSystem 会因模板含氢而缺原子报错.
+        n_registered = register_ncAA_templates(
+            fixer, set(res.name for res in fixer.topology.residues()))
+        if n_registered:
+            put_log(f'registered {n_registered} ncAA template(s) to PDBFixer for hydrogen addition')
         fixer.addMissingAtoms(seed=0)
         fixer.addMissingHydrogens()
 
-        # 上游(OpenMM PDBFile 解析)已经把离子残基的 element 识别好了:
+        # 将 D 残基名改回 GROMACS D 名(如 DALA), 供后续 OpenMM 模板匹配和 GMX 识别.
+        for res in fixer.topology.residues():
+            key = (res.chain.id, str(res.id))
+            if key in d_res_pos:
+                l_name, gmx_d_name = d_res_pos[key]
+                if res.name == l_name:
+                    put_log(f'restore D-amino acid {l_name} (res {key}) -> {gmx_d_name} '
+                            f'after PDBFixer replacement')
+                    res.name = gmx_d_name
+
+        # 将单原子离子残基重命名为离子模板名(CAL/MG/...), 与 ions.xml 对齐.
         #   - 读取 PDB 时优先用元素列(77-78列); 若无元素列则按原子名猜测,
         #     其中 "单原子残基且原子名/残基名以 CA 开头" 会被猜为钙(elem.calcium).
         #     (用"单原子残基"限定的原因: 蛋白的 alpha 碳原子名也叫 CA, 但其残基含多个原子,
@@ -88,16 +148,14 @@ class ForceFieldMinimizer(object):
                     res.name = template
                     atoms_[0].name = template
 
-        out_handle = io.StringIO()
-        openmm_app.PDBFile.writeFile(fixer.topology, fixer.positions, out_handle, keepIds=True)
-        return out_handle.getvalue()
+        # 直接返回拓扑+坐标(而非字符串), 避免 writeFile 把 4 字符残基名(DALA)截断成 3 字符
+        return fixer.topology, fixer.positions
 
-    def _sew_cyclic_chains(self, pdb_str: str, cyclic_chains: List[str]):
+    def _sew_cyclic_chains(self, topology, positions, cyclic_chains: List[str]):
         """在 PDBFixer 补全后的 PDB 上缝接环化链首尾肽键:
         删除每条链尾残基的 OXT 与首残基 N 端多余 H(保留1个酰胺NH), 并 addBond(首N, 尾C).
         返回 (topology, positions, bonded_chain_ids)."""
-        pdb = openmm_app.PDBFile(io.StringIO(pdb_str))
-        modeller = openmm_app.Modeller(pdb.topology, pdb.positions)
+        modeller = openmm_app.Modeller(topology, positions)
         bonded_chains = []
         for chain_id in cyclic_chains:
             chain = next((c for c in modeller.topology.chains() if c.id == chain_id), None)
@@ -139,34 +197,76 @@ class ForceFieldMinimizer(object):
                 modeller.topology.addBond(names_f['N'], names_l['C'])
         return modeller.topology, modeller.positions, bonded_chains
 
+    def _remove_disulfide_hydrogens(self, modeller):
+        """删除参与二硫键的巯基氢: 对 disulfide_chains 链内, 如果某硫原子(SG/SG3)
+        已与另一硫原子成键(二硫键), 则删除其上的巯基氢(HG3/HG1).
+        必须在 _sew_disulfide_bonds 之后调用. 返回删除数."""
+        n_removed = 0
+        sulfur_hydrogens = {}
+        for chain_id in self.disulfide_chains:
+            chain = next((c for c in modeller.topology.chains() if c.id == chain_id), None)
+            if chain is None:
+                continue
+            s_atoms = [a for r in chain.residues() for a in r.atoms() if a.name in SULFUR_ATOM_NAMES]
+            for a in s_atoms:
+                sulfur_hydrogens[a] = [h for h in a.residue.atoms()
+                                       if h.element == openmm_app.element.hydrogen
+                                       and h.name in ('HG3', 'HG1')]
+        # 找出已互相成键的硫原子对(二硫键)
+        bonded_sg = set()
+        for (b1, b2) in modeller.topology.bonds():
+            if b1 in sulfur_hydrogens and b2 in sulfur_hydrogens:
+                bonded_sg.add(b1)
+                bonded_sg.add(b2)
+        to_remove = [h for a in bonded_sg for h in sulfur_hydrogens[a]]
+        if to_remove:
+            modeller.delete(to_remove)
+            n_removed = len(to_remove)
+        return n_removed
+
     def _sew_disulfide_bonds(self, modeller):
         """在 modeller 拓扑上补全会 S-S 键: 对 disulfide_chains 链内,
-        SG-SG 尚无键且距离 < ss_max_dist 的原子对 addBond.
+        SG/SG3(标准CYS与含硫修饰氨基酸如LE1) 尚无键且距离 < ss_max_dist 的原子对 addBond.
         返回补键数."""
         n_added = 0
         for chain_id in self.disulfide_chains:
             chain = next((c for c in modeller.topology.chains() if c.id == chain_id), None)
             if chain is None:
                 continue
-            sgs = [a for r in chain.residues() for a in r.atoms() if a.name == 'SG']
-            for i in range(len(sgs)):
-                for j in range(i+1, len(sgs)):
-                    bonded_already = any((a in (sgs[i], sgs[j]) and b in (sgs[i], sgs[j]))
+            sulfurs = [a for r in chain.residues() for a in r.atoms() if a.name in SULFUR_ATOM_NAMES]
+            for i in range(len(sulfurs)):
+                for j in range(i+1, len(sulfurs)):
+                    bonded_already = any((a in (sulfurs[i], sulfurs[j]) and b in (sulfurs[i], sulfurs[j]))
                                          for a, b in modeller.topology.bonds())
                     if bonded_already:
                         continue
-                    x1, y1, z1 = modeller.positions[sgs[i].index].value_in_unit(LENGTH)
-                    x2, y2, z2 = modeller.positions[sgs[j].index].value_in_unit(LENGTH)
+                    x1, y1, z1 = modeller.positions[sulfurs[i].index].value_in_unit(LENGTH)
+                    x2, y2, z2 = modeller.positions[sulfurs[j].index].value_in_unit(LENGTH)
                     d = ((x1-x2)**2 + (y1-y2)**2 + (z1-z2)**2) ** 0.5
                     if d < self.ss_max_dist:
-                        modeller.topology.addBond(sgs[i], sgs[j])
+                        modeller.topology.addBond(sulfurs[i], sulfurs[j])
                         n_added += 1
         return n_added
 
     def _get_pdb_string(self, topology, positions):
         with io.StringIO() as f:
             openmm_app.PDBFile.writeFile(topology, positions, f, keepIds=True)
-            return f.getvalue()
+            pdb_str = f.getvalue()
+        # PDBFile.writeFile 会把 4 字符残基名(如 DALA)截断成 3 字符(DAL).
+        # 这里按 (chain, resSeq) 把 D 残基名恢复为完整 4 字符, 供下游 GROMACS 识别.
+        d_res = {}  # (chain_id, resSeq) -> 完整 D 残基名
+        for res in topology.residues():
+            if res.name in D_AMINO_ACID_L_TO_GMX.values():
+                d_res[(res.chain.id, res.id)] = res.name
+        if d_res:
+            lines = pdb_str.splitlines()
+            for i, ln in enumerate(lines):
+                if ln.startswith(('ATOM', 'HETATM')):
+                    key = (ln[21], ln[22:26].strip())
+                    if key in d_res:
+                        lines[i] = ln[:17] + d_res[key] + ln[21:]
+            pdb_str = '\n'.join(lines)
+        return pdb_str
 
     def _add_cyclic_bond_force(self, system, topology):
         """对每条环化链的首N-尾C 加 CustomBondForce 键势, 保护环化键.
@@ -194,7 +294,7 @@ class ForceFieldMinimizer(object):
             system.addForce(cbf)
 
     def _add_disulfide_bond_force(self, system, topology):
-        """对 disulfide_chains 链内所有 SG-SG 加 CustomBondForce 保护.
+        """对 disulfide_chains 链内所有 S-S(SG/SG3) 对加 CustomBondForce 保护.
         仅在 ignoreExternalBonds=True(与 cyclic_chains 并存, DISU patch 无法自动应用)时调用."""
         if not (self.disulfide_chains and self.ss_bond_stiffness > 0):
             return
@@ -206,25 +306,24 @@ class ForceFieldMinimizer(object):
             chain = next((c for c in topology.chains() if c.id == chain_id), None)
             if chain is None:
                 continue
-            sgs = [a for r in chain.residues() for a in r.atoms() if a.name == 'SG']
-            for i in range(len(sgs)):
-                for j in range(i+1, len(sgs)):
-                    cbf.addBond(sgs[i].index, sgs[j].index)
+            sulfurs = [a for r in chain.residues() for a in r.atoms() if a.name in SULFUR_ATOM_NAMES]
+            for i in range(len(sulfurs)):
+                for j in range(i+1, len(sulfurs)):
+                    cbf.addBond(sulfurs[i].index, sulfurs[j].index)
                     n_added += 1
         if n_added:
             system.addForce(cbf)
 
     def _minimize_pdb(self, pdb, restrain_chain: Optional[Union[str, List[str]]] = None,
                       restrain_backbone: bool = False):
-        # charmm36.xml 不含离子模板; 若拓扑中有单原子离子残基, 追加加载 ions.xml
-        ion_resids = ION_TEMPLATE_NAMES.intersection(
-            res.name for res in pdb.topology.residues())
-        if ion_resids:
-            ions_xml = get_storage_path('opmm/ions.xml')
-            force_field = openmm_app.ForceField("charmm36.xml", ions_xml)
-            put_log(f'loaded ions.xml for residues: {sorted(ion_resids)}', bg_col='blue')
-        else:
-            force_field = openmm_app.ForceField("charmm36.xml") # referring to http://docs.openmm.org/latest/userguide/application/02_running_sims.html
+        # charmm36 系列自定义模板列表. 无条件全量加载, 由 OpenMM 自行按残基名匹配:
+        #   - ions.xml: 离子模板(CAL/MG/ZN/SOD/POT/CLA), charmm36.xml 不含离子
+        #   - charmm36_d_aa.xml: D-氨基酸模板(DALA/DPHE/...)
+        #   - charmm36_nc_aa.xml: 其他非标准氨基酸(如 LE1 青霉胺)
+        # 无需探测拓扑中是否含对应残基, 未命中的模板不影响其他残基建系.
+        EXTRA_FF_FILES = ['opmm/ions.xml', 'opmm/charmm36_d_aa.xml', 'opmm/charmm36_nc_aa.xml']
+        ff_files = ['charmm36.xml'] + [get_storage_path(f) for f in EXTRA_FF_FILES]
+        force_field = openmm_app.ForceField(*ff_files)  # referring to http://docs.openmm.org/latest/userguide/application/02_running_sims.html
         # ignoreExternalBonds 判定:
         #   - 仅二硫键: False -> openmm 自动应用 CHARMM36 DISU patch (S-S 有真实键/角/二面参数, 收敛2.03A)
         #   - 仅碳骨架环: True -> 头尾跨残基键无标准 patch, 忽略后可手动加键势保护
@@ -278,11 +377,6 @@ class ForceFieldMinimizer(object):
 
         return ret['min_pdb'], ret
 
-    def _minimize(self, pdb_str: str, restrain_chain: Optional[Union[str, List[str]]] = None,
-                  restrain_backbone: bool = False):
-        pdb = openmm_app.PDBFile(io.StringIO(pdb_str))
-        return self._minimize_pdb(pdb, restrain_chain, restrain_backbone)
-
     def _add_energy_remarks(self, pdb_str, ret):
         pdb_lines = pdb_str.splitlines()
         pdb_lines.insert(1, "REMARK   1  FINAL ENERGY:   {:.3f} KCAL/MOL".format(ret['efinal']))
@@ -294,21 +388,26 @@ class ForceFieldMinimizer(object):
             with open(pdb_str) as f:
                 pdb_str = f.read()
 
-        pdb_fixed = self._fix(pdb_str)
+        pdb_fixed_topology, pdb_fixed_positions = self._fix(pdb_str)
+        # 统一走内存拓扑传递(环化/二硫键/D残基名均需完整保留, 避免字符串往返丢失)
         if self.cyclic_chains or self.disulfide_chains:
-            # 缝接环化链/二硫键, 用内存拓扑传递, 避免字符串往返丢失 addBond 键
+            # 缝接环化链/二硫键
             if self.cyclic_chains:
-                topology, positions, _bonded = self._sew_cyclic_chains(pdb_fixed, self.cyclic_chains)
+                topology, positions, _bonded = self._sew_cyclic_chains(
+                    pdb_fixed_topology, pdb_fixed_positions, self.cyclic_chains)
                 modeller = openmm_app.Modeller(topology, positions)
             else:
-                pdb = openmm_app.PDBFile(io.StringIO(pdb_fixed))
-                modeller = openmm_app.Modeller(pdb.topology, pdb.positions)
+                modeller = openmm_app.Modeller(pdb_fixed_topology, pdb_fixed_positions)
             if self.disulfide_chains:
                 self._sew_disulfide_bonds(modeller)
+                # 删除参与二硫键硫上的巯基氢(如 LE1 的 HG3 / CYS 的 HG1), 拓扑上已无氢,
+                # 使 OpenMM 的 LE1SS/DISU patch 能正确匹配(CYX 式无氢二硫)
+                self._remove_disulfide_hydrogens(modeller)
             pdb_like = SimpleNamespace(topology=modeller.topology, positions=modeller.positions)
             pdb_min, ret = self._minimize_pdb(pdb_like, restrain_chain, restrain_backbone)
         else:
-            pdb_min, ret = self._minimize(pdb_fixed, restrain_chain, restrain_backbone)
+            pdb_like = SimpleNamespace(topology=pdb_fixed_topology, positions=pdb_fixed_positions)
+            pdb_min, ret = self._minimize_pdb(pdb_like, restrain_chain, restrain_backbone)
         pdb_min = self._add_energy_remarks(pdb_min, ret)
         if out_path and os.path.exists(out_path):
             with open(out_path, 'w') as f:
