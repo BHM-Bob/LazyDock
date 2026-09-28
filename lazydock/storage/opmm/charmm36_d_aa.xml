@@ -1,5 +1,6 @@
 <?xml version="1.0" ?>
 <ForceField>
+<Residues>
 <Residue name="DALA">
       <Atom charge="-0.47" name="N" type="NH1"/>
       <Atom charge="0.31" name="HN" type="H"/>
@@ -993,4 +994,5 @@
       <AllowPatch name="CT2"/>
       <AllowPatch name="CT3"/>
     </Residue>
+</Residues>
 </ForceField>

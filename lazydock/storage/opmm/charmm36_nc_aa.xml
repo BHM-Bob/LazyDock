@@ -51,6 +51,33 @@
       <AllowPatch name="CT3"/>
     </Residue>
 </Residues>
+  <!-- LE1 缺失的键/角参数: OpenMM charmm36.xml 未包含 LE1 的 CA-CB(CT1-CG301) 与
+       CB-SG3(CG301-SG311) 键参数及其角度(缺失时 OpenMM 静默跳过, minimize 会因
+       LJ 排斥把无键的 CB 推开, 导致 CA-CB 键断裂).
+       参数来源: GROMACS charmm36-jul2022.ff/ffbonded.itp (注释为 LE1, by ac_aa). -->
+  <HarmonicBondForce>
+    <Bond k="186188.00" length="0.15000000" type1="CT1" type2="CG301"/>
+    <Bond k="165117.38" length="0.18494000" type1="CG301" type2="SG311"/>
+    <!-- LE1SS 二硫 patch 中 LE1 侧 SG3(SG311)->SM, 补 CG301-SM (CB-SG3 二硫态键).
+         参考 CHARMM36 CYS2 的 CT2-SM 键参数(同 C-S 键长, ALLOW SUL ION). -->
+    <Bond k="179075.20" length="0.18160000" type1="CG301" type2="SM"/>
+  </HarmonicBondForce>
+  <HarmonicAngleForce>
+    <Angle k="435.136" angle="1.8849555921538759" type1="C" type2="CT1" type3="CG301"/>
+    <Angle k="585.760" angle="1.9809487010135638" type1="CG301" type2="CT1" type3="NH1"/>
+    <Angle k="289.533" angle="1.9216075064457567" type1="HB1" type2="CT1" type3="CG301"/>
+    <Angle k="488.273" angle="1.9809487010135638" type1="CT1" type2="CG301" type3="CG331"/>
+    <Angle k="534.966" angle="1.9064115850906407" type1="CT1" type2="CG301" type3="SG311"/>
+    <Angle k="534.966" angle="1.9064115850906407" type1="CG331" type2="CG301" type3="SG311"/>
+    <Angle k="324.678" angle="1.6580630886788494" type1="CG301" type2="SG311" type3="HGP3"/>
+    <Angle k="279.742" angle="1.9216075064457567" type1="CG301" type2="CG331" type3="HGA3"/>
+    <!-- LE1SS 二硫 patch 后补的角度(SM 取代 SG311).
+         CT1-CG301-SM / CG331-CG301-SM 参考 SG311 版同值; CG301-SM-SM 参考 CT2-SM-SM. -->
+    <Angle k="534.966" angle="1.9064115850906407" type1="CT1" type2="CG301" type3="SM"/>
+    <Angle k="534.966" angle="1.9064115850906407" type1="CG331" type2="CG301" type3="SM"/>
+    <Angle k="606.680" angle="1.8029251173101424" type1="CG301" type2="SM" type3="SM"/>
+    <Angle k="606.680" angle="1.8029251173101424" type1="SM" type2="SM" type3="CT2"/>
+  </HarmonicAngleForce>
 <Patches>
     <!-- LE1-CYS 二硫键 patch(仿照 CYS 的 DISU):
          拓扑中 SG3-SG 已有键且无氢时, RemoveAtom 去掉两侧巯基氢(HG3/HG1),
@@ -60,7 +87,11 @@
     <Patch name="LE1SS" residues="2">
       <RemoveAtom name="1:HG3"/>
       <RemoveAtom name="2:HG1"/>
+      <!-- LE1-CYS 二硫: 两侧 SG->SM(SM-SM 二硫键已有参数).
+           LE1 侧 CB 保持 CG301(符合 LE1 官方定义, 补 CG301-SM 键);
+           CYS 侧 CB->CT2(与 DISU 一致, CT2-SM 已有参数). -->
       <ChangeAtom charge="0.022" name="1:CB" type="CG301"/>
+      <ChangeAtom charge="-0.1" name="2:CB" type="CT2"/>
       <ChangeAtom charge="-0.08" name="1:SG3" type="SM"/>
       <ChangeAtom charge="-0.08" name="2:SG" type="SM"/>
       <AddBond atomName1="1:SG3" atomName2="2:SG"/>
