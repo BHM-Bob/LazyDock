@@ -28,8 +28,8 @@ class smiles2pdb(Command):
         super().__init__(args, printf)
         # Check if RDKit is available
         try:
-            from rdkit import Chem # type: ignore
-            from rdkit.Chem import AllChem # type: ignore
+            from rdkit import Chem  # type: ignore
+            from rdkit.Chem import AllChem  # type: ignore
         except ImportError:
             put_err('RDKit is required for SMILES to PDB conversion. Please install it with: pip install rdkit', _exit=True)
         # Store RDKit modules for later use
@@ -561,6 +561,7 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         # 参数(传了会 TypeError), 因此这里改为切换默认 start method.
         multiprocessing.set_start_method('spawn', force=True)
         pool = TaskPool('process', self.args.n_workers, report_error=True).start()
+        relax_tasks = {}  # task_name -> out_path, 用于事后校验 relax 是否真的成功
                 
         for task_i, pdb_path in tqdm(enumerate(pdb_paths), total=len(pdb_paths)):
             out_path = pdb_path.with_name(pdb_path.stem + self.args.suffix + '.pdb')
@@ -576,6 +577,10 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                 continue
             # 所有 case 修复逻辑之后、relax 之前: 删除离群原子(可选)
             out_lines = self._remove_outlier_atoms_from_lines(out_lines, pdb_path)
+            # 非标准氨基酸(ncAA)原子名规范化(如 LE1: SG->SG3, C8->CG1, C9->CG2),
+            # 统一为 CHARMM36/GROMACS 约定, 供后续 OpenMM 模板匹配与 GROMACS pdb2gmx 识别
+            from lazydock.opmm.fix_ncAA import fix_ncAA_pdb
+            out_lines = fix_ncAA_pdb(out_lines, pdb_path)
             with open(out_path, 'w') as f:
                 f.writelines(out_lines)
             self.printf(f'fixed: {pdb_path.name} -> {out_path.name}')
