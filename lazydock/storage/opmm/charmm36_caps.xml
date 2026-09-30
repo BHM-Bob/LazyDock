@@ -1,0 +1,51 @@
+<?xml version="1.0" ?>
+<ForceField>
+<Residues>
+  <!-- ACE: N 端乙酰封端 (acetylated N-terminus).
+       参数来源: GROMACS charmm36-jul2022.ff/aminoacids.rtp [ ACE ].
+       PDB 输入通常只有重原子 C/O/CH3, 缺 3 个甲基氢 (HH31/2/3).
+       PDbfixer 自带 templates/ACE.pdb 无氢, 无法补氢 -> 需注册本模板. -->
+  <Residue name="ACE">
+      <Atom charge="-0.27" name="CH3" type="CT3"/>
+      <Atom charge="0.09" name="HH31" type="HA3"/>
+      <Atom charge="0.09" name="HH32" type="HA3"/>
+      <Atom charge="0.09" name="HH33" type="HA3"/>
+      <Atom charge="0.51" name="C" type="C"/>
+      <Atom charge="-0.51" name="O" type="O"/>
+      <Bond atomName1="C" atomName2="CH3"/>
+      <Bond atomName1="C" atomName2="O"/>
+      <Bond atomName1="CH3" atomName2="HH31"/>
+      <Bond atomName1="CH3" atomName2="HH32"/>
+      <Bond atomName1="CH3" atomName2="HH33"/>
+      <!-- C 跨残基连下一残基 N (乙酰-N 键) -->
+      <ExternalBond atomName="C"/>
+    </Residue>
+  <!-- NH2: C 端酰胺封端 (amidated C-terminus), 化学 = C(=O)-NH2.
+       本残基只含 N: PDB 输入中 C/O 属前一残基(如 CYS), NH2 残基只有 1 个 N.
+       参数参考 CHARMM36 GLN/ASN 侧链酰胺: N(NH2,-0.62), H(+0.32/+0.30). -->
+  <Residue name="NH2">
+      <Atom charge="-0.62" name="N" type="NH2"/>
+      <Atom charge="0.32" name="HN1" type="H"/>
+      <Atom charge="0.30" name="HN2" type="H"/>
+      <Bond atomName1="N" atomName2="HN1"/>
+      <Bond atomName1="N" atomName2="HN2"/>
+      <!-- N 跨残基连前一残基 C (酰胺键) -->
+      <ExternalBond atomName="N"/>
+    </Residue>
+</Residues>
+  <!-- 封端酰胺键参数补齐: OpenMM charmm36.xml 只有 NH1-C 与 NH2-CC 键,
+       没有 C-NH2 组合(标准蛋白 C 端封装在 CHARMM 用 PATCH 实现, 非独立 NH2 残基).
+       缺失时 C-N 键静默不建 HarmonicBond, minimize 时酰胺键会塌缩(实测 0.91A).
+       参数来源: 官方 charmm36.xml 的 NH2-CC 键 / NH2-CC 系列角度(N 同为 NH2 型). -->
+  <HarmonicBondForce>
+    <Bond k="359823.99999999994" length="0.136" type1="C" type2="NH2"/>
+  </HarmonicBondForce>
+  <HarmonicAngleForce>
+    <Angle angle="2.138028333693054" k="627.6" type1="O" type2="C" type3="NH2"/>
+    <Angle angle="2.033308578573394" k="669.44" type1="CT1" type2="C" type3="NH2"/>
+    <Angle angle="2.033308578573394" k="669.44" type1="CT2" type2="C" type3="NH2"/>
+    <Angle angle="2.033308578573394" k="669.44" type1="CT3" type2="C" type3="NH2"/>
+    <Angle angle="2.0943951023931953" k="418.40000000000003" type1="H" type2="NH2" type3="C"/>
+    <Angle angle="2.0943951023931953" k="192.464" type1="H" type2="NH2" type3="H"/>
+  </HarmonicAngleForce>
+</ForceField>
