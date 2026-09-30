@@ -147,6 +147,7 @@ class cif2pdb(Command):
 
 
 def _fix_cp_relax_one(fix_path: Path, cyclic_chains: List[str], disulfide_chains: List[str],
+                      restrain_chains: List[str], restrain_backbone: bool,
                       constraints: str, max_iter: int, tolerance: float,
                       platform: str, gpu_index: int):
     """对修复后的 PDB 做 OpenMM 弛豫, 保护环化键/二硫键"""
@@ -169,7 +170,7 @@ def _fix_cp_relax_one(fix_path: Path, cyclic_chains: List[str], disulfide_chains
         disulfide_chains=disulfide_chains,
         device_index=gpu_index,
     )
-    result_pdb, ret = relaxer(str(fix_path), None, return_info=True)
+    result_pdb, ret = relaxer(str(fix_path), None, restrain_chains, restrain_backbone, return_info=True)
     if not result_pdb:
         raise RuntimeError(f'relaxation returned empty structure for {fix_path.name}')
     with open(fix_path, 'w') as f:
@@ -203,6 +204,10 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         args.add_argument('--only-chains', type=str, nargs='+', default=None,
                           help='only fix given chains (cyclic peptide chains), e.g. --only-chains P, '
                                'default is %(default)s (auto-detect).')
+        args.add_argument('-rc', '--restrain-chain', type=str, nargs='+', default=None,
+                          help='restrain chain in relaxation, default is %(default)s.')
+        args.add_argument('-rb', '--restrain-backbone', action='store_true',
+                          help='restrain backbone for given restrain chains in relaxation, default is %(default)s.')
         args.add_argument('--min-cn', type=float, default=2.0,
                           help='max C-N distance for treating as cyclic peptide closure site (Angstrom), '
                                'default is %(default)s.')
@@ -223,7 +228,7 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                                '(sew head-tail peptide bond + CustomBondForce), default is %(default)s.')
         args.add_argument('-it', '--max-iter', type=int, default=1000,
                           help='max iterations for relaxation, default is %(default)s.')
-        args.add_argument('-t', '--tolerance', type=int, default=10,
+        args.add_argument('-t', '--tolerance', type=float, default=10,
                           help='tolerance for relaxation, default is %(default)s.')
         args.add_argument('-p', '--platform', type=str, default='CUDA', choices=['CUDA', 'CPU'],
                           help='platform for relaxation, default is %(default)s.')
@@ -587,11 +592,13 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
             if self.args.relax and self._last_fixed_chains:
                 if self._last_fixed_case == 'disulfide':
                     task_name = pool.add_task(None, _fix_cp_relax_one, out_path, [], self._last_fixed_chains,
+                                              restrain_chains=self.args.restrain_chain, restrain_backbone=self.args.restrain_backbone,
                                               constraints=self.args.constraints, max_iter=self.args.max_iter,
                                               tolerance=self.args.tolerance, platform=self.args.platform,
                                               gpu_index=gpu_slots[task_i % len(gpu_slots)])
                 else:
                     task_name = pool.add_task(None, _fix_cp_relax_one, out_path, self._last_fixed_chains, [],
+                                              restrain_chains=self.args.restrain_chain, restrain_backbone=self.args.restrain_backbone,
                                               constraints=self.args.constraints, max_iter=self.args.max_iter,
                                               tolerance=self.args.tolerance, platform=self.args.platform,
                                               gpu_index=gpu_slots[task_i % len(gpu_slots)])
