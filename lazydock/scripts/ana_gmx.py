@@ -707,7 +707,7 @@ def _interaction_ana_worker(fake_ag: FakeAtomGroup, receptor_chain: List[str], l
     if method == 'pymol':
         inter = calcu_pdbstr_interaction(' or '.join([f'chain {chain}' for chain in receptor_chain]),
                                          f'chain {ligand_chain}', pdbstr, mode, cutoff, hydrogen_atom_only)
-    elif method == 'plip':
+    elif method == 'fplip':
         mode = check_support_mode(mode)
         inter = run_plip_analysis(pdbstr, receptor_chain, ligand_chain, mode, cutoff)
     else:

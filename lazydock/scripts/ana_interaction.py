@@ -37,7 +37,7 @@ class simple_analysis(Command):
     HELP = """perform simple analysis on docking result"""
     METHODS: Dict[str, Tuple[Callable, List[str]]] = {'pymol': (calc_fn_pml, pml_mode),
                                                       'ligplus': (calc_fn_ligplus, ligplus_mode),
-                                                      'plip': (calc_fn_plip, plip_mode)}
+                                                      'fplip': (calc_fn_plip, plip_mode)}
     def __init__(self, args: argparse.Namespace, printf=print) -> None:
         super().__init__(args, printf, ['batch_dir'])
         self.tasks = []
@@ -57,7 +57,7 @@ class simple_analysis(Command):
         args.add_argument('--method', type = str, default='pymol', choices=simple_analysis.METHODS.keys(),
                           help='interaction detect method, default is %(default)s.')
         args.add_argument('--mode', type = str, default='all', nargs='+',
-                          help=f'interaction mode, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nligplus: {",".join(ligplus_mode)}\nplip: {",".join(plip_mode)}')
+                          help=f'interaction mode, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nligplus: {",".join(ligplus_mode)}\nfplip: {",".join(plip_mode)}')
         args.add_argument('--cutoff', type = float, default=4,
                           help='distance cutoff for interaction calculation, default is %(default)s.')
         args.add_argument('--hydrogen-atom-only', default=False, action='store_true',
@@ -97,7 +97,7 @@ class simple_analysis(Command):
         if method == 'pymol':
             inter_value = sorted(inter_value, key=lambda x: int(x[0][3]))
             return '; '.join(f'{v[0][2]}{v[0][3]}-{v[2]:.2f}' for v in inter_value)
-        elif method in {'ligplus', 'plip'}:
+        elif method in {'ligplus', 'fplip'}:
             inter_value = sorted(inter_value, key=lambda x: int(x[0][0]))
             return '; '.join(f'{v[0][1]}{v[0][0]}-{v[2]:.2f}' for v in inter_value)
         else:
@@ -110,7 +110,7 @@ class simple_analysis(Command):
         if method == 'pymol':
             inter_value = sorted(inter_value, key=lambda x: int(x[0][3]))
             return '; '.join(f'{v[0][1]}/{v[0][2]}{v[0][3]}-{v[2]:.2f}' for v in inter_value)
-        elif method in {'ligplus', 'plip'}:
+        elif method in {'ligplus', 'fplip'}:
             inter_value = sorted(inter_value, key=lambda x: int(x[0][0]))
             return '; '.join(f'{v[0][2]}/{v[0][1]}{v[0][0]}-{v[2]:.2f}' for v in inter_value)
         else:
@@ -123,7 +123,7 @@ class simple_analysis(Command):
         if method == 'pymol':
             inter_value = sorted(inter_value, key=lambda x: int(x[0][3]))
             return '; '.join(f'{v[1][2]}{v[1][3]}-{v[2]:.2f}' for v in inter_value)
-        elif method in {'ligplus', 'plip'}:
+        elif method in {'ligplus', 'fplip'}:
             inter_value = sorted(inter_value, key=lambda x: int(x[0][0]))
             return '; '.join(f'{v[1][1]}{v[1][0]}-{v[2]:.2f}' for v in inter_value)
         else:
@@ -311,7 +311,7 @@ class complex_interaction(simple_analysis):
                           help='chain id to exclude, will be used to find receptor chain.')
         args.add_argument('-o', '--output', type = str, default='complex_interaction.xlsx',
                           help="output excel file, default is %(default)s.")
-        args.add_argument('--method', type = str, default='plip', choices=simple_analysis.METHODS.keys(),
+        args.add_argument('--method', type = str, default='fplip', choices=simple_analysis.METHODS.keys(),
                           help='interaction detect method, default is %(default)s.')
         args.add_argument('--mode', type = str, default='all',
                           help=f'interaction mode, multple modes can be separated by comma, all method support `\'all\'` model.\npymol: {",".join(pml_mode)}\nligplus: {",".join(ligplus_mode)}\nplip: {",".join(plip_mode)}')
