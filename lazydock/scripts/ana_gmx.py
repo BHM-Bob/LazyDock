@@ -73,7 +73,7 @@ class trjconv(Command):
     def process_args(self):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         
-    def replace_groups(self, tpr_name: str, gmx: Gromacs, groups: List[str], ndx_name: str = None):
+    def replace_groups(self, tpr_name: str, gmx: Gromacs, groups: List[str], ndx_name: Optional[str] = None):
         """Replace group name in groups with its index in tpr_name.
         e.g.: groups = ['[CAL] | [Protein]'] -> ['2 | 4'] with exist_groups = {'CAL': 2, 'Protein': 4}
         """
@@ -239,7 +239,8 @@ class simple(trjconv):
         return args
         
     @staticmethod
-    def rms(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
+    def rms(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: Optional[str] = None,
+            group: str = '4', force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsd{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_rmsd{gmx.task_uid}.csv').unlink(missing_ok=True)
@@ -254,7 +255,8 @@ class simple(trjconv):
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsd{gmx.task_uid}.xvg -o rmsd{gmx.task_uid}.png -smv -ws 10 -t "RMSD of {main_name}" -csv {main_name}_rmsd{gmx.task_uid}.csv -ns')
         
     @staticmethod
-    def rmsf(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: str = None, group: str = '4', res: bool = True, force: bool = False, delete: bool = False, **kwargs):
+    def rmsf(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: Optional[str] = None,
+             group: str = '4', res: bool = True, force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_rmsf{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_rmsf{gmx.task_uid}.csv').unlink(missing_ok=True)
@@ -268,7 +270,8 @@ class simple(trjconv):
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f rmsf{gmx.task_uid}.xvg -o rmsf{gmx.task_uid}.png -t "RMSF of {main_name}" -csv {main_name}_rmsf{gmx.task_uid}.csv -ns')
         
     @staticmethod
-    def gyrate(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
+    def gyrate(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: Optional[str] = None,
+               group: str = '4', force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_gyrate{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_gyrate{gmx.task_uid}.csv').unlink(missing_ok=True)
@@ -282,7 +285,8 @@ class simple(trjconv):
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f gyrate{gmx.task_uid}.xvg -o gyrate{gmx.task_uid}.png -smv -ws 10 -t "Gyrate of {main_name}" -csv {main_name}_gyrate{gmx.task_uid}.csv -ns')
         
     @staticmethod
-    def hbond(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: str = None, group: Tuple[int, int] = (1, 1), dt=10, force: bool = False, delete: bool = False, **kwargs):
+    def hbond(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: Optional[str] = None,
+              group: List[int] = [1, 1], dt=10, force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_hbond_num{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_hbond_dist{gmx.task_uid}.xvg').unlink(missing_ok=True)
@@ -301,7 +305,8 @@ class simple(trjconv):
         gmx.run_cmd_with_expect(f'dit xvg_show -f {main_name}_hbond_dist{gmx.task_uid}.xvg -o hbond_dist{gmx.task_uid}.png -ns')
 
     @staticmethod
-    def sasa(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: str = None, group: str = '4', force: bool = False, delete: bool = False, **kwargs):
+    def sasa(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: Optional[str] = None,
+             group: str = '4', force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_sasa_tv{gmx.task_uid}.csv')):
             if delete:
                 for ty in ['total', 'res', 'dg', 'tv']:
@@ -318,7 +323,8 @@ class simple(trjconv):
             gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_sasa_{ty}{gmx.task_uid}.xvg -o {main_name}_sasa_{ty}{gmx.task_uid}.png -smv -ws 10 -t "SASA {ty} of {main_name}" -csv {main_name}_sasa_{ty}{gmx.task_uid}.csv -ns')
 
     @staticmethod
-    def covar(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: str = None, group: str = '4', xmax: int = 15, force: bool = False, delete: bool = False, **kwargs):
+    def covar(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: Optional[str] = None,
+              group: str = '4', xmax: int = 15, force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_eigenval{gmx.task_uid}.csv')):
             if delete:
                 (gmx.wdir / f'{main_name}_eigenval{gmx.task_uid}.xvg').unlink(missing_ok=True)
@@ -333,7 +339,8 @@ class simple(trjconv):
         gmx.run_cmd_with_expect(f'dit xvg_compare -c 1 -f {main_name}_eigenval{gmx.task_uid}.xvg -o {main_name}_eigenval{gmx.task_uid}.png -xmin 0 -xmax {xmax} -t "Eigenval of {main_name}" -csv {main_name}_eigenval{gmx.task_uid}.csv -ns')
     
     @staticmethod
-    def dssp(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: str = None, group: str = None, num: bool = False, clear: bool = False,
+    def dssp(gmx: Gromacs, main_name: str, top_name: str, trj_name: str, index: Optional[str] = None,
+             group: Optional[str] = None, num: bool = False, clear: bool = False,
              force: bool = False, delete: bool = False, **kwargs):
         if os.path.exists(os.path.join(gmx.working_dir, f'{main_name}_dssp_mat{gmx.task_uid}.dat')):
             if delete:
@@ -430,27 +437,43 @@ class simple(trjconv):
         # copy DIT.mplstyle file to working directory
         if args.dit_style and os.path.exists(args.dit_style):
             shutil.copy(args.dit_style, str(complex_path.parent))
+        # set groups
+        rms_group = args.rms_group
+        hbond_group = args.hbond_group
+        sasa_group = args.sasa_group
+        eigenval_group = args.eigenval_group
+        dssp_group = args.dssp_group
+        if any(i in args.methods for i in ['rms', 'rmsf', 'gyrate']):
+            rms_group = self.replace_groups(f'{main_name}.tpr', gmx, [args.rms_group], args.index)[0]
+        if 'hbond' in args.methods:
+            hbond_group = self.replace_groups(f'{main_name}.tpr', gmx, args.hbond_group, args.index)
+        if 'sasa' in args.methods:
+            sasa_group = self.replace_groups(f'{main_name}.tpr', gmx, [args.sasa_group], args.index)[0]
+        if 'covar' in args.methods:
+            eigenval_group = self.replace_groups(f'{main_name}.tpr', gmx, [args.eigenval_group], args.index)[0]
+        if 'dssp' in args.methods:
+            dssp_group = self.replace_groups(f'{main_name}.tpr', gmx, [args.dssp_group], args.index)[0]
         # perform analysis
         if 'rms' in args.methods:
-            self.rms(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.rms_group,
+            self.rms(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=rms_group,
                     force=args.force, delete=args.delete)
         if 'rmsf' in args.methods:
-            self.rmsf(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.rms_group,
+            self.rmsf(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=rms_group,
                     force=args.force, delete=args.delete)
         if 'gyrate' in args.methods:
-            self.gyrate(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.rms_group,
+            self.gyrate(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=rms_group,
                         force=args.force, delete=args.delete)
         if 'hbond' in args.methods:
-            self.hbond(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.hbond_group,
+            self.hbond(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=hbond_group,
                     force=args.force, delete=args.delete)
         if 'sasa' in args.methods:
-            self.sasa(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.sasa_group,
+            self.sasa(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=sasa_group,
                     force=args.force, delete=args.delete)
         if 'covar' in args.methods:
-            self.covar(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.eigenval_group,
+            self.covar(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=eigenval_group,
                     xmax=args.eigenval_xmax, force=args.force, delete=args.delete)
         if 'dssp' in args.methods:
-            self.dssp(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=args.dssp_group,
+            self.dssp(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=dssp_group,
                     num=args.dssp_num, clear=args.dssp_clear, force=args.force, delete=args.delete)
         # perform free energy landscape by MD-DaVis
         if 'FEL' in args.methods:
