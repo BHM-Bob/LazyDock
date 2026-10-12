@@ -15,6 +15,7 @@ from mbapy_lite.base import put_err
 from mbapy_lite.file import get_paths_with_extension
 from mbapy_lite.web import TaskPool
 from tqdm import tqdm
+from pymol import cmd
 
 from lazydock.pyrt.energy_utils import (calcu_interface_energy,
                                         calcu_single_energy)
@@ -35,8 +36,8 @@ class calc_energy(Command):
                           help='Batch directory path. default: current directory.')
         args.add_argument('-n', '--name', type=str, default='',
                           help='pdb file name substring. default: empty.')
-        args.add_argument('-r', '--receptor-chain', type=str, required=True,
-                          help='Receptor chain ID. required.')
+        args.add_argument('-r', '--receptor-chain', type=str, nargs='+', default=None,
+                          help='Receptor chain ID. default is %(default)s.')
         args.add_argument('-l', '--ligand-chain', type=str, required=True,
                           help='Ligand chain ID. required.')
         args.add_argument('-sfxn', '--scorefxn-name', type=str, default='ref2015',
@@ -53,12 +54,17 @@ class calc_energy(Command):
     def main_process(self):
         pdb_paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'],
                                              name_substr=self.args.name, sort='natsort')
-        df = None
+        rows = []
         # parallel
         pool = TaskPool('process', self.args.n_workers, report_error=True).start()
         for pdb_path in tqdm(pdb_paths, desc='Calculating interface energy'):
+            rec_chains = self.args.receptor_chain
+            if rec_chains is None:
+                cmd.reinitialize()
+                cmd.load(pdb_path, 'complex')
+                rec_chains = list(set(cmd.get_chains('complex')) - set([self.args.ligand_chain]))
             pool.add_task(pdb_path, calcu_interface_energy, pdb_path,
-                              self.args.receptor_chain, self.args.ligand_chain, self.args.scorefxn_name,
+                              rec_chains, self.args.ligand_chain, self.args.scorefxn_name,
                               return_dict=True)
             pool.wait_till_free()
         pool.wait_till_all_done()
@@ -66,12 +72,13 @@ class calc_energy(Command):
             result = pool.query_task(pdb_path, block=True, timeout=30)
             if not isinstance(result, dict):
                 put_err(f'{pdb_path}: {result}')
-            if df is None:
-                df = pd.DataFrame(columns=['path', 'rel_path'] + list(result.keys()))
-                df.set_index('path', inplace=True)
-            df.loc[pdb_path] = [os.path.relpath(pdb_path, self.args.batch_dir)] + list(result.values()) # type: ignore
+                continue
+            rows.append({'path': pdb_path,
+                         'rel_path': os.path.relpath(pdb_path, self.args.batch_dir), # type: ignore
+                         **result})
         pool.close(1)
-        df.to_csv(self.args.output, index=True)
+        df = pd.DataFrame(rows).set_index('path')
+        df.to_csv(os.path.join(self.args.batch_dir, self.args.output), index=True)
 
 
 def _relax_worker(pdb_path: str, output_path: str, chain: Union[str, List[str]], max_iter: int, energy_chain: Union[str, List[str]]):
