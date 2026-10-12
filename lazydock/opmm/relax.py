@@ -104,6 +104,11 @@ class ForceFieldMinimizer(object):
 
         fixer = pdbfixer.PDBFixer(pdbfile=io.StringIO(pdb_str))
         fixer.findNonstandardResidues()
+        # N-甲基氨基酸(SAR/MLE)在 PDBFixer 替换表中(SAR->GLY, MLE->LEU):
+        # 若走 replaceNonstandardResidues 会被替换并删除 N-CH3(CN) 原子, 丢失甲基.
+        # 因此把它们从替换列表中剔除, 保留原残基(含 CN), 由注册的带氢模板补氢.
+        fixer.nonstandardResidues = [
+            (r, w) for r, w in fixer.nonstandardResidues if r.name not in ('SAR', 'MLE')]  # type: ignore
         fixer.replaceNonstandardResidues()
 
         fixer.findMissingResidues()
@@ -150,6 +155,69 @@ class ForceFieldMinimizer(object):
 
         # 直接返回拓扑+坐标(而非字符串), 避免 writeFile 把 4 字符残基名(DALA)截断成 3 字符
         return fixer.topology, fixer.positions
+
+    @staticmethod
+    def _res_id(res):
+        """残基 id 转 int, 失败返回 0(避免异常)."""
+        try:
+            return int(res.id)
+        except (TypeError, ValueError):
+            return 0
+
+    def _sew_caps_bonds(self, topology, positions):
+        """C 端酰胺封端(NH2)支持, 需在 _fix 之后、缝接二硫之前无条件调用.
+
+        背景: PDBFixer 的 _addAtomsToTopology 重建拓扑时, 只恢复"至少一端非标准"
+        的跨残基键(pdbfixer.py 键恢复逻辑). 当链尾为 C 端酰胺封端(NH2)时,
+        CYS 与 NH2 都在 OpenMM Topology._standardBonds(residues.xml) 中,
+        CYS14:C - NH215:N 这个跨残基肽键会被丢弃; 同时链尾残基被 PDBFixer
+        当作蛋白 C 端, 用 missingTerminals 补了 OXT. 更麻烦的是: NH2 因无
+        外部键会被 addMissingAtoms 拆成独立链(链 id 与主链相同, 单残基),
+        导致:
+          - createSystem(ignoreExternalBonds=False) 时 CYS/NH2 模板匹配失败
+          - NH2 残基 N 无外部键, minimize 时被 LJ 推开
+        本步: 对每个 NH2 残基, 按 chain.id 内找 id 比它小的最大残基作为前驱,
+        删除前驱的 OXT, 并补回 C-N 肽键(NH2 残基本身原子/氢由 caps 模板补;
+        二硫缝键在之后进行, 互不影响).
+        返回 (topology, positions, n_oxt_removed, n_cn_added)."""
+        modeller = openmm_app.Modeller(topology, positions)
+        # NH2 可能被拆成独立链(chain.id 相同), 按 chain.id 聚合全部残基再按 id 匹配
+        resis_by_chain = {}
+        for chain in modeller.topology.chains():
+            resis_by_chain.setdefault(chain.id, []).extend(chain.residues())
+        caps = []  # (prev_res, nh2_res)
+        for cid, resis in resis_by_chain.items():
+            nh2_reses = [r for r in resis if r.name == 'NH2']
+            for nh2_res in nh2_reses:
+                prevs = [r for r in resis if r is not nh2_res
+                         and self._res_id(r) < self._res_id(nh2_res)]
+                if prevs:
+                    caps.append((max(prevs, key=self._res_id), nh2_res))
+        if not caps:
+            return topology, positions, 0, 0
+        to_delete = [a for prev, _ in caps for a in prev.atoms() if a.name == 'OXT']
+        n_oxt = len(to_delete)
+        if to_delete:
+            modeller.delete(to_delete)
+        n_cn = 0
+        # delete 后拓扑重建, 按 (chain.id, res.id) 重新定位原子再补键
+        for cid, pid, nid in sorted({(p.chain.id, p.id, n.id) for p, n in caps}):
+            prev = next((r for c in modeller.topology.chains()
+                         for r in c.residues() if c.id == cid and r.id == pid), None)
+            nh2 = next((r for c in modeller.topology.chains()
+                        for r in c.residues() if c.id == cid and r.id == nid), None)
+            if prev is None or nh2 is None:
+                continue
+            atoms_prev = {a.name: a for a in prev.atoms()}
+            atoms_cap = {a.name: a for a in nh2.atoms()}
+            c_prev, n_cap = atoms_prev.get('C'), atoms_cap.get('N')
+            if c_prev is None or n_cap is None:
+                continue
+            bonded = any({c_prev, n_cap} == set(b) for b in modeller.topology.bonds())
+            if not bonded:
+                modeller.topology.addBond(c_prev, n_cap)
+                n_cn += 1
+        return modeller.topology, modeller.positions, n_oxt, n_cn
 
     def _sew_cyclic_chains(self, topology, positions, cyclic_chains: List[str]):
         """在 PDBFixer 补全后的 PDB 上缝接环化链首尾肽键:
@@ -319,9 +387,11 @@ class ForceFieldMinimizer(object):
         # charmm36 系列自定义模板列表. 无条件全量加载, 由 OpenMM 自行按残基名匹配:
         #   - ions.xml: 离子模板(CAL/MG/ZN/SOD/POT/CLA), charmm36.xml 不含离子
         #   - charmm36_d_aa.xml: D-氨基酸模板(DALA/DPHE/...)
-        #   - charmm36_nc_aa.xml: 其他非标准氨基酸(如 LE1 青霉胺)
+        #   - charmm36_nc_aa.xml: 非标准氨基酸(如 LE1 青霉胺/SAR 肌氨酸/MLE N-甲基亮氨酸)
+        #   - charmm36_caps.xml: 封端模板(ACE N端乙酰 / NH2 C端酰胺)
         # 无需探测拓扑中是否含对应残基, 未命中的模板不影响其他残基建系.
-        EXTRA_FF_FILES = ['opmm/ions.xml', 'opmm/charmm36_d_aa.xml', 'opmm/charmm36_nc_aa.xml']
+        EXTRA_FF_FILES = ['opmm/ions.xml', 'opmm/charmm36_d_aa.xml',
+                          'opmm/charmm36_nc_aa.xml', 'opmm/charmm36_caps.xml']
         ff_files = ['charmm36.xml'] + [get_storage_path(f) for f in EXTRA_FF_FILES]
         force_field = openmm_app.ForceField(*ff_files)  # referring to http://docs.openmm.org/latest/userguide/application/02_running_sims.html
         # ignoreExternalBonds 判定:
@@ -389,6 +459,12 @@ class ForceFieldMinimizer(object):
                 pdb_str = f.read()
 
         pdb_fixed_topology, pdb_fixed_positions = self._fix(pdb_str)
+        # C 端酰胺封端(NH2): PDBFixer 重建拓扑会丢 NH2.N-前残基.C 肽键并给前残基补 OXT,
+        # 无条件恢复(仅对链尾确为 NH2 的链生效, 其余链无副作用).
+        pdb_fixed_topology, pdb_fixed_positions, n_oxt, n_cn = self._sew_caps_bonds(
+            pdb_fixed_topology, pdb_fixed_positions)
+        if n_oxt or n_cn:
+            put_log(f'caps: removed {n_oxt} OXT, added {n_cn} C-N bond(s) for C-terminal amide cap(NH2)')
         # 统一走内存拓扑传递(环化/二硫键/D残基名均需完整保留, 避免字符串往返丢失)
         if self.cyclic_chains or self.disulfide_chains:
             # 缝接环化链/二硫键
