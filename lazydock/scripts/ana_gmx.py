@@ -523,6 +523,8 @@ class mmpbsa(simple):
                               help='auto calculate qmmm charge for ligand/rec QM region, rely on _GMXMMPBSA_LIG.pdb, _GMXMMPBSA_REC.pdb and _GMXMMPBSA_COM.pdb, default is %(default)s.')
             args.add_argument('--qm-dist', type = int, default=5,
                               help=f"QM distance")
+            args.add_argument('--extra-args', type = str, default='',
+                              help=f"extra arguments for gmx_MMPBSA, such as '-do MMPBSA_FINAL_DECOMP.dat -deo MMPBSA_DECOMP_ENERGIES.csv' when you perform decomp analysis")
             args.add_argument('-np', '--np', type = int, required=True,
                               help=f"npi np argument for gmx_MMPBSA")
             args.add_argument('-ph', '--placeholder', default=None, type=str,
@@ -678,7 +680,7 @@ class mmpbsa(simple):
                 update_input_file(os.path.join(wdir, input_name), qr, ql, qc_)     # 就地写回 .in &gb 段
                 put_log(f'QM charge: rec={qr} lig={ql} com={qc_}')
         # call gmx_MMPBSA
-        cmd_str = f'gmx_MMPBSA -O -i {input_name} -cs {args.top_name} -ct {args.traj_name} -ci mmpbsa.ndx -cg 0 1 -cp topol.top -o {args.output}.dat -eo {args.output}.csv -nogui'
+        cmd_str = f'gmx_MMPBSA -O -i {input_name} -cs {args.top_name} -ct {args.traj_name} -ci mmpbsa.ndx -cg 0 1 -cp topol.top -o {args.output}.dat -eo {args.output}.csv -nogui {args.extra_args}'
         gmx.run_cmd_with_expect(f'mpirun -np {args.np} {cmd_str}')
         
     def main_process(self):
