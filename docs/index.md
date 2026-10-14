@@ -1,7 +1,7 @@
 <!--
  * @Date: 2024-08-24 22:24:36
  * @LastEditors: BHM-Bob 2262029386@qq.com
- * @LastEditTime: 2026-09-10 12:36:18
+ * @LastEditTime: 2026-10-14 16:55:58
  * @Description: 
 -->
 
@@ -89,20 +89,21 @@ pip install lazydock
 
 
 ## release note
-- [0.16.0](release_note/0.16.0.md)
-- [0.15.0](release_note/0.15.0.md)
-- [0.14.0](release_note/0.14.0.md)
-- [0.13.0](release_note/0.13.0.md)
-- [0.12.0](release_note/0.12.0.md)
-- [0.11.0](release_note/0.11.0.md)
-- [0.10.0](release_note/0.10.0.md)
-- [0.9.1](release_note/0.9.1.md)
-- [0.9.0](release_note/0.9.0.md)
-- [0.8.0](release_note/0.8.0.md)
-- [0.7.0](release_note/0.7.0.md)
-- [0.6.1](release_note/0.6.1.md)
-- [0.6.0](release_note/0.6.0.md)
-- [0.5.0](release_note/0.5.0.md)
-- [0.4.0](release_note/0.4.0.md)
-- [0.3.0](release_note/0.3.0.md)
-- [0.2.0](release_note/0.2.0.md)
+- [0.17.0](release_notes/0.17.0.md)
+- [0.16.0](release_notes/0.16.0.md)
+- [0.15.0](release_notes/0.15.0.md)
+- [0.14.0](release_notes/0.14.0.md)
+- [0.13.0](release_notes/0.13.0.md)
+- [0.12.0](release_notes/0.12.0.md)
+- [0.11.0](release_notes/0.11.0.md)
+- [0.10.0](release_notes/0.10.0.md)
+- [0.9.1](release_notes/0.9.1.md)
+- [0.9.0](release_notes/0.9.0.md)
+- [0.8.0](release_notes/0.8.0.md)
+- [0.7.0](release_notes/0.7.0.md)
+- [0.6.1](release_notes/0.6.1.md)
+- [0.6.0](release_notes/0.6.0.md)
+- [0.5.0](release_notes/0.5.0.md)
+- [0.4.0](release_notes/0.4.0.md)
+- [0.3.0](release_notes/0.3.0.md)
+- [0.2.0](release_notes/0.2.0.md)
