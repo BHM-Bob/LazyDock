@@ -312,14 +312,15 @@ def select_flex_residues_by_interaction(complex_pdbstr: str, ligand_chain: str,
         return put_err(f'fplip analysis failed: {interactions}')
     if not interactions or not any(interactions.values()):
         return put_err(f'fplip found no interaction between receptor {receptor_chain} and ligand {ligand_chain}')
-    resname_map = _get_resname_map(complex_pdbstr)
+    # fplip keeps the residue numbering and resname of the input pdb (verified:
+    # 0 mismatch on a real complex), so its values are used as-is.
     receptor_chain_set = set(receptor_chain)
     result = set()
     for _type, values in interactions.items():
         for rec_res, _lig_res, _dist in values:
-            resi, _resn, chain = rec_res
+            resi, resn, chain = rec_res
             if chain in receptor_chain_set:
-                result.add((chain, resname_map.get((chain, resi), _resn), int(resi)))
+                result.add((chain, resn, int(resi)))
     if not result:
         return put_err(f'fplip found no interaction residue on receptor chain {receptor_chain}')
     return sorted(result, key=lambda x: (x[0], x[2]))
