@@ -469,32 +469,6 @@ def perform_vina_dock(score_name: str, grid_buffer: float,
         return result_str, receptor_pdbstr, receptor_pdbqtstr, ligand_pdbstr, ligand_pdbqtstr
 
 
-def parse_vina_poses(result_str: str) -> List[Tuple[float, str]]:
-    """
-    parse a vina-format result pdbqt string into poses.
-
-    vina (both rigid and flexible runs) writes one MODEL block per pose, with
-    `REMARK VINA RESULT: <affinity> <rmsd_lb> <rmsd_ub>` as the score line.  With
-    `--flexres` the same block also holds the flexible sidechain atoms, so a pose
-    string can be fed to `build_flex_complex_pdbstr` / `build_flex_pose_complex_pdbstr`
-    exactly like a dlg pose.
-
-    :param result_str: vina-format pdbqt string
-    :return: list of (energy, pose_pdbstr), sorted by energy ascending (best first)
-    """
-    poses: List[Tuple[float, str]] = []
-    for model in re.findall(r'^MODEL.+?^ENDMDL', result_str, re.DOTALL | re.MULTILINE):
-        m = re.search(r'REMARK\s+VINA RESULT:\s+([-\d.]+)', model)
-        if not m:
-            continue
-        rows = [l for l in model.split('\n') if l.startswith(('ATOM', 'HETATM'))]
-        if not rows:
-            continue
-        poses.append((float(m.group(1)), '\n'.join(rows) + '\n'))
-    poses.sort(key=lambda x: x[0])
-    return poses
-
-
 def collect_flex_residues(complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str],
                           flex_residues: Union[str, List[str], List[FlexResidue]] = None,
                           flex_distance: float = None, flex_interaction: bool = False,
@@ -588,7 +562,8 @@ def perform_vina_flex_dock(score_name: str, grid_buffer: float,
         None if failed. `result_str` is a vina-format pdbqt string (NOT a dlg),
         in which every MODEL contains the ligand AND the flexible sidechains.
         A pose string can be turned into a complex by `build_flex_pose_complex_pdbstr`,
-        or parsed by `parse_vina_poses` / `DlgFile`.
+        or parsed by `lazydock.pml.autodock_utils.DlgFile` (it understands the vina
+        `REMARK VINA RESULT` score line).
     """
     # parse flexible residues from three sources
     flex_residue_lst = collect_flex_residues(complex_pdbstr, ligand_chain, receptor_chain,
