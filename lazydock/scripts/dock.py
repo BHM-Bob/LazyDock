@@ -25,9 +25,9 @@ from lazydock.pml.adfr import (build_flex_complex_pdbstr,
                                perform_autodock_gpu_dock,
                                perform_autodock_gpu_flex_dock,
                                perform_vina_dock,
-                               perform_vina_flex_dock,
-                               parse_flex_residues)
+                               perform_vina_flex_dock)
 from lazydock.pml.autodock_utils import DlgFile
+from lazydock.pml.meeko_utils import parse_flex_residues
 from lazydock.pml.utils import new_pml_context
 from lazydock.scripts._script_utils_ import (Command, check_memory_usage,
                                              clean_path, excute_command,

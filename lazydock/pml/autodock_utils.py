@@ -93,9 +93,11 @@ class ADModel(BaseInfo):
         # parse energy could be str.find?
         energy_line = re.findall(r'USER.+?Free Energy of Binding.+?\n', self.info)
         if energy_line:
+            # AutoDock dlg file
             entr = energy_line[0].split('=')[1]
             self.energy = float(entr.split()[0])
         else:
+            # Vina pdbqt file
             energy_line = re.findall(r'REMARK.+?VINA RESULT.+?\n', self.info)
             if energy_line:
                 entr = energy_line[0].split(':')[1]
@@ -164,7 +166,7 @@ class DlgFile(BaseInfo):
             self.content = None
         # decode content to pose_lst
         if self.content is not None:
-            self.pose_lst: List[ADModel] = self.decode_content()
+            self.pose_lst: List[ADModel] = self.decode_content() #type: ignore
             self.sort_pose()
         else:
             self.pose_lst: List[ADModel] = []
@@ -309,7 +311,7 @@ class DlgFile(BaseInfo):
                 if taskpool is None:
                     rmsd_mat[i][j] = pose_i.rmsd(pose_j, backend=backend)
                 else:
-                    while taskpool.count_waiting_tasks() > 0:
+                    while taskpool.count_waiting_tasks() > 0: # type: ignore
                         time.sleep(0.1)
                     rmsd_mat[i][j] = taskpool.add_task(f'{i}-{j}', pose_i.rmsd, pose_j, backend=backend)
         for i in range(len(rmsd_mat)):
@@ -365,14 +367,14 @@ class DlgFile(BaseInfo):
                 sub_idx, sub_rmsd_vec = idx_vec[groups_idx==group_idx], rmsd_vec[groups_idx==group_idx]
                 idx = sub_idx[np.argsort(sub_rmsd_vec)[:k]] # increasing order
                 top_poses[group_idx] = [self.pose_lst[i] for i in idx]
-            return top_poses
+            return top_poses # type: ignore
         else:
             raise ValueError(f'Unsupported method: {method}')
 
 
 def merge_dlg(dlg_lst: List[DlgFile]) -> DlgFile:
     if not dlg_lst:
-        return put_err('Empty input list, return None')
+        return put_err('Empty input list, return None') # type: ignore
     new_dlg = DlgFile()
     for dlg in dlg_lst:
         new_dlg.merge(dlg, inplace=True)
