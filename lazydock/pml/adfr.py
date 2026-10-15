@@ -264,34 +264,29 @@ def select_flex_residues_by_distance(complex_pdbstr: str, ligand_chain: str,
     """
     select receptor residues within `distance` (angstrom) of any ligand heavy atom.
     
+    both sides are restricted to heavy atoms (`not elem H`), otherwise hydrogens
+    would make the effective cutoff shorter than requested.
+    
     :param complex_pdbstr: complex pdb string
     :param ligand_chain: ligand chain
     :param receptor_chain: receptor chain list
     :param distance: distance cutoff in angstrom
     :return: list of (chain, resname, resnum), None if failed
     """
-    import numpy as np
     receptor_chain = _normalize_receptor_chain(complex_pdbstr, ligand_chain, receptor_chain)
     cmd.reinitialize()
     cmd.read_pdbstr(complex_pdbstr, 'complex')
-    lig_sel = f'complex and chain {ligand_chain} and not elem H'
-    rec_sel = 'complex and (' + ' or '.join([f'chain {c}' for c in receptor_chain]) + ')'
-    n_lig = cmd.count_atoms(lig_sel)
-    if n_lig == 0:
+    rec_sel = ' or '.join([f'chain {c}' for c in receptor_chain])
+    cmd.select('lig_heavy', f'complex and chain {ligand_chain} and not elem H')
+    if cmd.count_atoms('lig_heavy') == 0:
         return put_err(f'can not find any heavy atom on ligand chain {ligand_chain}')
-    lig_coords = np.array(cmd.get_coords(lig_sel))
-    # collect per-residue heavy atom coords of receptor
-    res_atoms = {}
-    cmd.iterate_state(1, f'{rec_sel} and not elem H',
-                      'res_atoms.setdefault((chain, resn, int(resi)), []).append((x, y, z))',
-                      space={'res_atoms': res_atoms})
-    result = []
-    for (chain, resname, resi), coords in res_atoms.items():
-        coords = np.array(coords)
-        # pairwise min distance between this residue and ligand
-        d = np.sqrt(((coords[:, None, :] - lig_coords[None, :, :]) ** 2).sum(-1)).min()
-        if d <= distance:
-            result.append((chain, resname, resi))
+    # `within` is a top-level binary operator and can NOT be mixed with `and`,
+    # so both operands must be parenthesized selection expressions
+    cmd.select('rec_near', f'(complex and ({rec_sel}) and not elem H) within {distance} of lig_heavy')
+    result = set()
+    cmd.iterate('rec_near', 'result.add((chain, resn, int(resi)))', space={'result': result})
+    if not result:
+        return put_err(f'can not find any receptor residue within {distance} A of ligand chain {ligand_chain}')
     return sorted(result, key=lambda x: (x[0], x[2]))
 
 
