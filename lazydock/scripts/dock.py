@@ -205,7 +205,7 @@ class redock(Command):
                     break
                 result_path, result = result
                 self.process_result(result_path, result)
-                self.summary_df.to_csv(self.args.summary, index=True)
+                self.summary_df.to_csv(os.path.join(self.args.batch_dir, self.args.summary), index=True)
             pool.wait_till_free()
         pool.wait_till_all_done()
         # retrieve results
@@ -291,7 +291,7 @@ class redock_gpu(redock):
                     break
                 result_path, result = result
                 self.process_result(result_path, result)
-                self.summary_df.to_csv(self.args.summary, index=True)
+                self.summary_df.to_csv(os.path.join(self.args.batch_dir, self.args.summary), index=True)
             pool.wait_till_free()
             pool.wait_till(lambda : not slot_queue.empty(), 0.01)
         pool.wait_till_all_done()
@@ -438,7 +438,7 @@ the vina scoring function is specifically required."""
                     break
                 result_path, result = result
                 self.process_result(result_path, result)
-                self.summary_df.to_csv(self.args.summary, index=True)
+                self.summary_df.to_csv(os.path.join(self.args.batch_dir, self.args.summary), index=True)
             pool.wait_till_free()
         pool.wait_till_all_done()
         # retrieve results

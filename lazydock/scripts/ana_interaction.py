@@ -422,7 +422,7 @@ class vina_score(Command):
             result = self.pool.query_task(path, True, 30)
             if isinstance(result, list):
                 df.loc[path] = [os.path.relpath(path, self.args.batch_dir)] + result  # type: ignore
-        df.to_csv(self.args.output, index=True)
+        df.to_csv(os.path.join(self.args.batch_dir, self.args.output), index=True)
         
     def finish(self):
         self.pool.close(1)

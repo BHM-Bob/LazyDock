@@ -144,7 +144,7 @@ class relax(calc_energy):
                 df.loc[len(df)] = list(pool.query_task(pdb_path, block=True, timeout=300))  # pyright: ignore[reportArgumentType]
             pool.close(1)
         # Save summary
-        df.to_csv(self.args.summary, index=False)
+        df.to_csv(os.path.join(self.args.batch_dir, self.args.summary), index=False)
 
 
 _str2func = {
