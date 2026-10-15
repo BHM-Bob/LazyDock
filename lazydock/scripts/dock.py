@@ -763,6 +763,8 @@ _str2func = {
     'vina': vina,
     'redock': redock,
     'redock-gpu': redock_gpu,
+    'redock-flex-gpu': redock_flex_gpu,
+    'redock-flex-vina': redock_flex_vina,
     'hdock': hdock,
     'hpepdock': hpepdock,
     'dinc-ensemble': dinc_ensemble,
