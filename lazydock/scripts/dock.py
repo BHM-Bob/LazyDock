@@ -21,7 +21,12 @@ from mbapy_lite.plot import save_show
 from mbapy_lite.web import TaskPool, random_sleep
 from tqdm import tqdm
 
-from lazydock.pml.adfr import perform_autodock_gpu_dock, perform_vina_dock
+from lazydock.pml.adfr import (build_flex_complex_pdbstr,
+                               perform_autodock_gpu_dock,
+                               perform_autodock_gpu_flex_dock,
+                               perform_vina_dock,
+                               perform_vina_flex_dock,
+                               parse_flex_residues)
 from lazydock.pml.autodock_utils import DlgFile
 from lazydock.pml.utils import new_pml_context
 from lazydock.scripts._script_utils_ import (Command, check_memory_usage,
@@ -42,12 +47,16 @@ def mp_pool_init_fn(slot_queue):
 
 def perform_autodock_gpu_dock_on_slot(*args, **kwargs):
     """从槽位队列领一个 gpu_id 执行 docking, 无论成败归还槽位"""
+    return perform_dock_on_slot(perform_autodock_gpu_dock, *args, **kwargs)
+
+def perform_dock_on_slot(dock_fn, *args, **kwargs):
+    """从槽位队列领一个 gpu_id 执行 docking, 无论成败归还槽位"""
     global _GPU_SLOT_QUEUE
     if _GPU_SLOT_QUEUE is None:
-        return perform_autodock_gpu_dock(*args, **kwargs)
+        return dock_fn(*args, **kwargs)
     gpu_id = _GPU_SLOT_QUEUE.get()
     try:
-        return perform_autodock_gpu_dock(*args, gpu_id=gpu_id, **kwargs)
+        return dock_fn(*args, gpu_id=gpu_id, **kwargs)
     except Exception:
         traceback.print_exc()
     finally:
@@ -150,20 +159,28 @@ class redock(Command):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
     
     def process_result(self, result_path: str, result):
-        if isinstance(result, tuple) and len(result) == 5:
-            result_pdbstr, rec_pdbstr, _, _, _ = result
-            opts_file(result_path, 'w', way='str', data = result_pdbstr)
-            dlg = DlgFile(None, result_pdbstr, True, True)
-            dlg.sort_pose() # sort by docking energy
-            for i, pose in enumerate(dlg.pose_lst[:self.args.n_pdb]):
-                path = Path(result_path)
-                pdb_path = str(path.parent / (path.stem + f'_{i}.pdb'))
-                rec_pdbstr = rec_pdbstr.replace('END', '')
-                # avoid null line, which will cause openbabel error
-                opts_file(pdb_path, 'w', way='str', data = f'{rec_pdbstr}\nTER\n' + pose.as_pdb_string().strip('TER\n').strip('\n'))
-                self.summary_df.loc[pdb_path] = [os.path.relpath(pdb_path, self.args.batch_dir), pose.energy]
-            return True
-        return put_err(f'invalid result: {result}', False)
+        if not isinstance(result, tuple) or len(result) < 5:
+            return put_err(f'invalid result: {result}', False)
+        # redock/redock-gpu 返回 5 元组, redock-flex-gpu 返回 6 元组(多一个 rigid pdbqt)
+        result_pdbstr, rec_pdbstr = result[0], result[1]
+        rigid_pdbqtstr = result[2] if len(result) >= 6 else None
+        opts_file(result_path, 'w', way='str', data = result_pdbstr)
+        dlg = DlgFile(None, result_pdbstr, True, True)
+        dlg.sort_pose() # sort by docking energy
+        for i, pose in enumerate(dlg.pose_lst[:self.args.n_pdb]):
+            path = Path(result_path)
+            pdb_path = str(path.parent / (path.stem + f'_{i}.pdb'))
+            if rigid_pdbqtstr is None:
+                rec_pdbstr_ = rec_pdbstr
+            else:
+                # flexible docking: 柔性残基的 CA 与侧链已在 pose 中,
+                # 受体需去掉这些原子(含其上的氢), 避免悬空氢
+                rec_pdbstr_ = build_flex_complex_pdbstr(rec_pdbstr, rigid_pdbqtstr, pose.as_pdb_string())
+            rec_pdbstr_ = rec_pdbstr_.replace('END', '')
+            # avoid null line, which will cause openbabel error
+            opts_file(pdb_path, 'w', way='str', data = f'{rec_pdbstr_}\nTER\n' + pose.as_pdb_string().strip('TER\n').strip('\n'))
+            self.summary_df.loc[pdb_path] = [os.path.relpath(pdb_path, self.args.batch_dir), pose.energy]
+        return True
         
     def main_process(self):
         if not check_memory_usage(self.args.n_workers):
@@ -244,6 +261,14 @@ class redock_gpu(redock):
         if not paths:
             put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
             return
+        self._run_dock_pool(paths,
+                            lambda p: (perform_autodock_gpu_dock_on_slot, opts_file(p),
+                                       self.args.ligand_chain, self.args.receptor_chain, self.args.grid_buffer),
+                            dict(seed=self.args.seed, nrun=self.args.n_poses, nev=self.args.nev,
+                                 stopstd=self.args.stopstd, heurmax=self.args.heurmax))
+
+    def _run_dock_pool(self, paths, task_args_fn, task_kwargs: dict):
+        """通用 GPU 任务池: 槽位队列 + TaskPool 提交/回收 + 结果处理 + summary 落盘"""
         # GPU 槽位队列: 展开为 [g0 x n_task_per_gpu, g1 x n_task_per_gpu, ...],
         # 子进程取走一个 gpu_id 执行任务, 无论成败都归还, 天然形成背压负载均衡:
         # 某卡并发已满时队列没有它的空闲槽位, 长任务卡不会再被塞入新任务
@@ -259,10 +284,7 @@ class redock_gpu(redock):
         for path in tqdm(paths, total=len(paths)):
             path = Path(path)
             result_path = str(path.parent / (path.stem + f'{self.args.suffix}.dlg'))
-            pool.add_task(result_path, perform_autodock_gpu_dock_on_slot, opts_file(path),
-                          self.args.ligand_chain, self.args.receptor_chain, self.args.grid_buffer,
-                          seed=self.args.seed, nrun=self.args.n_poses, nev=self.args.nev,
-                          stopstd=self.args.stopstd, heurmax=self.args.heurmax)
+            pool.add_task(result_path, *task_args_fn(path), **task_kwargs)
             while True:
                 result = pool.pull_task(return_name=True, block=False)
                 if not result or result == pool.TASK_NOT_RETURNED or result == pool.TASK_NOT_SUCCEEDED:
@@ -272,6 +294,152 @@ class redock_gpu(redock):
                 self.summary_df.to_csv(self.args.summary, index=True)
             pool.wait_till_free()
             pool.wait_till(lambda : not slot_queue.empty(), 0.01)
+        pool.wait_till_all_done()
+        # retrieve results
+        for result_path in list(pool.tasks.keys()):
+            result = pool.query_task(result_path, True, 30) # type: ignore
+            self.process_result(result_path, result)
+        self.summary_df.to_csv(os.path.join(self.args.batch_dir, self.args.summary), index=True)
+
+
+def add_flex_args(args: argparse.ArgumentParser):
+    """add flexible-residue arguments shared by redock-flex-gpu and redock-flex-vina"""
+    args.add_argument('-fr', '--flex-residues', type = str, nargs='+', default=None,
+                      help="flexible receptor residues, could be '<chain>:<resnum>(,<resnum>)' such as 'A:68,50', "
+                           "or '<chain>:<RESN><resnum>' such as 'A:LYS68,LYS50'.")
+    args.add_argument('-fd', '--flex-distance', type = float, default=None,
+                      help='select receptor residues within this distance of any ligand heavy atom, default is %(default)s.')
+    args.add_argument('-fi', '--flex-interaction', action = 'store_true', default=False,
+                      help='select receptor residues which have interaction with ligand by fplip, default is %(default)s.')
+    args.add_argument('--flex-interaction-mode', type = str, default='all',
+                      help='interaction types for fplip, "all" to include all modes, default is %(default)s.')
+    args.add_argument('--flex-interaction-cutoff', type = float, default=4.,
+                      help='interaction distance cutoff for fplip, default is %(default)s.')
+    args.add_argument('--meeko-python', type = str, default=None,
+                      help='python interpreter to call meeko, default is current interpreter.')
+    return args
+
+
+def check_flex_args(args: argparse.Namespace):
+    """validate flexible-residue arguments shared by all redock-flex-* subcommands"""
+    # 至少需要一种柔性残基来源
+    if args.flex_residues is None and args.flex_distance is None and not args.flex_interaction:
+        put_err('at least one of --flex-residues, --flex-distance, --flex-interaction should be provided, exit.', _exit=True)
+    # 提前校验格式, 避免每个任务重复报错
+    if args.flex_residues is not None:
+        if not parse_flex_residues(args.flex_residues):
+            put_err(f'invalid --flex-residues: {args.flex_residues}, exit.', _exit=True)
+
+
+class redock_flex_gpu(redock_gpu):
+    """redock with AutoDock-GPU, receptor flexible residues are supported"""
+    HELP = """redock with AutoDock-GPU and flexible receptor residues"""
+    def __init__(self, args, printf = print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args = redock_gpu.make_args(args)
+        # flex 版本使用独立默认值, 避免与 redock/redock-gpu 的输出互相覆盖
+        for act in args._actions:
+            if act.dest == 'suffix':
+                act.default = '_redock_flex'
+                act.help = "suffix for output dlg file, default is %(default)s."
+            elif act.dest == 'summary':
+                act.default = 'redock_flex_summary.csv'
+        return add_flex_args(args)
+
+    def process_args(self):
+        super().process_args()
+        check_flex_args(self.args)
+        
+    def main_process(self):
+        # search for pdb files
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name, sort='natsort')
+        if not paths:
+            put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
+            return
+        self._run_dock_pool(
+            paths,
+            lambda p: (perform_dock_on_slot, perform_autodock_gpu_flex_dock, opts_file(p),
+                       self.args.ligand_chain, self.args.receptor_chain, self.args.grid_buffer),
+            dict(flex_residues=self.args.flex_residues,
+                 flex_distance=self.args.flex_distance,
+                 flex_interaction=self.args.flex_interaction,
+                 flex_interaction_mode=self.args.flex_interaction_mode,
+                 flex_interaction_cutoff=self.args.flex_interaction_cutoff,
+                 meeko_python=self.args.meeko_python,
+                 seed=self.args.seed, nrun=self.args.n_poses, nev=self.args.nev,
+                 stopstd=self.args.stopstd, heurmax=self.args.heurmax))
+
+
+class redock_flex_vina(redock):
+    """redock with vina, receptor flexible residues are supported"""
+    HELP = """redock with vina and flexible receptor residues
+    
+NOTICE: vina searches on CPU and flexible sidechains add many degrees of freedom,
+so this is much slower than `redock-flex-gpu`.  Prefer `redock-flex-gpu` unless
+the vina scoring function is specifically required."""
+    def __init__(self, args, printf = print):
+        super().__init__(args, printf)
+        
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args = redock.make_args(args)
+        # flex 版本使用独立默认值, 避免与 redock 的输出互相覆盖
+        for act in args._actions:
+            if act.dest == 'suffix':
+                act.default = '_redock_flex'
+                act.help = "suffix for output pdbqt file, default is %(default)s."
+            elif act.dest == 'summary':
+                act.default = 'redock_flex_summary.csv'
+        add_flex_args(args)
+        args.add_argument('--seed', type = int, default=0,
+                          help='seed for random number, default is %(default)s.')
+        args.add_argument('--max-evals', type = int, default=0,
+                          help='max evaluations, 0 means use vina heuristics, default is %(default)s.')
+        args.add_argument('--min-rmsd', type = float, default=1,
+                          help='minimum RMSD difference between poses, default is %(default)s.')
+        args.add_argument('--cpu', type = int, default=0,
+                          help='cpu number for vina, 0 means use all cpus, default is %(default)s.')
+        return args
+
+    def process_args(self):
+        super().process_args()
+        check_flex_args(self.args)
+
+    def main_process(self):
+        # search for pdb files
+        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name, sort='natsort')
+        if not paths:
+            put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
+            return
+        # submit and run tasks parallel
+        pool = TaskPool('process', self.args.n_workers, report_error=True,
+                        mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
+        for path in tqdm(paths, total=len(paths)):
+            path = Path(path)
+            result_path = str(path.parent / (path.stem + f'{self.args.suffix}.pdbqt'))
+            pool.add_task(result_path, perform_vina_flex_dock,
+                          self.args.score_name, self.args.grid_buffer, opts_file(path),
+                          self.args.ligand_chain, self.args.receptor_chain,
+                          flex_residues=self.args.flex_residues,
+                          flex_distance=self.args.flex_distance,
+                          flex_interaction=self.args.flex_interaction,
+                          flex_interaction_mode=self.args.flex_interaction_mode,
+                          flex_interaction_cutoff=self.args.flex_interaction_cutoff,
+                          meeko_python=self.args.meeko_python,
+                          exhaustiveness=self.args.exhaustiveness, n_poses=self.args.n_poses,
+                          min_rmsd=self.args.min_rmsd, max_evals=self.args.max_evals,
+                          seed=self.args.seed, cpu=self.args.cpu)
+            while True:
+                result = pool.pull_task(return_name=True, block=False)
+                if not result or result == pool.TASK_NOT_RETURNED or result == pool.TASK_NOT_SUCCEEDED:
+                    break
+                result_path, result = result
+                self.process_result(result_path, result)
+                self.summary_df.to_csv(self.args.summary, index=True)
+            pool.wait_till_free()
         pool.wait_till_all_done()
         # retrieve results
         for result_path in list(pool.tasks.keys()):
