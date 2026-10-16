@@ -18,6 +18,8 @@
         "parmed>=4.1.0",
         "toff==0.2.0",
         "rdkit",
+        "meeko",
+        "gemmi",
         "openmmforcefields>=0.14.1",
         "pyyaml"
     ],
