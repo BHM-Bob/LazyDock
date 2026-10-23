@@ -24,6 +24,7 @@ Contents:
       `flex_utils.flex_residues_to_meeko`; nothing on the docking path needs it, since
       the API above takes residue ids directly)
 '''
+import math
 import os
 import re
 import subprocess
@@ -36,8 +37,8 @@ from meeko import MoleculePreparation, PDBQTWriterLegacy, gridbox
 from meeko.polymer import Polymer, ResidueChemTemplates
 
 from lazydock.dock.config import (GLUE_ATOM_NAMES, MACROCYCLE_MAX_RING_SIZE,
-                                  RIGID_MACROCYCLES, SS_RIGIDIFY_INDICES,
-                                  SS_RIGIDIFY_SMARTS)
+                                  RIGID_MACROCYCLES, RING_CLOSURE_BOND_WINDOW,
+                                  SS_RIGIDIFY_INDICES, SS_RIGIDIFY_SMARTS)
 from lazydock.dock.flex_utils import (FlexDockingSetup, FlexResidue,
                                       collect_flex_residues,
                                       get_grid_with_flexres)
@@ -452,3 +453,64 @@ def strip_glue_atoms(pdbstr: str) -> str:
             continue
         kept.append(line)
     return '\n'.join(kept)
+
+
+def measure_ring_closure(pdbqtstr: str) -> Optional[float]:
+    """
+    largest distance across the active macrocycle glue restraints of one pose.
+
+    meeko breaks a ring bond by removing it and placing a glue pseudo-atom (type
+    G0..G3) on each side; the engines then score a linear attraction between each
+    glue atom and the real atom it was split from (retyped CG0..CG3).  The ring is
+    closed when those distances approach zero and open when they grow to the size of
+    the former ring, so this number is the only direct evidence that the macrocycle
+    stayed (or became) closed during the search.  Energy alone is not evidence: AD4
+    does not favour a closed ring on its own (measured: a closed ring with the glue
+    atoms deleted opened in 19 of 20 poses), which is why the check exists.
+
+    The pairing rule is the one the engines themselves use, and it is NOT "nearest
+    match": a CGx and a Gx form a restraint pair when their type SUFFIXES agree
+    (CG0<->G0) and they are not covalent neighbours.  See
+    `RING_CLOSURE_BOND_WINDOW` for why the bond test needs a lower bound as well.
+
+    Read this from the RAW pose text, never from `ADModel.as_pdb_string()`: with
+    `parse2std=True` the writer replaces the element column with the first letter of
+    the atom NAME, so CG0 becomes C and G0 becomes G and the pairing information is
+    gone.  `ADModel.info_string()` keeps the original pdbqt line.
+
+    :param pdbqtstr: raw pose pdbqt text (one MODEL), e.g. `ADModel.info_string()`
+    :return: the largest active CGx-Gx distance in ANGSTROM, or None when the pose
+        carries no glue pair (the ligand was not prepared as a macrocycle)
+    """
+    atoms = {}
+    for line in pdbqtstr.split('\n'):
+        if not line.startswith(('ATOM', 'HETATM')):
+            continue
+        fields = line.split()
+        if not fields:
+            continue
+        try:
+            serial = int(line[6:11])
+            xyz = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
+        except ValueError:
+            continue
+        atoms[serial] = (fields[-1], xyz)
+    cg = [s for s, (t, _) in atoms.items() if t.startswith('CG') and t != 'CG']
+    glue = [s for s, (t, _) in atoms.items()
+            if t.startswith('G') and not t.startswith('CG')]
+    if not cg or not glue:
+        return None
+    bond_min, bond_max = RING_CLOSURE_BOND_WINDOW
+    longest = None
+    for c in cg:
+        for g in glue:
+            # suffix match, exactly as the engines pair them: CG0 pairs with G0
+            if atoms[c][0][2:] != atoms[g][0][1:]:
+                continue
+            d = math.dist(atoms[c][1], atoms[g][1])
+            if bond_min <= d <= bond_max:
+                # covalent neighbours, plus the glued pair sitting at bond length
+                continue
+            if longest is None or d > longest:
+                longest = d
+    return longest
