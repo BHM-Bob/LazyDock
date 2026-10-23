@@ -43,3 +43,16 @@ SS_RIGIDIFY_INDICES = [(0, 1)]
 # glue atom would reach the output pdb as a fake element "G" and break
 # PDBFixer/OpenMM and any re-preparation of the pose.
 GLUE_ATOM_NAMES = ('G',)
+
+
+# ring closure bookkeeping for macrocycle docking.  `RING_CLOSURE_BOND_WINDOW` is the
+# C-C bond window the engines use to tell a covalent neighbour from a glue restraint:
+# a CGx and a Gx are a restraint pair when their type suffixes agree AND their
+# distance falls OUTSIDE this window.  The lower bound matters as much as the upper
+# one -- meeko places a glue atom almost on top of its partner in a closed ring
+# (measured ~0.03 A), which is below the window and therefore correctly a restraint,
+# while the two genuinely bonded neighbours sit at ~1.51 A and are dropped.
+# `RING_CLOSURE_CLOSED_A` is the "the ring really is closed" cut-off used when
+# reporting; anything above it means the glue term failed to pull the ring shut.
+RING_CLOSURE_BOND_WINDOW = (1.20, 1.545)
+RING_CLOSURE_CLOSED_A = 3.0
