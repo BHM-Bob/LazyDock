@@ -237,11 +237,12 @@ class redock(Command):
 
     @staticmethod
     def make_flex_args(args: argparse.ArgumentParser):
-        """add the flexible-residue arguments shared by both flex subcommands.
+        """add the flexible-residue arguments shared by the flexible docking paths.
 
-        Declared next to `make_common_args` and for the same reason: `redock-flex-gpu`
-        and `redock-flex-vina` sit on different branches of the inheritance tree, so a
+        Declared next to `make_common_args` and for the same reason: `redock` and
+        `redock-flex-gpu` sit on different branches of the inheritance tree, so a
         single definition on `redock` is what keeps their flex flags identical.
+        Giving any of these switches to `redock` is what selects its flexible mode.
 
         The three sources are combined, not exclusive: an explicit residue list,
         residues within a distance of the ligand, and residues that fplip finds
@@ -267,12 +268,41 @@ class redock(Command):
                           help='Score name for vina, default is %(default)s.')
         args.add_argument('-e', '--exhaustiveness', type = int, default=32,
                           help='exhaustiveness, default is %(default)s.')
+        redock.make_flex_args(args)
+        args.add_argument('--seed', type = int, default=0,
+                          help='seed for random number, default is %(default)s.')
+        args.add_argument('--max-evals', type = int, default=0,
+                          help='max evaluations, 0 means use vina heuristics, default is %(default)s.')
+        args.add_argument('--min-rmsd', type = float, default=1,
+                          help='minimum RMSD difference between poses, default is %(default)s.')
+        args.add_argument('--cpu', type = int, default=None,
+                          help='threads for vina; not given means %(default)s, which falls back on '
+                               '--exhaustiveness in rigid mode and on all cores in flex mode. '
+                               '0 also asks vina for all cores')
         return args
 
     def process_args(self):
         # process IO
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         check_macrocycle_args(self.args)
+        if self.uses_flex:
+            # only meaningful in flex mode; in rigid mode the three sources are
+            # accepted but ignored, so their format is not checked there
+            check_flex_args(self.args)
+
+    @property
+    def uses_flex(self) -> bool:
+        """whether this run is a flexible-receptor dock.
+
+        One subcommand serves both modes: giving any of the three flex sources turns
+        the receptor into a meeko rigid/flex split and calls
+        `perform_vina_flex_dock`, otherwise the rigid path runs.  The flag lives here
+        instead of being repeated in `process_args` and `main_process`, so the mode
+        can not disagree between validation and dispatch.
+        """
+        return (self.args.flex_residues is not None
+                or self.args.flex_distance is not None
+                or self.args.flex_interaction)
     
     def process_result(self, result_path: str, result):
         if not isinstance(result, tuple) or len(result) < 5:
@@ -317,17 +347,54 @@ class redock(Command):
         if not paths:
             put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
             return
+        # one subcommand, two modes: pick the dock function once, up front, so the
+        # task kwargs built below can not disagree with it
+        flex = self.uses_flex
+        if flex:
+            dock_fn = perform_vina_flex_dock
+            # positional head is (score_name, grid_buffer, complex_pdbstr,
+            # ligand_chain, receptor_chain), identical to `perform_vina_dock`
+            # `cpu` must NOT stay None here: `perform_vina_flex_dock` hands it
+            # straight to `Vina(cpu=...)`, whose SWIG binding is typed and rejects
+            # None with `TypeError: argument 2 of type 'int'`. 0 is vina's own
+            # "use all cores", which is what the flex subcommand always did.
+            kwargs = dict(
+                flex_residues=self.args.flex_residues,
+                flex_distance=self.args.flex_distance,
+                flex_interaction=self.args.flex_interaction,
+                flex_interaction_mode=self.args.flex_interaction_mode,
+                flex_interaction_cutoff=self.args.flex_interaction_cutoff,
+                exhaustiveness=self.args.exhaustiveness, n_poses=self.args.n_poses,
+                min_rmsd=self.args.min_rmsd, max_evals=self.args.max_evals,
+                seed=self.args.seed,
+                cpu=0 if self.args.cpu is None else self.args.cpu,
+                spacing=self.args.spacing,
+                macrocycle=self.args.macrocycle, max_ring_size=self.args.max_ring_size,
+                prepare_backend=self.args.prepare_backend)
+        else:
+            dock_fn = perform_vina_dock
+            # `exhaustiveness` and `n_poses` have NO default in `perform_vina_dock`
+            # (they are positional-required), so they must be passed explicitly or
+            # the kwargs below would land in the wrong slots.
+            # `cpu=None` is passed through on purpose: it keeps the historical
+            # behaviour of tying the thread count to --exhaustiveness, which is what
+            # `redock` did before the two subcommands were merged.
+            kwargs = dict(
+                exhaustiveness=self.args.exhaustiveness, n_poses=self.args.n_poses,
+                min_rmsd=self.args.min_rmsd, max_evals=self.args.max_evals,
+                seed=self.args.seed, cpu=self.args.cpu,
+                spacing=self.args.spacing,
+                macrocycle=self.args.macrocycle, max_ring_size=self.args.max_ring_size,
+                prepare_backend=self.args.prepare_backend)
         # submit and run tasks parallel
         pool = TaskPool('process', self.args.n_workers, report_error=True,
                         mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
         for path in tqdm(paths):
             path = Path(path)
             result_path = str(path.parent / (path.stem + f'{self.args.suffix}.pdbqt'))
-            pool.add_task(result_path, perform_vina_dock, self.args.score_name, self.args.grid_buffer, opts_file(path),
-                          self.args.ligand_chain, self.args.receptor_chain, self.args.exhaustiveness, self.args.n_poses,
-                          spacing=self.args.spacing,
-                          macrocycle=self.args.macrocycle, max_ring_size=self.args.max_ring_size,
-                          prepare_backend=self.args.prepare_backend)
+            pool.add_task(result_path, dock_fn, self.args.score_name, self.args.grid_buffer,
+                          opts_file(path), self.args.ligand_chain, self.args.receptor_chain,
+                          **kwargs)
             while True:
                 result = pool.pull_task(return_name=True, block=False)
                 if not result or result == pool.TASK_NOT_RETURNED or result == pool.TASK_NOT_SUCCEEDED:
@@ -497,83 +564,6 @@ class redock_flex_gpu(redock_gpu):
                  macrocycle=self.args.macrocycle,
                  max_ring_size=self.args.max_ring_size,
                  prepare_backend=self.args.prepare_backend))
-
-
-class redock_flex_vina(redock):
-    """redock with vina, receptor flexible residues are supported"""
-    HELP = """redock with vina and flexible receptor residues
-    
-NOTICE: vina searches on CPU and flexible sidechains add many degrees of freedom,
-so this is much slower than `redock-flex-gpu`.  Prefer `redock-flex-gpu` unless
-the vina scoring function is specifically required."""
-    def __init__(self, args, printf = print):
-        super().__init__(args, printf)
-        
-    @staticmethod
-    def make_args(args: argparse.ArgumentParser):
-        args = redock.make_args(args)
-        # flex 版本使用独立默认值, 避免与 redock 的输出互相覆盖
-        for act in args._actions:
-            if act.dest == 'suffix':
-                act.default = '_redock_flex'
-                act.help = "suffix for output pdbqt file, default is %(default)s."
-            elif act.dest == 'summary':
-                act.default = 'redock_flex_summary.csv'
-        redock.make_flex_args(args)
-        args.add_argument('--seed', type = int, default=0,
-                          help='seed for random number, default is %(default)s.')
-        args.add_argument('--max-evals', type = int, default=0,
-                          help='max evaluations, 0 means use vina heuristics, default is %(default)s.')
-        args.add_argument('--min-rmsd', type = float, default=1,
-                          help='minimum RMSD difference between poses, default is %(default)s.')
-        args.add_argument('--cpu', type = int, default=0,
-                          help='cpu number for vina, 0 means use all cpus, default is %(default)s.')
-        return args
-
-    def process_args(self):
-        super().process_args()
-        check_flex_args(self.args)
-
-    def main_process(self):
-        # search for pdb files
-        paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name, sort='natsort')
-        if not paths:
-            put_err(f'can not find any pdb file with name {self.args.name} in {self.args.batch_dir}')
-            return
-        # submit and run tasks parallel
-        pool = TaskPool('process', self.args.n_workers, report_error=True,
-                        mp_pool_init_kwargs={'maxtasksperchild': 100}).start()
-        for path in tqdm(paths, total=len(paths)):
-            path = Path(path)
-            result_path = str(path.parent / (path.stem + f'{self.args.suffix}.pdbqt'))
-            pool.add_task(result_path, perform_vina_flex_dock,
-                          self.args.score_name, self.args.grid_buffer, opts_file(path),
-                          self.args.ligand_chain, self.args.receptor_chain,
-                          flex_residues=self.args.flex_residues,
-                          flex_distance=self.args.flex_distance,
-                          flex_interaction=self.args.flex_interaction,
-                          flex_interaction_mode=self.args.flex_interaction_mode,
-                          flex_interaction_cutoff=self.args.flex_interaction_cutoff,
-                          exhaustiveness=self.args.exhaustiveness, n_poses=self.args.n_poses,
-                          min_rmsd=self.args.min_rmsd, max_evals=self.args.max_evals,
-                          seed=self.args.seed, cpu=self.args.cpu,
-                          spacing=self.args.spacing,
-                          macrocycle=self.args.macrocycle, max_ring_size=self.args.max_ring_size,
-                          prepare_backend=self.args.prepare_backend)
-            while True:
-                result = pool.pull_task(return_name=True, block=False)
-                if not result or result == pool.TASK_NOT_RETURNED or result == pool.TASK_NOT_SUCCEEDED:
-                    break
-                result_path, result = result
-                self.process_result(result_path, result)
-                self.summary_df.to_csv(os.path.join(self.args.batch_dir, self.args.summary), index=True)
-            pool.wait_till_free()
-        pool.wait_till_all_done()
-        # retrieve results
-        for result_path in list(pool.tasks.keys()):
-            result = pool.query_task(result_path, True, 30) # type: ignore
-            self.process_result(result_path, result)
-        self.summary_df.to_csv(os.path.join(self.args.batch_dir, self.args.summary), index=True)
 
 
 def hdock_run_fn_warpper(result_prefix: str = 'HDOCK', result_name: str = 'HDOCK_all_results.tar.gz'):
@@ -892,7 +882,6 @@ _str2func = {
     'redock': redock,
     'redock-gpu': redock_gpu,
     'redock-flex-gpu': redock_flex_gpu,
-    'redock-flex-vina': redock_flex_vina,
     'hdock': hdock,
     'hpepdock': hpepdock,
     'dinc-ensemble': dinc_ensemble,
