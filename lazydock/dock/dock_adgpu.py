@@ -11,7 +11,8 @@ from lazydock.config import GlobalConfig
 from lazydock.dock.adfr import (_prepare_ligand_receptor, get_grid,
                                 prepare_gpf_and_map, prepend_adfr_bin_to_path,
                                 run_autogrid4)
-from lazydock.dock.config import PREPARE_BACKEND_DEFAULT
+from lazydock.dock.config import (MACROCYCLE_MAX_RING_SIZE,
+                                  PREPARE_BACKEND_DEFAULT)
 from lazydock.dock.flex_utils import FlexResidue
 from lazydock.dock.meeko_utils import prepare_flex_docking_setup
 
@@ -19,7 +20,8 @@ from lazydock.dock.meeko_utils import prepare_flex_docking_setup
 def perform_autodock_gpu_dock_core(docking_dir: str, caller: str, ffile: str, lfile: str,
                                    flexfile: str = None,
                                    seed: int = 0, nrun: int = 5, nev: int = 500000,
-                                   stopstd: float = 0.5, heurmax: int = 3000000, gpu_id: int = 0):
+                                   stopstd: float = 0.5, heurmax: int = 3000000, gpu_id: int = 0,
+                                   heuristics: int = 1, ngen: int = 42000, autostop: int = 1):
     """
     perform docking with AutoDock-GPU, optionally with flexible receptor sidechains
 
@@ -34,6 +36,17 @@ def perform_autodock_gpu_dock_core(docking_dir: str, caller: str, ffile: str, lf
     :param flexfile: flexible residue pdbqt file, such as receptor_flex.pdbqt.
         None (the default) runs a rigid-receptor dock
     :param seed, nrun, nev, stopstd, heurmax, gpu_id: AutoDock-GPU options
+    :param heuristics: 1 (the engine default) lets AutoDock-GPU derive the search
+        method and the evaluation budget from the ligand's torsion count; 0 makes
+        `nev` the exact budget.  The distinction matters for macrocycles: while
+        heuristics are on, AutoStop may not fire before 100% of the budget
+        (`performdocking.cpp` computes `min_as_evals` from the heuristic estimate), so
+        `stopstd` is inert.  The defaults reproduce the engine's own defaults, so
+        passing nothing changes nothing
+    :param ngen: maximum generations per LGA run, AutoDock-GPU's own default is 42000.
+        Raise it when `nev` rather than `ngen` should be what ends the run
+    :param autostop: 1 (the engine default) ends a run once the best energies
+        converge, 0 disables it
 
     :return: dlg file path, None if failed
     """
@@ -52,6 +65,9 @@ def perform_autodock_gpu_dock_core(docking_dir: str, caller: str, ffile: str, lf
         '--nev', str(nev),
         '--stopstd', str(stopstd),
         '--heurmax', str(heurmax),
+        '--heuristics', str(heuristics),
+        '--ngen', str(ngen),
+        '--autostop', str(autostop),
         '--devnum', str(gpu_id + 1),
     ]
     proc = subprocess.Popen(' '.join(cmd_list), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -69,6 +85,9 @@ def perform_autodock_gpu_dock(complex_pdbstr: str, ligand_chain: str, receptor_c
                               autodock_caller: Optional[str] = None, gpf_caller: Optional[str] = None,
                               seed: int = 0, nrun: int = 5, nev: int = 500000,
                               stopstd: float = 0.5, heurmax: int = 3000000, gpu_id: int = 0,
+                              heuristics: int = 1, ngen: int = 42000, autostop: int = 1,
+                              macrocycle: bool = False,
+                              max_ring_size: int = MACROCYCLE_MAX_RING_SIZE,
                               prepare_backend: str = PREPARE_BACKEND_DEFAULT):
     """
     perform docking with AutoDock-GPU
@@ -86,15 +105,30 @@ def perform_autodock_gpu_dock(complex_pdbstr: str, ligand_chain: str, receptor_c
     :param autodock_caller: autodock_gpu executable path, if None, will be read from config or $AUTODOCK_GPU
     :param gpf_caller: prepare_gpf.py path, if None, will be read from config or $PREPARE_GPF
     :param seed, nrun, nev, stopstd, heurmax, gpu_id: AutoDock-GPU options
+    :param heuristics / ngen / autostop: search-depth knobs, see
+        `perform_autodock_gpu_dock_core`
+    :param macrocycle: break one bond of a large ring so the ring skeleton can adapt
+        during the search, with the glue term pulling it back shut.  AutoDock-GPU
+        supports this natively and needs nothing extra here: its AD4 glue term is a
+        linear attraction with NO distance cutoff, the retyped CGx atoms fall back on
+        the carbon affinity map, and Gx is excluded from the intermolecular sum.  The
+        maps this path already builds therefore need no change.  See
+        `docs/dev/dock/AutoDock-GPU 大环肽柔性环对接测试.md`
+    :param max_ring_size: largest ring meeko may break, see MACROCYCLE_MAX_RING_SIZE
     :param prepare_backend: 'meeko' or 'adfr', which toolkit prepares the receptor and
         ligand pdbqt.  Meeko was verified to work end-to-end on this path (its pdbqt
         feeds prepare_gpf.py and autogrid4 directly, 9 maps written), but the two
         backends type some nitrogens/polar hydrogens differently, so their scores are
-        NOT comparable (see `PREPARE_BACKENDS`).
+        NOT comparable (see `PREPARE_BACKENDS`).  Forced to meeko when `macrocycle` is
+        True (ADT can not break a ring); the CLI rejects that combination up front
     """
     with tempfile.TemporaryDirectory() as tmpdir:
-        # prepare ligand and receptor
+        # prepare ligand and receptor.  Everything beyond the grid is passed by
+        # keyword on purpose: this helper's parameter order is not this function's,
+        # and a positional slip here silently swaps macrocycle for max_ring_size
         pdbstr_pack = _prepare_ligand_receptor(complex_pdbstr, ligand_chain, receptor_chain,
+                                               macrocycle=macrocycle,
+                                               max_ring_size=max_ring_size,
                                                prepare_backend=prepare_backend)
         if not pdbstr_pack:
             return None
@@ -123,7 +157,8 @@ def perform_autodock_gpu_dock(complex_pdbstr: str, ligand_chain: str, receptor_c
         docking_path = perform_autodock_gpu_dock_core(
             tmpdir, autodock_caller, 'receptor.maps.fld', 'ligand.pdbqt',
             flexfile=None, seed=seed, nrun=nrun, nev=nev,
-            stopstd=stopstd, heurmax=heurmax, gpu_id=gpu_id)
+            stopstd=stopstd, heurmax=heurmax, gpu_id=gpu_id,
+            heuristics=heuristics, ngen=ngen, autostop=autostop)
         if not docking_path:
             return None
         # return docking path
@@ -138,6 +173,9 @@ def perform_autodock_gpu_flex_dock(complex_pdbstr: str, ligand_chain: str, recep
                                    autodock_caller: Optional[str] = None, gpf_caller: Optional[str] = None,
                                    seed: int = 0, nrun: int = 5, nev: int = 500000,
                                    stopstd: float = 0.5, heurmax: int = 3000000, gpu_id: int = 0,
+                                   heuristics: int = 1, ngen: int = 42000, autostop: int = 1,
+                                   macrocycle: bool = False,
+                                   max_ring_size: int = MACROCYCLE_MAX_RING_SIZE,
                                    prepare_backend: str = PREPARE_BACKEND_DEFAULT):
     """
     perform docking with AutoDock-GPU with flexible receptor sidechains.
@@ -162,6 +200,13 @@ def perform_autodock_gpu_flex_dock(complex_pdbstr: str, ligand_chain: str, recep
     :param autodock_caller: autodock_gpu executable path, if None, will be read from config or $AUTODOCK_GPU
     :param gpf_caller: prepare_gpf.py path, if None, will be read from config or
         $PREPARE_GPF.  It locates autogrid4, which is run on the gpf meeko wrote
+    :param heuristics / ngen / autostop: search-depth knobs, see
+        `perform_autodock_gpu_dock_core`
+    :param macrocycle: break a large ring of the ligand so its skeleton is flexible,
+        see `perform_autodock_gpu_dock`.  The receptor is still split into rigid and
+        flexible parts, and the glue atom types need no extra grid, so this only
+        changes how the ligand is prepared
+    :param max_ring_size: largest ring meeko may break, see MACROCYCLE_MAX_RING_SIZE
     :param prepare_backend: 'meeko' or 'adfr', which toolkit prepares the LIGAND pdbqt.
         The receptor is always split by meeko here (ADT can not produce a rigid part
         plus flexible sidechains at all), so this switch only ever changes the ligand.
@@ -175,8 +220,11 @@ def perform_autodock_gpu_flex_dock(complex_pdbstr: str, ligand_chain: str, recep
         and one pose pdb string from the dlg.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
-        # prepare ligand and receptor pdb string, and ligand pdbqt
+        # prepare ligand and receptor pdb string, and ligand pdbqt; keyword args
+        # beyond the grid on purpose, see `perform_autodock_gpu_dock`
         pdbstr_pack = _prepare_ligand_receptor(complex_pdbstr, ligand_chain, receptor_chain,
+                                               macrocycle=macrocycle,
+                                               max_ring_size=max_ring_size,
                                                prepare_backend=prepare_backend)
         if not pdbstr_pack:
             return None
@@ -206,7 +254,8 @@ def perform_autodock_gpu_flex_dock(complex_pdbstr: str, ligand_chain: str, recep
         docking_path = perform_autodock_gpu_dock_core(
             tmpdir, autodock_caller, 'receptor_rigid.maps.fld', 'ligand.pdbqt',
             flexfile=os.path.basename(flex_pdbqt_path), seed=seed, nrun=nrun, nev=nev,
-            stopstd=stopstd, heurmax=heurmax, gpu_id=gpu_id)
+            stopstd=stopstd, heurmax=heurmax, gpu_id=gpu_id,
+            heuristics=heuristics, ngen=ngen, autostop=autostop)
         if not docking_path:
             return None
         result_str = opts_file(docking_path, 'r', way='str')
