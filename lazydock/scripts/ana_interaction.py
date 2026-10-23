@@ -16,7 +16,7 @@ from mbapy_lite.web_utils.task import TaskPool
 from pymol import cmd
 from tqdm import tqdm
 
-from lazydock.pml.adfr import calc_vina_score
+from lazydock.dock.dock_vina import calc_vina_score
 from lazydock.pml.autodock_utils import ADModel, DlgFile
 from lazydock.pml.interaction_utils import SUPPORTED_MODE as pml_mode
 from lazydock.pml.interaction_utils import \
@@ -411,7 +411,7 @@ class vina_score(Command):
             self.pool.add_task(path, calc_vina_score, self.args.score_name, self.args.grid_buffer, opts_file(path),
                           self.args.ligand_chain, self.args.receptor_chain)
             self.pool.wait_till_free()
-        self.pool.wait_till_all_done()
+        self.pool.wait_till_all_done(timeout=30)
         # retrieve results
         df = pd.DataFrame(columns=['path', 'rel_path',
                                    "total", "lig_inter", "flex_inter", "other_inter",
