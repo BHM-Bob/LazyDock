@@ -7,7 +7,6 @@ Description:
 import argparse
 import multiprocessing
 import os
-import time
 import traceback
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
@@ -21,20 +20,20 @@ from mbapy_lite.plot import save_show
 from mbapy_lite.web import TaskPool, random_sleep
 from tqdm import tqdm
 
-from lazydock.pml.adfr import (build_flex_complex_pdbstr,
-                               perform_autodock_gpu_dock,
-                               perform_autodock_gpu_flex_dock,
-                               perform_vina_dock,
-                               perform_vina_flex_dock)
+from lazydock.dock.config import (MACROCYCLE_MAX_RING_SIZE,
+                                  RING_CLOSURE_CLOSED_A)
+from lazydock.dock.dock_adgpu import (perform_autodock_gpu_dock,
+                                      perform_autodock_gpu_flex_dock)
+from lazydock.dock.dock_vina import perform_vina_dock, perform_vina_flex_dock
+from lazydock.dock.flex_utils import (build_flex_complex_pdbstr,
+                                      parse_flex_residues)
+from lazydock.dock.meeko_utils import measure_ring_closure, strip_glue_atoms
 from lazydock.pml.autodock_utils import DlgFile
-from lazydock.pml.meeko_utils import parse_flex_residues
-from lazydock.pml.utils import new_pml_context
 from lazydock.scripts._script_utils_ import (Command, check_memory_usage,
                                              clean_path, excute_command,
                                              process_batch_dir_lst)
 from lazydock.web.dinc import run_dock_on_DINC_ensemble
 from lazydock.web.hdock import run_dock_on_HDOCK, run_dock_on_HPEPDOCK
-
 
 # 全局 GPU 槽位队列: 主进程写入可用 gpu_id, 子进程取走后用完归还。
 # 某卡并发已满时队列自然不会向它放新的 gpu_id, 避免长任务卡拖满任务池。
@@ -118,16 +117,78 @@ class vina(Command):
         self.taskpool.close(1)
 
 
+def check_macrocycle_args(args: argparse.Namespace):
+    """reject --macrocycle combined with the ADT preparation backend.
+
+    meeko is the only backend that can break a ring: ADT's `prepare_ligand` has no
+    macrocycle option at all, so `--prepare-backend adfr --macrocycle` would hand
+    back a ligand whose ring is still completely frozen while the rest of the
+    pipeline behaved as though it were free.  Rejecting the combination is better
+    than silently honouring only one of the two flags.
+
+    Note what this check is NOT: it does not care whether the ENGINE can use glue.
+    AutoDock-GPU can -- its AD4 glue term is a linear attraction with no cutoff, the
+    retyped CGx atoms fall back on the carbon affinity map, and Gx is excluded from
+    the intermolecular sum -- so the GPU subcommands accept --macrocycle too.
+    """
+    if not getattr(args, 'macrocycle', False):
+        return
+    if getattr(args, 'prepare_backend', 'meeko') == 'adfr':
+        put_err('--macrocycle requires meeko: ADT has no ring-breaking option, so '
+                '`--prepare-backend adfr` would deliver a ligand whose ring is still '
+                'frozen. Drop --macrocycle, or drop `--prepare-backend adfr`. Exit.',
+                _exit=True)
+
+
+def check_gpu_spacing(args: argparse.Namespace, engine: str = 'redock-gpu'):
+    """reject a non-default --spacing on every AutoDock-GPU subcommand.
+
+    Both GPU paths read the grid spacing back from the gpf/fld, and neither can be
+    handed another value:
+
+    - `redock-gpu` builds its gpf with `prepare_gpf.py` + `autogrid4`.  This project
+      does not forward `spacing` to the gpf, so the file keeps prepare_gpf.py's own
+      0.375 default while `npts` was computed with the requested value -- the box
+      would be sized by one spacing and described by another.
+    - `redock-flex-gpu` takes its maps from the gpf that meeko writes, and meeko fixes
+      the spacing at 0.375 A there (`meeko/gridbox.py`, `get_gpf_string`) with no CLI
+      knob to change it.
+
+    Failing loudly is better than accepting a value that has no effect.
+    """
+    spacing = getattr(args, 'spacing', None)
+    if spacing is None or abs(spacing - 0.375) < 1e-9:
+        return
+    # `sub_command` is the name the user actually typed, which matters because
+    # redock-flex-gpu inherits the call site from redock-gpu
+    engine = getattr(args, 'sub_command', None) or engine
+    put_err(f'--spacing {spacing} can not be honoured by {engine}: the AutoDock-GPU '
+            f'paths take the grid spacing from the gpf, which is fixed at 0.375 A '
+            f'(Angstrom). Use the vina-based subcommands if another spacing is '
+            f'required. Exit.', _exit=True)
+
+
 class redock(Command):
     HELP = """perform redock through vina or other method"""
     def __init__(self, args: argparse.Namespace, printf=print) -> None:
         super().__init__(args, printf, ['batch_dir'])
         self.tasks = []
-        self.summary_df = pd.DataFrame(columns=['path', 'rel_path', 'energy'])
+        # closure is the ring-closure distance in ANGSTROM (see
+        # `meeko_utils.measure_ring_closure`); None for a ligand without glue pairs
+        self.summary_df = pd.DataFrame(columns=['path', 'rel_path', 'energy', 'closure'])
         self.summary_df.set_index('path', inplace=True)
         
     @staticmethod
-    def make_args(args: argparse.ArgumentParser):
+    def make_common_args(args: argparse.ArgumentParser):
+        """add every argument the redock subcommands share.
+
+        The vina and the AutoDock-GPU subcommands need the same input selection,
+        output naming, grid box, macrocycle switch and preparation backend; only the
+        search knobs differ, and those are added by each subclass.  Declaring them
+        once here (instead of a set of `add_*_args` helpers called from several
+        `make_args`) is what keeps the two engine families from drifting apart: a
+        subclass gets the shared set by delegating, not by re-listing it.
+        """
         args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
                           help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
         args.add_argument('-n', '--name', type = str, required=True,
@@ -136,27 +197,82 @@ class redock(Command):
                           help=f"ligand chain.")
         args.add_argument('-rc', '--receptor-chain', type = str, nargs='+', default=None,
                           help="receptor chain, if not specified, will be others except ligand chain.")
-        args.add_argument('-sf', '--score-name', default='vina', choices=['vina', 'vinardo', 'ad4'],
-                          help='Score name for vina, default is %(default)s.')
         args.add_argument('-gb', '--grid-buffer', type = float, default=4,
-                          help='grid size buffer for grid box, will expand the grid box from ligand by buffer size, default is %(default)s.')
-        args.add_argument('-e', '--exhaustiveness', type = int, default=32,
-                          help='exhaustiveness, default is %(default)s.')
+                          help='grid box padding in ANGSTROM, added on every side of the ligand '
+                               '(and of every flexible residue), default is %(default)s.')
+        args.add_argument('--spacing', type = float, default=0.375,
+                          help='grid spacing in ANGSTROM, defines how many grid points a given '
+                               'box size becomes (npts = size / spacing); it must match the '
+                               'spacing the engine is run with, default is %(default)s.')
+        args.add_argument('--macrocycle', action = 'store_true', default=False,
+                          help='prepare the ligand with meeko so that one bond of a large ring is '
+                               'broken open and the ring skeleton can adapt during the search. '
+                               'Both engines pull it back shut: vina >= 1.2 and AutoDock-GPU both '
+                               'score a linear glue attraction. Ligands prepared this way are not '
+                               'score-comparable with rigid-ring ones, default is %(default)s.')
+        args.add_argument('--max-ring-size', type = int, default=MACROCYCLE_MAX_RING_SIZE,
+                          help='largest ring meeko may break. Meeko silently ignores bigger rings '
+                               'and leaves them rigid, so this must cover the real ring size '
+                               '(cyclic peptides reach 56 atoms), default is %(default)s.')
+        args.add_argument('--prepare-backend', type = str, default='meeko',
+                          choices=['meeko', 'adfr'],
+                          help='toolkit that prepares the receptor and ligand pdbqt. meeko and '
+                               'adfr type a few nitrogens/polar hydrogens differently, so scores '
+                               'from the two are not comparable. Can not be combined with '
+                               '--macrocycle, because ADT has no ring-breaking option. Note '
+                               '`redock-flex-*` always splits the receptor with meeko and this '
+                               'switch then only selects the ligand backend, default is %(default)s.')
         args.add_argument('-np', '--n-poses', type = int, default=20,
                           help='number of poses, default is %(default)s.')
         args.add_argument('--suffix', type = str, default='_redock',
-                          help="suffix for output pdbqt file, default is %(default)s.")
+                          help="suffix for the output file, default is %(default)s.")
         args.add_argument('--n-pdb', type = int, default=1,
-                          help="number of pdb files to extract from pdbqt, sorted by score, such as a_redock_0.pdb, default is %(default)s.")
+                          help="number of pdb files to extract from the result, sorted by score, "
+                               "such as a_redock_0.pdb, default is %(default)s.")
         args.add_argument('--summary', type = str, default='redock_summary.csv',
-                          help='nenrgy summary table')
+                          help='energy summary table, default is %(default)s.')
         args.add_argument('-nw', '--n-workers', type = int, default=1,
                           help="number of workers, default is %(default)s.")
+        return args
+
+    @staticmethod
+    def make_flex_args(args: argparse.ArgumentParser):
+        """add the flexible-residue arguments shared by both flex subcommands.
+
+        Declared next to `make_common_args` and for the same reason: `redock-flex-gpu`
+        and `redock-flex-vina` sit on different branches of the inheritance tree, so a
+        single definition on `redock` is what keeps their flex flags identical.
+
+        The three sources are combined, not exclusive: an explicit residue list,
+        residues within a distance of the ligand, and residues that fplip finds
+        interacting with the ligand.
+        """
+        args.add_argument('-fr', '--flex-residues', type = str, nargs='+', default=None,
+                          help="flexible receptor residues, could be '<chain>:<resnum>(,<resnum>)' such as 'A:68,50', "
+                               "or '<chain>:<RESN><resnum>' such as 'A:LYS68,LYS50'.")
+        args.add_argument('-fd', '--flex-distance', type = float, default=None,
+                          help='select receptor residues within this distance of any ligand heavy atom, default is %(default)s.')
+        args.add_argument('-fi', '--flex-interaction', action = 'store_true', default=False,
+                          help='select receptor residues which have interaction with ligand by fplip, default is %(default)s.')
+        args.add_argument('--flex-interaction-mode', type = str, default='all',
+                          help='interaction types for fplip, "all" to include all modes, default is %(default)s.')
+        args.add_argument('--flex-interaction-cutoff', type = float, default=4.,
+                          help='interaction distance cutoff for fplip, default is %(default)s.')
+        return args
+
+    @staticmethod
+    def make_args(args: argparse.ArgumentParser):
+        args = redock.make_common_args(args)
+        args.add_argument('-sf', '--score-name', default='vina', choices=['vina', 'vinardo', 'ad4'],
+                          help='Score name for vina, default is %(default)s.')
+        args.add_argument('-e', '--exhaustiveness', type = int, default=32,
+                          help='exhaustiveness, default is %(default)s.')
         return args
 
     def process_args(self):
         # process IO
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
+        check_macrocycle_args(self.args)
     
     def process_result(self, result_path: str, result):
         if not isinstance(result, tuple) or len(result) < 5:
@@ -177,9 +293,19 @@ class redock(Command):
                 # 受体需去掉这些原子(含其上的氢), 避免悬空氢
                 rec_pdbstr_ = build_flex_complex_pdbstr(rec_pdbstr, rigid_pdbqtstr, pose.as_pdb_string())
             rec_pdbstr_ = rec_pdbstr_.replace('END', '')
+            # 大环对接的 glue 伪原子会在 parse2std 下变成假元素 G, 下游 PDBFixer/OpenMM
+            # 会因此失败, 必须在落盘前剔除
+            pose_pdbstr = strip_glue_atoms(pose.as_pdb_string())
             # avoid null line, which will cause openbabel error
-            opts_file(pdb_path, 'w', way='str', data = f'{rec_pdbstr_}\nTER\n' + pose.as_pdb_string().strip('TER\n').strip('\n'))
-            self.summary_df.loc[pdb_path] = [os.path.relpath(pdb_path, self.args.batch_dir), pose.energy]
+            opts_file(pdb_path, 'w', way='str', data = f'{rec_pdbstr_}\nTER\n' + pose_pdbstr.strip('TER\n').strip('\n'))
+            # 环闭合度只能从原始 pdbqt 量: parse2std 会把 CG0/G0 的 type 改写成 C/G,
+            # 配对信息在那之后就没有了
+            closure = measure_ring_closure(pose.info_string())
+            if self.args.macrocycle and closure is not None and closure > RING_CLOSURE_CLOSED_A:
+                put_log(f'{pdb_path}: ring closure {closure:.2f} A > '
+                        f'{RING_CLOSURE_CLOSED_A} A, the macrocycle did not close in this pose')
+            self.summary_df.loc[pdb_path] = [os.path.relpath(pdb_path, self.args.batch_dir),
+                                             pose.energy, closure]
         return True
         
     def main_process(self):
@@ -198,7 +324,10 @@ class redock(Command):
             path = Path(path)
             result_path = str(path.parent / (path.stem + f'{self.args.suffix}.pdbqt'))
             pool.add_task(result_path, perform_vina_dock, self.args.score_name, self.args.grid_buffer, opts_file(path),
-                          self.args.ligand_chain, self.args.receptor_chain, self.args.exhaustiveness, self.args.n_poses)
+                          self.args.ligand_chain, self.args.receptor_chain, self.args.exhaustiveness, self.args.n_poses,
+                          spacing=self.args.spacing,
+                          macrocycle=self.args.macrocycle, max_ring_size=self.args.max_ring_size,
+                          prepare_backend=self.args.prepare_backend)
             while True:
                 result = pool.pull_task(return_name=True, block=False)
                 if not result or result == pool.TASK_NOT_RETURNED or result == pool.TASK_NOT_SUCCEEDED:
@@ -221,16 +350,14 @@ class redock_gpu(redock):
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
-        args.add_argument('-d', '-bd', '--batch-dir', type = str, nargs='+', default=['.'],
-                          help=f"dir which contains many sub-folders, each sub-folder contains docking result files.")
-        args.add_argument('-n', '--name', type = str, required=True,
-                          help="name for input complex file, such as `complex.pdb`.")
-        args.add_argument('-lc', '--ligand-chain', type = str, required=True,
-                          help=f"ligand chain.")
-        args.add_argument('-rc', '--receptor-chain', type = str, nargs='+', default=None,
-                          help="receptor chain, if not specified, will be others except ligand chain.")
-        args.add_argument('-gb', '--grid-buffer', type = float, default=4,
-                          help='grid size buffer for grid box, will expand the grid box from ligand by buffer size, default is %(default)s.')
+        args = redock.make_common_args(args)
+        # 共用参数的语义在 GPU 上不同, 就地覆盖 help
+        for act in args._actions:
+            if act.dest == 'n_poses':
+                act.help = ('number of LGA runs, each yielding one pose, '
+                            'default is %(default)s.')
+            elif act.dest == 'suffix':
+                act.help = "suffix for output dlg file, default is %(default)s."
         args.add_argument('--seed', type = int, default=0,
                           help='seed for random number, default is %(default)s.')
         args.add_argument('--nev', type = int, default=2500000,
@@ -239,22 +366,31 @@ class redock_gpu(redock):
                           help='AutoStop energy standard deviation tolerance, default is %(default)s.')
         args.add_argument('--heurmax', type = int, default=12000000,
                           help='Asymptotic heuristics evals limit (smooth limit), default is %(default)s.')
-        args.add_argument('-np', '--n-poses', type = int, default=20,
-                          help='number of poses, default is %(default)s.')
-        args.add_argument('--suffix', type = str, default='_redock',
-                          help="suffix for output dlg file, default is %(default)s.")
-        args.add_argument('--n-pdb', type = int, default=1,
-                          help="number of pdb files to extract from pdbqt, sorted by score, such as a_redock_0.pdb, default is %(default)s.")
-        args.add_argument('--summary', type = str, default='redock_summary.csv',
-                          help='nenrgy summary table')
-        args.add_argument('-nw', '--n-workers', type = int, default=1,
-                          help="number of workers, default is %(default)s.")
+        args.add_argument('--heuristics', type = int, default=1, choices=[0, 1],
+                          help='1 (the engine default) lets AutoDock-GPU derive the search method '
+                               'and the evaluation budget from the ligand torsion count; 0 makes '
+                               '--nev the exact budget. AutoStop can not stop before 100%% of the '
+                               'budget while this is 1, so 0 is what makes --stopstd effective, '
+                               'default is %(default)s.')
+        args.add_argument('--ngen', type = int, default=42000,
+                          help='maximum generations per LGA run, AutoDock-GPU default is '
+                               '%(default)s; raise it when --nev rather than --ngen should be '
+                               'what ends the run')
+        args.add_argument('--autostop', type = int, default=1, choices=[0, 1],
+                          help='stop a run once the best energies converge, default is %(default)s.')
         args.add_argument('--gpus', type = int, nargs='+', default=[0],
                           help="gpu ids, default is %(default)s.")
         args.add_argument('--n-task-per-gpu', type = int, default=1,
                           help="number of tasks per gpu, default is %(default)s.")
         return args
-        
+
+    def process_args(self):
+        super().process_args()
+        # --macrocycle 在本路径可用: AD4 的 glue 项是无 cutoff 的线性吸引, CGx 会
+        # 退回碳图, Gx 不计入分子间求和, 所以这里既有的 map 不需要任何改动.
+        # 仍然拒绝 spacing 的非默认值, 它由 gpf 决定, 兑现不了
+        check_gpu_spacing(self.args, 'redock-gpu')
+
     def main_process(self):
         # search for pdb files
         paths = get_paths_with_extension(self.args.batch_dir, ['.pdb'], name_substr=self.args.name, sort='natsort')
@@ -265,7 +401,12 @@ class redock_gpu(redock):
                             lambda p: (perform_autodock_gpu_dock_on_slot, opts_file(p),
                                        self.args.ligand_chain, self.args.receptor_chain, self.args.grid_buffer),
                             dict(seed=self.args.seed, nrun=self.args.n_poses, nev=self.args.nev,
-                                 stopstd=self.args.stopstd, heurmax=self.args.heurmax))
+                                 stopstd=self.args.stopstd, heurmax=self.args.heurmax,
+                                 heuristics=self.args.heuristics, ngen=self.args.ngen,
+                                 autostop=self.args.autostop,
+                                 macrocycle=self.args.macrocycle,
+                                 max_ring_size=self.args.max_ring_size,
+                                 prepare_backend=self.args.prepare_backend))
 
     def _run_dock_pool(self, paths, task_args_fn, task_kwargs: dict):
         """通用 GPU 任务池: 槽位队列 + TaskPool 提交/回收 + 结果处理 + summary 落盘"""
@@ -300,26 +441,6 @@ class redock_gpu(redock):
             result = pool.query_task(result_path, True, 30) # type: ignore
             self.process_result(result_path, result)
         self.summary_df.to_csv(os.path.join(self.args.batch_dir, self.args.summary), index=True)
-
-
-def add_flex_args(args: argparse.ArgumentParser):
-    """add flexible-residue arguments shared by redock-flex-gpu and redock-flex-vina"""
-    args.add_argument('-fr', '--flex-residues', type = str, nargs='+', default=None,
-                      help="flexible receptor residues, could be '<chain>:<resnum>(,<resnum>)' such as 'A:68,50', "
-                           "or '<chain>:<RESN><resnum>' such as 'A:LYS68,LYS50'.")
-    args.add_argument('-fd', '--flex-distance', type = float, default=None,
-                      help='select receptor residues within this distance of any ligand heavy atom, default is %(default)s.')
-    args.add_argument('-fi', '--flex-interaction', action = 'store_true', default=False,
-                      help='select receptor residues which have interaction with ligand by fplip, default is %(default)s.')
-    args.add_argument('--flex-interaction-mode', type = str, default='all',
-                      help='interaction types for fplip, "all" to include all modes, default is %(default)s.')
-    args.add_argument('--flex-interaction-cutoff', type = float, default=4.,
-                      help='interaction distance cutoff for fplip, default is %(default)s.')
-    args.add_argument('--meeko-python', type = str, default=None,
-                      help='python interpreter to call meeko, default is current interpreter.')
-    return args
-
-
 def check_flex_args(args: argparse.Namespace):
     """validate flexible-residue arguments shared by all redock-flex-* subcommands"""
     # 至少需要一种柔性残基来源
@@ -347,11 +468,12 @@ class redock_flex_gpu(redock_gpu):
                 act.help = "suffix for output dlg file, default is %(default)s."
             elif act.dest == 'summary':
                 act.default = 'redock_flex_summary.csv'
-        return add_flex_args(args)
+        return redock.make_flex_args(args)
 
     def process_args(self):
         super().process_args()
         check_flex_args(self.args)
+        # --spacing 的拒绝由 redock_gpu.process_args 完成(此处继承), 不再重复检查
         
     def main_process(self):
         # search for pdb files
@@ -368,9 +490,13 @@ class redock_flex_gpu(redock_gpu):
                  flex_interaction=self.args.flex_interaction,
                  flex_interaction_mode=self.args.flex_interaction_mode,
                  flex_interaction_cutoff=self.args.flex_interaction_cutoff,
-                 meeko_python=self.args.meeko_python,
                  seed=self.args.seed, nrun=self.args.n_poses, nev=self.args.nev,
-                 stopstd=self.args.stopstd, heurmax=self.args.heurmax))
+                 stopstd=self.args.stopstd, heurmax=self.args.heurmax,
+                 heuristics=self.args.heuristics, ngen=self.args.ngen,
+                 autostop=self.args.autostop,
+                 macrocycle=self.args.macrocycle,
+                 max_ring_size=self.args.max_ring_size,
+                 prepare_backend=self.args.prepare_backend))
 
 
 class redock_flex_vina(redock):
@@ -393,7 +519,7 @@ the vina scoring function is specifically required."""
                 act.help = "suffix for output pdbqt file, default is %(default)s."
             elif act.dest == 'summary':
                 act.default = 'redock_flex_summary.csv'
-        add_flex_args(args)
+        redock.make_flex_args(args)
         args.add_argument('--seed', type = int, default=0,
                           help='seed for random number, default is %(default)s.')
         args.add_argument('--max-evals', type = int, default=0,
@@ -428,10 +554,12 @@ the vina scoring function is specifically required."""
                           flex_interaction=self.args.flex_interaction,
                           flex_interaction_mode=self.args.flex_interaction_mode,
                           flex_interaction_cutoff=self.args.flex_interaction_cutoff,
-                          meeko_python=self.args.meeko_python,
                           exhaustiveness=self.args.exhaustiveness, n_poses=self.args.n_poses,
                           min_rmsd=self.args.min_rmsd, max_evals=self.args.max_evals,
-                          seed=self.args.seed, cpu=self.args.cpu)
+                          seed=self.args.seed, cpu=self.args.cpu,
+                          spacing=self.args.spacing,
+                          macrocycle=self.args.macrocycle, max_ring_size=self.args.max_ring_size,
+                          prepare_backend=self.args.prepare_backend)
             while True:
                 result = pool.pull_task(return_name=True, block=False)
                 if not result or result == pool.TASK_NOT_RETURNED or result == pool.TASK_NOT_SUCCEEDED:
