@@ -4,16 +4,28 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
-from mbapy_lite.base import put_err
+from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import opts_file
 from pymol import cmd
 
 from lazydock.config import GlobalConfig
-# this module prepares receptors/ligands with ADFRsuite, while meeko does the same
+# this module prepares ligands/receptors with ADFRsuite, while meeko does the same
 # with meeko; meeko_utils is the low-level module and is imported here
-from lazydock.pml.meeko_utils import (FlexResidue, parse_flex_residues,
-                                      prepare_receptor_with_flexres)
+from lazydock.dock.config import MACROCYCLE_MAX_RING_SIZE
+from lazydock.dock.flex_utils import (FlexResidue, collect_flex_residues,
+                                      parse_flex_residues)
+from lazydock.dock.meeko_utils import (prepare_ligand_with_meeko,
+                                       prepare_receptor_with_flexres,
+                                       prepare_receptor_with_meeko)
 from lazydock.pml.utils import new_pml_context
+
+PREPARE_BACKENDS = ('meeko', 'adfr')
+PREPARE_BACKEND_DEFAULT = 'meeko'
+
+# which toolkit prepares the receptor/ligand pdbqt handed to the docking engine.
+# Both are usable and the switch is NOT score-neutral: meeko and ADT classify a few
+# nitrogen acceptors and polar hydrogens differently, so scores from the two backends
+# are not comparable (see `prepare_receptor_with_meeko`).
 
 
 def get_pdbqtstr_from_pdbstr(pdbstr: str, caller: str = 'prepare_ligand', entry_param: str = '-l',
@@ -101,74 +113,37 @@ def build_flex_complex_pdbstr(receptor_pdbstr: str, rigid_pdbqtstr: str, pose_pd
     return '\n'.join(kept)
 
 
-def select_flex_residues_by_distance(complex_pdbstr: str, ligand_chain: str,
-                                     receptor_chain: List[str], distance: float) -> Optional[List[FlexResidue]]:
+def prepare_receptor_pdbqtstr(receptor_pdbstr: str, prepare_backend: str = PREPARE_BACKEND_DEFAULT):
     """
-    select receptor residues within `distance` (angstrom) of any ligand heavy atom.
-    
-    both sides are restricted to heavy atoms (`not elem H`), otherwise hydrogens
-    would make the effective cutoff shorter than requested.
-    
-    :param complex_pdbstr: complex pdb string
-    :param ligand_chain: ligand chain
-    :param receptor_chain: receptor chain list
-    :param distance: distance cutoff in angstrom
-    :return: list of (chain, resname, resnum), None if failed
+    prepare a rigid receptor pdbqt string with the requested backend.
+
+    Both backends add the polar hydrogens themselves, so a hydrogen-free pdb string
+    is accepted.  The two are NOT interchangeable score-wise: see the
+    `PREPARE_BACKENDS` comment above.
+
+    :param receptor_pdbstr: receptor pdb string
+    :param prepare_backend: 'meeko' or 'adfr'
+    :return: pdbqt string, None if failed
     """
-    receptor_chain = _normalize_receptor_chain(complex_pdbstr, ligand_chain, receptor_chain)
-    cmd.reinitialize()
-    cmd.read_pdbstr(complex_pdbstr, 'complex')
-    rec_sel = ' or '.join([f'chain {c}' for c in receptor_chain])
-    cmd.select('lig_heavy', f'complex and chain {ligand_chain} and not elem H')
-    if cmd.count_atoms('lig_heavy') == 0:
-        return put_err(f'can not find any heavy atom on ligand chain {ligand_chain}')
-    # `within` is a top-level binary operator and can NOT be mixed with `and`,
-    # so both operands must be parenthesized selection expressions
-    cmd.select('rec_near', f'(complex and ({rec_sel}) and not elem H) within {distance} of lig_heavy')
-    result = set()
-    cmd.iterate('rec_near', 'result.add((chain, resn, int(resi)))', space={'result': result})
-    if not result:
-        return put_err(f'can not find any receptor residue within {distance} A of ligand chain {ligand_chain}')
-    return sorted(result, key=lambda x: (x[0], x[2]))
+    if prepare_backend == 'meeko':
+        prepared = prepare_receptor_with_meeko(receptor_pdbstr)
+        if not prepared:
+            return None
+        # rigid-only preparation never yields a flexible part
+        return prepared[0]
+    if prepare_backend == 'adfr':
+        success, receptor_pdbqtstr = get_pdbqtstr_from_pdbstr(receptor_pdbstr, 'prepare_receptor', '-r')
+        if not success:
+            return put_err(f"Failed to prepare receptor_pdbqtstr: {receptor_pdbqtstr}")
+        return receptor_pdbqtstr
+    return put_err(f'unknown prepare_backend "{prepare_backend}", '
+                   f'expected one of {PREPARE_BACKENDS}')
 
 
-def select_flex_residues_by_interaction(complex_pdbstr: str, ligand_chain: str,
-                                        receptor_chain: List[str], cutoff: float = 4.,
-                                        mode: Union[str, List[str]] = 'all') -> Optional[List[FlexResidue]]:
-    """
-    select receptor residues which have interaction with ligand, using fplip (PLIP port).
-    
-    :param complex_pdbstr: complex pdb string
-    :param ligand_chain: ligand chain
-    :param receptor_chain: receptor chain list
-    :param cutoff: interaction distance cutoff in angstrom
-    :param mode: interaction types to be calculated, 'all' to include all modes.
-    :return: list of (chain, resname, resnum), None if failed
-    """
-    from lazydock.pml.plip_interaction import (check_support_mode,
-                                               run_plip_analysis)
-    receptor_chain = _normalize_receptor_chain(complex_pdbstr, ligand_chain, receptor_chain)
-    mode = check_support_mode(mode)
-    interactions = run_plip_analysis(complex_pdbstr, receptor_chain, ligand_chain, mode, cutoff)
-    if isinstance(interactions, Exception):
-        return put_err(f'fplip analysis failed: {interactions}')
-    if not interactions or not any(interactions.values()):
-        return put_err(f'fplip found no interaction between receptor {receptor_chain} and ligand {ligand_chain}')
-    # fplip keeps the residue numbering and resname of the input pdb (verified:
-    # 0 mismatch on a real complex), so its values are used as-is.
-    receptor_chain_set = set(receptor_chain)
-    result = set()
-    for _type, values in interactions.items():
-        for rec_res, _lig_res, _dist in values:
-            resi, resn, chain = rec_res
-            if chain in receptor_chain_set:
-                result.add((chain, resn, int(resi)))
-    if not result:
-        return put_err(f'fplip found no interaction residue on receptor chain {receptor_chain}')
-    return sorted(result, key=lambda x: (x[0], x[2]))
-
-
-def _prepare_ligand_receptor(complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str]):
+def _prepare_ligand_receptor(complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str],
+                             macrocycle: bool = False,
+                             max_ring_size: int = MACROCYCLE_MAX_RING_SIZE,
+                             prepare_backend: str = PREPARE_BACKEND_DEFAULT):
     cmd.reinitialize()
     cmd.read_pdbstr(complex_pdbstr, 'complex')
     # receptor
@@ -182,19 +157,47 @@ def _prepare_ligand_receptor(complex_pdbstr: str, ligand_chain: str, receptor_ch
         put_err(f'can not find receptor with chain {receptor_chain}')
         return None
     receptor_pdbstr = cmd.get_pdbstr('receptor')
-    success, receptor_pdbqtstr = get_pdbqtstr_from_pdbstr(receptor_pdbstr, 'prepare_receptor', '-r')
-    if not success:
-        put_err(f"Failed to prepare receptor_pdbqtstr: {receptor_pdbqtstr}")
+    receptor_pdbqtstr = prepare_receptor_pdbqtstr(receptor_pdbstr, prepare_backend)
+    if not receptor_pdbqtstr:
         return None
     # ligand
     if cmd.select('ligand', f'complex and chain {ligand_chain}') == 0:
         put_err(f'can not find ligand with chain {ligand_chain}')
         return None
     ligand_pdbstr = cmd.get_pdbstr(f'chain {ligand_chain}')
-    success, ligand_pdbqtstr = get_pdbqtstr_from_pdbstr(ligand_pdbstr, 'prepare_ligand', '-l')
-    if not success:
-        put_err(f"Failed to prepare ligand_pdbqtstr: {ligand_pdbqtstr}")
-        return None
+    if macrocycle:
+        # ADT's prepare_ligand has NO ring/macrocycle option at all (its option list
+        # holds nothing matching ring|cycl|glue|macro), so a cyclic ligand prepared
+        # by it has every ring bond frozen -- the ring conformation is then literally
+        # unable to move during docking.  meeko breaks one ring bond and adds glue
+        # pseudo-atoms instead, which vina >= 1.2 pulls back closed during the search.
+        prepared = prepare_ligand_with_meeko(ligand_pdbstr, max_ring_size)
+        if not prepared:
+            return None
+        ligand_pdbqtstr, macro_info = prepared
+        if not macro_info['ring_flexible']:
+            # meeko silently ignores rings larger than `max_ring_size`, so this is
+            # the only signal that the requested flexibility was not delivered
+            put_err(f'macrocycle was requested but no ring was opened '
+                    f'(max_ring_size={max_ring_size}, the ring may be larger); '
+                    f'docking would silently run with a rigid ring.')
+        else:
+            put_log(f'macrocycle prepared by meeko: {macro_info["n_glue_pairs"]} ring bond(s) '
+                    f'opened, {macro_info["n_branch"]} BRANCH records, '
+                    f'TORSDOF={macro_info["torsdof"]}')
+    elif prepare_backend == 'meeko':
+        # `break_rings=False` is mandatory here: meeko's ring breaking is on by
+        # default over the whole 7..33 atom window, so a plain medium ring would be
+        # opened and the resulting CG0/G0 atoms have no grid in an AutoDock map
+        prepared = prepare_ligand_with_meeko(ligand_pdbstr, break_rings=False)
+        if not prepared:
+            return None
+        ligand_pdbqtstr, _ = prepared
+    else:
+        success, ligand_pdbqtstr = get_pdbqtstr_from_pdbstr(ligand_pdbstr, 'prepare_ligand', '-l')
+        if not success:
+            put_err(f"Failed to prepare ligand_pdbqtstr: {ligand_pdbqtstr}")
+            return None
     return receptor_pdbstr, receptor_pdbqtstr, ligand_pdbstr, ligand_pdbqtstr
 
 
@@ -207,13 +210,17 @@ def _get_grid(lig_pdbstr: str, grid_buffer: float):
     return grid_center, grid_size
 
 def _prepare_ligand_receptor_grid(tmpdir: str, v, complex_pdbstr: str,
-                                  ligand_chain: str, receptor_chain: List[str], grid_buffer: float):
+                                  ligand_chain: str, receptor_chain: List[str], grid_buffer: float,
+                                  macrocycle: bool = False,
+                                  max_ring_size: int = MACROCYCLE_MAX_RING_SIZE,
+                                  prepare_backend: str = PREPARE_BACKEND_DEFAULT):
     """
     prepare ligand and receptor pdbqt file and grid
     
     return: v, receptor_pdbstr, receptor_pdbqtstr, ligand_pdbstr, ligand_pdbqtstr
     """
-    pdbstr_pack = _prepare_ligand_receptor(complex_pdbstr, ligand_chain, receptor_chain)
+    pdbstr_pack = _prepare_ligand_receptor(complex_pdbstr, ligand_chain, receptor_chain,
+                                           macrocycle, max_ring_size, prepare_backend)
     if not pdbstr_pack:
         return None
     receptor_pdbstr, receptor_pdbqtstr, ligand_pdbstr, ligand_pdbqtstr = pdbstr_pack
@@ -230,7 +237,9 @@ def _prepare_ligand_receptor_grid(tmpdir: str, v, complex_pdbstr: str,
 
 
 def calc_vina_score(score_name: str, grid_buffer: float,
-                    complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str], cpu: int = 1):
+                    complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str], cpu: int = 1,
+                    macrocycle: bool = False, max_ring_size: int = MACROCYCLE_MAX_RING_SIZE,
+                    prepare_backend: str = PREPARE_BACKEND_DEFAULT):
     """"total", "lig_inter", "flex_inter", "other_inter", "flex_intra", "lig_intra", "torsions", "-lig_intra"
     calculate vina score of a complex pdb file.
     
@@ -240,13 +249,22 @@ def calc_vina_score(score_name: str, grid_buffer: float,
     :param ligand_chain: ligand chain
     :param receptor_chain: receptor chain list, if None, will be all chains except ligand chain
     :param cpu: cpu number
+    :param macrocycle: prepare the ligand with meeko so that a large ring is broken and
+        stays flexible, matching how it was prepared for docking.  Without it the
+        ligand is re-prepared by ADT, whose rigid ring yields a different rotor count
+        and therefore a `total` that can not be compared with the dock score.
+    :param max_ring_size: largest ring meeko may break
+    :param prepare_backend: 'meeko' or 'adfr', the same value that prepared the docked
+        pose MUST be passed here, otherwise the receptor/ligand pdbqt differ from the
+        docked ones and the rescored `total` is not comparable with the dock score
     
     :return: score list, if None, means failed
     """
     from vina import Vina
     v = Vina(sf_name=score_name, cpu=cpu, verbosity=False)    
     with tempfile.TemporaryDirectory() as tmpdir:
-        v = _prepare_ligand_receptor_grid(tmpdir, v, complex_pdbstr, ligand_chain, receptor_chain, grid_buffer)
+        v = _prepare_ligand_receptor_grid(tmpdir, v, complex_pdbstr, ligand_chain, receptor_chain,
+                                          grid_buffer, macrocycle, max_ring_size, prepare_backend)
         if not v:
             return None
         # compute and retrun score
@@ -256,7 +274,9 @@ def calc_vina_score(score_name: str, grid_buffer: float,
 def perform_vina_dock(score_name: str, grid_buffer: float,
                       complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str],
                       exhaustiveness: int, n_poses: int, min_rmsd: float = 1, max_evals: int = 0,
-                      seed: int = None, energy_range: float = None, cpu: Optional[int] = None):
+                      seed: int = None, energy_range: float = None, cpu: Optional[int] = None,
+                      macrocycle: bool = False, max_ring_size: int = MACROCYCLE_MAX_RING_SIZE,
+                      prepare_backend: str = PREPARE_BACKEND_DEFAULT):
     """
     perform docking with vina
     
@@ -269,11 +289,14 @@ def perform_vina_dock(score_name: str, grid_buffer: float,
     :param n_poses: n_poses
     :param min_rmsd: min_rmsd
     :param max_evals: max_evals
-    :param seed: random seed for vina, None means vina decides (non-reproducible).
-        Added for the redock pipeline, which promises reproducibility (its
-        pipeline.json stores a seed); without it the same input gave -8.62 and
-        -7.36 kcal/mol on two consecutive runs.  Kept optional so that every
-        existing caller keeps its old behaviour.
+    :param seed: random seed for vina, 0 means vina picks one at random
+        (non-reproducible).  Added for the redock pipeline, which promises
+        reproducibility (its pipeline.json stores a seed); without it the same
+        input gave -8.62 and -7.36 kcal/mol on two consecutive runs.  Kept
+        optional so that every existing caller keeps its old behaviour.
+        NOTE: None is accepted as a synonym of 0 and is converted below, because
+        vina's SWIG binding rejects None outright (`argument 3 of type 'int'`)
+        and `redock` calls this function without a seed at all.
     :param energy_range: maximum energy difference (kcal/mol) a pose may have
         from the best one to still be written.  None means vina's own default
         (3.0), which SILENTLY DROPS poses: requesting n_poses=20 returned only
@@ -286,11 +309,22 @@ def perform_vina_dock(score_name: str, grid_buffer: float,
         task where 8 threads needed ~2 min.  The redock pipeline passes its own
         `vina_cpu` here (see `redock/loop._vina_dock`); every existing caller is
         unaffected because the default reproduces the old value.
+    :param macrocycle: prepare the ligand with meeko, breaking a large ring so that
+        its conformation can adapt during the search (requires vina >= 1.2).  Off by
+        default so that existing results stay reproducible.
+    :param max_ring_size: largest ring meeko may break, see MACROCYCLE_MAX_RING_SIZE
+    :param prepare_backend: 'meeko' or 'adfr', which toolkit prepares the receptor and
+        ligand pdbqt.  The two type a few nitrogens/polar hydrogens differently, so
+        scores are NOT comparable across backends (see `PREPARE_BACKENDS`)
     
     :return: True if success, False otherwise
     """
     from vina import Vina
 
+    # vina's SWIG binding is typed, so a None here is a hard TypeError rather than
+    # a silent default; `redock` relies on this default and passes no seed at all
+    if seed is None:
+        seed = 0
     # historically the thread count was tied to `exhaustiveness`; keep that as
     # the default so existing callers behave exactly as before, but let the
     # caller override (the redock pipeline sizes its own thread budget)
@@ -298,7 +332,8 @@ def perform_vina_dock(score_name: str, grid_buffer: float,
         cpu = exhaustiveness
     v = Vina(sf_name=score_name, cpu=cpu, seed=seed, verbosity=False)    
     with tempfile.TemporaryDirectory() as tmpdir:
-        v = _prepare_ligand_receptor_grid(tmpdir, v, complex_pdbstr, ligand_chain, receptor_chain, grid_buffer)
+        v = _prepare_ligand_receptor_grid(tmpdir, v, complex_pdbstr, ligand_chain, receptor_chain,
+                                          grid_buffer, macrocycle, max_ring_size, prepare_backend)
         if not v:
             return False
         v, receptor_pdbstr, receptor_pdbqtstr, ligand_pdbstr, ligand_pdbqtstr = v
@@ -311,49 +346,6 @@ def perform_vina_dock(score_name: str, grid_buffer: float,
         return result_str, receptor_pdbstr, receptor_pdbqtstr, ligand_pdbstr, ligand_pdbqtstr
 
 
-def collect_flex_residues(complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str],
-                          flex_residues: Union[str, List[str], List[FlexResidue]] = None,
-                          flex_distance: float = None, flex_interaction: bool = False,
-                          flex_interaction_mode: Union[str, List[str]] = 'all',
-                          flex_interaction_cutoff: float = 4.) -> Optional[List[FlexResidue]]:
-    """
-    collect flexible residues from three sources, duplicated residues are merged.
-
-        - flex_residues: explicit residue list, such as 'A:LYS68,A:LYS50' or [(chain, resname, resnum), ...]
-        - flex_distance: select receptor residues within this distance of any ligand heavy atom
-        - flex_interaction: select receptor residues which have interaction with ligand by fplip
-    
-    :return: list of (chain, resname, resnum); None if nothing is found or a source failed
-    """
-    result: List[FlexResidue] = []
-    seen = set()
-
-    def _add(flex):
-        if not flex:
-            return
-        for c, r, n in flex:
-            if (c, n) not in seen:
-                seen.add((c, n))
-                result.append((c, r, n))
-
-    # 1. explicit
-    if flex_residues:
-        if isinstance(flex_residues, str) or (isinstance(flex_residues, list) and isinstance(flex_residues[0], str)):
-            _add(parse_flex_residues(flex_residues))
-        else:
-            _add(flex_residues)
-    # 2. by distance
-    if flex_distance is not None:
-        _add(select_flex_residues_by_distance(complex_pdbstr, ligand_chain, receptor_chain, flex_distance))
-    # 3. by interaction
-    if flex_interaction:
-        _add(select_flex_residues_by_interaction(complex_pdbstr, ligand_chain, receptor_chain,
-                                                 flex_interaction_cutoff, flex_interaction_mode))
-    if not result:
-        return None
-    return result
-
-
 def perform_vina_flex_dock(score_name: str, grid_buffer: float,
                            complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str],
                            flex_residues: Union[str, List[str], List[FlexResidue]] = None,
@@ -362,7 +354,9 @@ def perform_vina_flex_dock(score_name: str, grid_buffer: float,
                            meeko_python: Optional[str] = None, gpf_caller: Optional[str] = None,
                            exhaustiveness: int = 32, n_poses: int = 20,
                            min_rmsd: float = 1, max_evals: int = 0,
-                           seed: int = 0, cpu: int = 0, energy_range: float = None):
+                           seed: int = 0, cpu: int = 0, energy_range: float = None,
+                           macrocycle: bool = False, max_ring_size: int = MACROCYCLE_MAX_RING_SIZE,
+                           prepare_backend: str = PREPARE_BACKEND_DEFAULT):
     """
     perform docking with vina, receptor flexible residues are supported.
     
@@ -399,6 +393,15 @@ def perform_vina_flex_dock(score_name: str, grid_buffer: float,
     :param energy_range: max energy difference (kcal/mol) from the best pose for
         a pose to be written; None keeps vina's default (3.0), which silently
         drops poses (see `perform_vina_dock`)
+    :param macrocycle: prepare the ligand with meeko, breaking a large ring so that
+        its conformation can adapt during the search (requires vina >= 1.2).  Off by
+        default so that existing results stay reproducible.
+    :param max_ring_size: largest ring meeko may break, see MACROCYCLE_MAX_RING_SIZE
+    :param prepare_backend: 'meeko' or 'adfr', which toolkit prepares the LIGAND pdbqt.
+        The receptor is always split by meeko here, because ADT's `prepare_receptor`
+        can not produce a rigid part + flexible sidechains pair at all.  Note this
+        makes the all-meeko combination reachable as well, and that the two ligand
+        backends are not score-comparable (see `PREPARE_BACKENDS`)
     
     :return: (result_str, receptor_pdbstr, rigid_pdbqtstr, flex_pdbqtstr, ligand_pdbstr, ligand_pdbqtstr),
         None if failed. `result_str` is a vina-format pdbqt string (NOT a dlg),
@@ -423,7 +426,8 @@ def perform_vina_flex_dock(score_name: str, grid_buffer: float,
     from vina import Vina
     with tempfile.TemporaryDirectory() as tmpdir:
         # prepare ligand and receptor pdb string, and ligand pdbqt
-        pdbstr_pack = _prepare_ligand_receptor(complex_pdbstr, ligand_chain, receptor_chain)
+        pdbstr_pack = _prepare_ligand_receptor(complex_pdbstr, ligand_chain, receptor_chain,
+                                               macrocycle, max_ring_size, prepare_backend)
         if not pdbstr_pack:
             return None
         receptor_pdbstr, _, ligand_pdbstr, ligand_pdbqtstr = pdbstr_pack
@@ -616,7 +620,8 @@ def perform_autodock_gpu_flex_dock(complex_pdbstr: str, ligand_chain: str, recep
                                    autodock_caller: Optional[str] = None, gpf_caller: Optional[str] = None,
                                    meeko_python: Optional[str] = None,
                                    seed: int = 0, nrun: int = 5, nev: int = 500000,
-                                   stopstd: float = 0.5, heurmax: int = 3000000, gpu_id: int = 0):
+                                   stopstd: float = 0.5, heurmax: int = 3000000, gpu_id: int = 0,
+                                   prepare_backend: str = PREPARE_BACKEND_DEFAULT):
     """
     perform docking with AutoDock-GPU with flexible receptor sidechains.
     
@@ -638,6 +643,10 @@ def perform_autodock_gpu_flex_dock(complex_pdbstr: str, ligand_chain: str, recep
     :param gpf_caller: prepare_gpf.py path, if None, will be read from config or $PREPARE_GPF
     :param meeko_python: python interpreter to call meeko, None means current interpreter
     :param seed, nrun, nev, stopstd, heurmax, gpu_id: AutoDock-GPU options
+    :param prepare_backend: 'meeko' or 'adfr', which toolkit prepares the LIGAND pdbqt.
+        The receptor is always split by meeko here (ADT can not do rigid + flexible
+        sidechains), and it must be meeko: ADT's typing differences can not be reached
+        through this path.  The ligand backends are not score-comparable
     
     :return: (result_str, receptor_pdbstr, rigid_pdbqtstr, flex_pdbqtstr, ligand_pdbstr, ligand_pdbqtstr),
         None if failed. The 6th item is the ligand chain pdb string.
@@ -660,7 +669,8 @@ def perform_autodock_gpu_flex_dock(complex_pdbstr: str, ligand_chain: str, recep
     _prepend_adfr_bin_to_path(gpf_caller)
     with tempfile.TemporaryDirectory() as tmpdir:
         # prepare ligand and receptor pdb string, and ligand pdbqt
-        pdbstr_pack = _prepare_ligand_receptor(complex_pdbstr, ligand_chain, receptor_chain)
+        pdbstr_pack = _prepare_ligand_receptor(complex_pdbstr, ligand_chain, receptor_chain,
+                                               prepare_backend=prepare_backend)
         if not pdbstr_pack:
             return None
         receptor_pdbstr, _, ligand_pdbstr, ligand_pdbqtstr = pdbstr_pack
@@ -773,10 +783,28 @@ def perform_autodock_gpu_dock_core(docking_dir: str, caller: str, ffile: str, lf
 def perform_autodock_gpu_dock(complex_pdbstr: str, ligand_chain: str, receptor_chain: List[str],grid_buffer: float,
                               autodock_caller: Optional[str] = None, gpf_caller: Optional[str] = None,
                               seed: int = 0, nrun: int = 5, nev: int = 500000,
-                              stopstd: float = 0.5, heurmax: int = 3000000, gpu_id: int = 0):
+                              stopstd: float = 0.5, heurmax: int = 3000000, gpu_id: int = 0,
+                              prepare_backend: str = PREPARE_BACKEND_DEFAULT):
+    """
+    perform docking with AutoDock-GPU
+
+    :param complex_pdbstr: complex pdb string
+    :param ligand_chain: ligand chain
+    :param receptor_chain: receptor chain list, if None, will be all chains except ligand chain
+    :param grid_buffer: grid size buffer for grid box, will expand the grid box from ligand by buffer size
+    :param autodock_caller: autodock_gpu executable path, if None, will be read from config or $AUTODOCK_GPU
+    :param gpf_caller: prepare_gpf.py path, if None, will be read from config or $PREPARE_GPF
+    :param seed, nrun, nev, stopstd, heurmax, gpu_id: AutoDock-GPU options
+    :param prepare_backend: 'meeko' or 'adfr', which toolkit prepares the receptor and
+        ligand pdbqt.  Meeko was verified to work end-to-end on this path (its pdbqt
+        feeds prepare_gpf.py and autogrid4 directly, 9 maps written), but the two
+        backends type some nitrogens/polar hydrogens differently, so their scores are
+        NOT comparable (see `PREPARE_BACKENDS`).
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         # prepare ligand and receptor
-        pdbstr_pack = _prepare_ligand_receptor(complex_pdbstr, ligand_chain, receptor_chain)
+        pdbstr_pack = _prepare_ligand_receptor(complex_pdbstr, ligand_chain, receptor_chain,
+                                               prepare_backend=prepare_backend)
         if not pdbstr_pack:
             return None
         receptor_pdbstr, receptor_pdbqtstr, ligand_pdbstr, ligand_pdbqtstr = pdbstr_pack

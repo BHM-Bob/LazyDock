@@ -5,6 +5,7 @@ LastEditTime: 2024-12-18 18:43:31
 Description: 
 '''
 import os
+from typing import List
 
 import numpy as np
 from pymol import cmd
@@ -26,6 +27,18 @@ def get_seq(pose: str, fasta: bool = False):
     if fasta:
         return seq
     return ''.join(seq.split('\n')[1:])
+
+
+def normalize_receptor_chain(complex_pdbstr: str, ligand_chain: str,
+                             receptor_chain: List[str] = None,
+                             reinitialize: bool = True) -> List[str]:
+    """if receptor_chain is None, use all chains except ligand chain"""
+    if receptor_chain:
+        return receptor_chain
+    if reinitialize:
+        cmd.reinitialize()
+    cmd.read_pdbstr(complex_pdbstr, 'complex')
+    return sorted(set(cmd.get_chains()) - {ligand_chain})
 
 
 def rotation_matrix_to_pymol_matrix(rotation_matrix, ref_center, move_center):
