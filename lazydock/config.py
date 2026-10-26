@@ -19,6 +19,7 @@ class Config(BaseInfo):
             'sobtop_dir': None,
             'prepare_gpf': None,
             'autodock_gpu': None,
+            'gmx': None,
         }
         self.named_accounts = {
             'CGenFF': {
