@@ -7,17 +7,24 @@ Description:
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from mbapy_lite.base import get_fmt_time, put_log
 from mbapy_lite.file import opts_file
 from mbapy_lite.game import BaseInfo
 
+from lazydock.config import GlobalConfig
+
 
 class Gromacs(BaseInfo):
-    def __init__(self, call_name: str = 'gmx', working_dir: str = '.', gpu_ids: List[int] = None):
+    def __init__(self, call_name: Optional[str] = None, working_dir: str = '.', gpu_ids: List[int] = None):
         super().__init__()
+        if call_name is None:
+            # get gromacs call name from environment variable
+            # if not set in environment variable, use the one in config file
+            # if not set in config file, use 'gmx'
+            call_name = os.getenv('LAZYDOCK_GMX', None) or GlobalConfig.named_paths.get('gmx', 'gmx')
         self.call_name = call_name
         self.working_dir = os.path.abspath(working_dir)
         self.wdir = Path(self.working_dir).resolve()
@@ -140,7 +147,7 @@ class Gromacs(BaseInfo):
         """
         return self.run_command_with_expect(f'cd "{self.working_dir}" && {cmd}', expect_actions, expect_settings, enable_log)
         
-    def get_groups(self, f_name: str, n_name: str = None) -> Dict[str, int]:
+    def get_groups(self, f_name: str, n_name: Optional[str] = None) -> Dict[str, int]:
         """
         Get groups from tpr file using gmx make_ndx command.
         
