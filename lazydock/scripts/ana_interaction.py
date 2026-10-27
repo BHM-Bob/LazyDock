@@ -387,6 +387,8 @@ class vina_score(Command):
                           help="output file, default is %(default)s.")
         args.add_argument('-nw', '--n-workers', type = int, default=1,
                           help="number of workers, default is %(default)s.")
+        args.add_argument('--prepare-backend', type=str, default='meeko', choices=['meeko', 'adfr'],
+                          help='prepare backend for pdbqt, default is %(default)s.')
         return args
 
     def process_args(self):
@@ -409,7 +411,7 @@ class vina_score(Command):
         # submit and run tasks parallel
         for path in tqdm(paths):
             self.pool.add_task(path, calc_vina_score, self.args.score_name, self.args.grid_buffer, opts_file(path),
-                          self.args.ligand_chain, self.args.receptor_chain)
+                          self.args.ligand_chain, self.args.receptor_chain, prepare_backend=self.args.prepare_backend)
             self.pool.wait_till_free()
         self.pool.wait_till_all_done(timeout=30)
         # retrieve results
