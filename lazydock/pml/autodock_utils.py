@@ -79,13 +79,13 @@ class ADModel(BaseInfo):
             for atom in self.pdb_atoms:
                 if not atom[4]:
                     atom[4] = self.default_chain
-                if len(atom[2]) == 4:
+                if len(atom[2]) == 4 and atom[2][0].isdigit():
                     atom[-1] = atom[2][1] # such as 1HH1
                 elif len(atom[2]) >= 1:
                     if atom[2][0].isdigit():
                         atom[-1] = atom[2][1] # such as 1HH
                     else:
-                        atom[-1] = atom[2][0] # such as H, CA, NH1
+                        atom[-1] = atom[2][0] # such as H, CA, NH1, HD21
             self.pdb_lines = [PDB_FORMAT2.format(*line) if len(line[2])==4 else PDB_FORMAT.format(*line) for line in self.pdb_atoms]
             self.pdb_string = '\n'.join(self.pdb_lines)
         else:
