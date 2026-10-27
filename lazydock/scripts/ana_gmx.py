@@ -214,6 +214,8 @@ class simple(trjconv):
                           help='DIT.mplstyle style file path, default is %(default)s.')
         args.add_argument('-rg', '--rms-group', type = str, default='4',
                           help='group to calculate rmsd, rmsf, and gyrate, default is %(default)s.')
+        args.add_argument('--rmsf-atom', action='store_true', default=False,
+                          help='wheter to calculate rmsf in atom, default is %(default)s.')
         args.add_argument('-hg', '--hbond-group', type = int, nargs='+', default=[1, 1],
                           help='group to calculate hbond, default is %(default)s.')
         args.add_argument('-sg', '--sasa-group', type = str, default='4',
@@ -459,7 +461,7 @@ class simple(trjconv):
                     force=args.force, delete=args.delete)
         if 'rmsf' in args.methods:
             self.rmsf(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=rms_group,
-                    force=args.force, delete=args.delete)
+                    res=not args.rmsf_atom, force=args.force, delete=args.delete)
         if 'gyrate' in args.methods:
             self.gyrate(gmx, main_name=main_name, top_name=top_name, trj_name=trj_name, index=args.index, group=rms_group,
                         force=args.force, delete=args.delete)
