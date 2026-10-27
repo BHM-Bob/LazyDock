@@ -172,6 +172,7 @@ class redock(Command):
     HELP = """perform redock through vina or other method"""
     def __init__(self, args: argparse.Namespace, printf=print) -> None:
         super().__init__(args, printf, ['batch_dir'])
+        self.IS_SUPPORT_FLEX: bool = True
         self.tasks = []
         # closure is the ring-closure distance in ANGSTROM (see
         # `meeko_utils.measure_ring_closure`); None for a ligand without glue pairs
@@ -285,7 +286,7 @@ class redock(Command):
         # process IO
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
         check_macrocycle_args(self.args)
-        if self.uses_flex:
+        if self.IS_SUPPORT_FLEX and self.uses_flex:
             # only meaningful in flex mode; in rigid mode the three sources are
             # accepted but ignored, so their format is not checked there
             check_flex_args(self.args)
@@ -306,7 +307,7 @@ class redock(Command):
     
     def process_result(self, result_path: str, result):
         if not isinstance(result, tuple) or len(result) < 5:
-            return put_err(f'invalid result: {result}', False)
+            return put_err(f'invalid result, {result_path}: {result}', False)
         # redock/redock-gpu 返回 5 元组, redock-flex-gpu 返回 6 元组(多一个 rigid pdbqt)
         result_pdbstr, rec_pdbstr = result[0], result[1]
         rigid_pdbqtstr = result[2] if len(result) >= 6 else None
@@ -414,6 +415,7 @@ class redock(Command):
 class redock_gpu(redock):
     def __init__(self, args, printf = print):
         super().__init__(args, printf)
+        self.IS_SUPPORT_FLEX: bool = False
         
     @staticmethod
     def make_args(args: argparse.ArgumentParser):
