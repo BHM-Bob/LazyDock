@@ -64,6 +64,8 @@ class Gromacs(BaseInfo):
                 if kwargs[k]:
                     kwargs[k] = ''
                 else:
+                    # del the key if value is False, avoid -noKEY and -KEY False both added
+                    del kwargs[k]
                     kwargs[f'no{k}'] = ''
             elif isinstance(kwargs[k], (list, tuple)):
                 kwargs[k] =' '.join(map(str, kwargs[k]))
