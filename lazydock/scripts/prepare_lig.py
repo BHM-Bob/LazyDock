@@ -10,7 +10,7 @@ import multiprocessing
 import traceback
 from collections import defaultdict
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension
@@ -149,7 +149,8 @@ class cif2pdb(Command):
 def _fix_cp_relax_one(fix_path: Path, cyclic_chains: List[str], disulfide_chains: List[str],
                       restrain_chains: List[str], restrain_backbone: bool,
                       constraints: str, max_iter: int, tolerance: float,
-                      platform: str, gpu_index: int):
+                      platform: str, gpu_index: int,
+                      custom_residue_xml: Optional[List[str]] = None):
     """对修复后的 PDB 做 OpenMM 弛豫, 保护环化键/二硫键"""
     from openmm import app as openmm_app
 
@@ -169,6 +170,7 @@ def _fix_cp_relax_one(fix_path: Path, cyclic_chains: List[str], disulfide_chains
         cyclic_chains=cyclic_chains,
         disulfide_chains=disulfide_chains,
         device_index=gpu_index,
+        custom_residue_xml=custom_residue_xml,
     )
     result_pdb, ret = relaxer(str(fix_path), None, restrain_chains, restrain_backbone, return_info=True)
     if not result_pdb:
@@ -243,6 +245,11 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                           help='max number of concurrent tasks on one GPU, default is %(default)s.')
         args.add_argument('-F', '--force', action='store_true',
                           help='force overwrite output files, default is %(default)s.')
+        args.add_argument('--ncaa-xml', type=str, nargs='+', default=None,
+                          help='external non-standard amino acid template XML file(s) or dir(s) '
+                               'loaded at runtime. Each XML is paired with a same-named YAML '
+                               '(e.g. my_nc_aa.xml + my_nc_aa.yml) that describes atom renames. '
+                               'default is %(default)s (only builtin templates).')
         return args
     
     def process_args(self):
@@ -585,7 +592,9 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
             # 非标准氨基酸(ncAA)原子名规范化(如 LE1: SG->SG3, C8->CG1, C9->CG2),
             # 统一为 CHARMM36/GROMACS 约定, 供后续 OpenMM 模板匹配与 GROMACS pdb2gmx 识别
             from lazydock.opmm.fix_ncAA import fix_ncAA_pdb
-            out_lines = fix_ncAA_pdb(out_lines, pdb_path)
+            from lazydock.opmm.custom_residues import CustomResidues
+            custom = CustomResidues(self.args.ncaa_xml)
+            out_lines = fix_ncAA_pdb(out_lines, pdb_path, custom=custom)
             with open(out_path, 'w') as f:
                 f.writelines(out_lines)
             self.printf(f'fixed: {pdb_path.name} -> {out_path.name}')
@@ -595,13 +604,15 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                                               restrain_chains=self.args.restrain_chain, restrain_backbone=self.args.restrain_backbone,
                                               constraints=self.args.constraints, max_iter=self.args.max_iter,
                                               tolerance=self.args.tolerance, platform=self.args.platform,
-                                              gpu_index=gpu_slots[task_i % len(gpu_slots)])
+                                              gpu_index=gpu_slots[task_i % len(gpu_slots)],
+                                              custom_residue_xml=self.args.ncaa_xml)
                 else:
                     task_name = pool.add_task(None, _fix_cp_relax_one, out_path, self._last_fixed_chains, [],
                                               restrain_chains=self.args.restrain_chain, restrain_backbone=self.args.restrain_backbone,
                                               constraints=self.args.constraints, max_iter=self.args.max_iter,
                                               tolerance=self.args.tolerance, platform=self.args.platform,
-                                              gpu_index=gpu_slots[task_i % len(gpu_slots)])
+                                              gpu_index=gpu_slots[task_i % len(gpu_slots)],
+                                              custom_residue_xml=self.args.ncaa_xml)
                 relax_tasks[task_name] = out_path
             pool.wait_till_free()
         pool.wait_till_all_done()
