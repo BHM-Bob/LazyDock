@@ -254,8 +254,8 @@ class simple_protein(Command):
     
     def perform_single_md(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         GPU_IDS_STR = ','.join(map(str, gmx.gpu_ids))
-        if os.path.exists(protein_path.parent / 'md.tpr'):
-            put_log(f'{protein_path} has existing md.tpr, continue run with it.', bg_color='blue')
+        if os.path.exists(protein_path.parent / 'md.log') and 'Finished mdrun' not in opts_file(protein_path.parent / 'md.log'):
+            put_log(f'{protein_path} has existing and unfinished md.log, continue run with it.', bg_color='blue')
             # gmx mdrun -s md.tpr -cpi md.cpt -v -ntomp 4 -deffnm md -gpu_id GPU_IDS
             gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', s='md.tpr', cpi='md.cpt', deffnm='md', gpu_id=GPU_IDS_STR)
             return
