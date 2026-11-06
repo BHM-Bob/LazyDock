@@ -25,7 +25,7 @@ from openmm import app as openmm_app
 def _relax_worker(pdb_path: str, output_path: str, chain: str, stiffness: float, 
                  max_iter: int, tolerance: int, platform: str, constraints: str, 
                  restrain_backbone: bool, cyclic_chains: list = None, device_index=None,
-                 disulfide_chains: list = None):
+                 disulfide_chains: list = None, custom_residue_xml: list = None):
     # 映射constraints字符串到OpenMM对象
     if constraints == 'hbond':
         constraints_obj = openmm_app.HBonds
@@ -45,6 +45,7 @@ def _relax_worker(pdb_path: str, output_path: str, chain: str, stiffness: float,
         cyclic_chains=cyclic_chains,
         disulfide_chains=disulfide_chains,
         device_index=device_index,
+        custom_residue_xml=custom_residue_xml,
     )
     
     with open(pdb_path, 'r') as f:
@@ -108,6 +109,11 @@ class relax(Command):
                                'default is %(default)s (use default device).')
         args.add_argument('--n-task-per-gpu', type=int, default=1,
                           help='max number of concurrent tasks on one GPU, default is %(default)s.')
+        args.add_argument('--ncaa-xml', type=str, nargs='+', default=None,
+                          help='external non-standard amino acid template XML file(s) or dir(s) '
+                               'loaded at runtime. Each XML is paired with a same-named YAML '
+                               '(e.g. my_nc_aa.xml + my_nc_aa.yml) that describes atom renames. '
+                               'default is %(default)s (only builtin templates).')
         return args
     
     def process_args(self):
@@ -161,7 +167,8 @@ class relax(Command):
                                                     self.args.restrain_backbone,
                                                     self.args.cyclic_chains,
                                                     device_index,
-                                                    self.args.disulfide_chains)
+                                                    self.args.disulfide_chains,
+                                                    self.args.ncaa_xml)
             pool.wait_till_free()
         pool.wait_till_all_done()
         pool.close(1)
