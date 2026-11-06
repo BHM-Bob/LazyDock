@@ -10,7 +10,9 @@ from mbapy_lite.base import put_log
 from openmm import app as openmm_app
 from openmm import unit
 
-from lazydock.opmm.fix_ncAA import register_ncAA_templates
+from lazydock.opmm.custom_residues import CustomResidues
+from lazydock.opmm.fix_ncAA import (register_ncAA_templates,
+                                   sew_ncAA_internal_bonds)
 from lazydock.utils import get_storage_path
 
 # 二硫键可能出现在标准 CYS(SG) 或含硫修饰氨基酸(如 LE1 青霉胺 SG3)上, 统一识别:
@@ -64,7 +66,8 @@ class ForceFieldMinimizer(object):
                  disulfide_chains: Optional[List[str]] = None,
                  ss_bond_len: float = 0.2029, ss_bond_stiffness: float = 144766,
                  ss_max_dist: float = 0.3,
-                 device_index: Optional[int] = None):
+                 device_index: Optional[int] = None,
+                 custom_residue_xml: Optional[Union[str, List[str]]] = None):
         super().__init__()
         self.stiffness = stiffness * ENERGY/(LENGTH ** 2) # coefficient for restraints force, unit: kJ*mol^-1*nm^-2  # pyright: ignore[reportOperatorIssue]
         self.max_iterations = max_iterations
@@ -87,6 +90,9 @@ class ForceFieldMinimizer(object):
         self.ss_max_dist = ss_max_dist  # nm, SG-SG 距离阈值内判定为二硫键并补键(3.0A)
         # GPU 设备选择: 仅 CUDA 时生效. 向前兼容: None 表示用默认卡(不设置 DeviceIndex)
         self.device_index = device_index
+        # 运行时外部非标准氨基酸模板(任意路径的 XML, 与同名 YAML 配对).
+        # 用于在不改代码的前提下支持新的 ncAA; None/空 时行为与内建集完全一致.
+        self.custom_residues = CustomResidues(custom_residue_xml)
 
     def _fix(self, pdb_str):
         # D-氨基酸处理: PDB 三字码(DAL/...) 会被 pdbfixer 替换成 L 型, 丢失 D 手性.
@@ -117,11 +123,21 @@ class ForceFieldMinimizer(object):
         # 注册到 PDBFixer(registerTemplate), 使 addMissingHydrogens 能为其补氢.
         # 不注册的话 LE1 补不上氢, OpenMM createSystem 会因模板含氢而缺原子报错.
         n_registered = register_ncAA_templates(
-            fixer, set(res.name for res in fixer.topology.residues()))
+            fixer, set(res.name for res in fixer.topology.residues()),
+            custom=self.custom_residues)
         if n_registered:
             put_log(f'registered {n_registered} ncAA template(s) to PDBFixer for hydrogen addition')
         fixer.addMissingAtoms(seed=0)
         fixer.addMissingHydrogens()
+
+        # 非标准残基的内部重原子键: 上游CIF文件未必带全 CONECT(如 PyMOL 转换时
+        # 以数字开头的残基名可能整条无法推断), 缺键时 createSystem 会报
+        # "bonds are different". 这里按 ncAA 模板统一补全, 已成键的不重复添加.
+        topology, positions, n_bonds = sew_ncAA_internal_bonds(
+            fixer.topology, fixer.positions, custom=self.custom_residues)
+        if n_bonds:
+            put_log(f'ncAA: added {n_bonds} internal bond(s) from templates')
+        fixer.topology, fixer.positions = topology, positions
 
         # 将 D 残基名改回 GROMACS D 名(如 DALA), 供后续 OpenMM 模板匹配和 GMX 识别.
         for res in fixer.topology.residues():
@@ -392,7 +408,9 @@ class ForceFieldMinimizer(object):
         # 无需探测拓扑中是否含对应残基, 未命中的模板不影响其他残基建系.
         EXTRA_FF_FILES = ['opmm/ions.xml', 'opmm/charmm36_d_aa.xml',
                           'opmm/charmm36_nc_aa.xml', 'opmm/charmm36_caps.xml']
-        ff_files = ['charmm36.xml'] + [get_storage_path(f) for f in EXTRA_FF_FILES]
+        # 运行时外部 ncAA 模板(任意路径), 追加在内建文件之后. 未传时列表不变.
+        ff_files = (['charmm36.xml'] + [get_storage_path(f) for f in EXTRA_FF_FILES]
+                    + self.custom_residues.xml_files)
         force_field = openmm_app.ForceField(*ff_files)  # referring to http://docs.openmm.org/latest/userguide/application/02_running_sims.html
         # ignoreExternalBonds 判定:
         #   - 仅二硫键: False -> openmm 自动应用 CHARMM36 DISU patch (S-S 有真实键/角/二面参数, 收敛2.03A)
