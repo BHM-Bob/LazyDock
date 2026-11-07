@@ -89,6 +89,7 @@ pip install lazydock
 
 
 ## release note
+- [0.18.0](release_notes/0.18.0.md)
 - [0.17.0](release_notes/0.17.0.md)
 - [0.16.0](release_notes/0.16.0.md)
 - [0.15.0](release_notes/0.15.0.md)
