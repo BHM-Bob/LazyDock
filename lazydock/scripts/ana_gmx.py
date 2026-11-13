@@ -878,18 +878,19 @@ class interaction(simple_analysis, mmpbsa):
         complex_ag = u.atoms[rec_idx | lig_idx]
         # calcu interaction for each frame
         sum_frames = (len(u.trajectory) if self.args.end_frame is None else self.args.end_frame) - self.args.begin_frame
+        task_names = []
         for frame in tqdm(u.trajectory[self.args.begin_frame:self.args.end_frame:self.args.traj_step],
                         total=sum_frames//self.args.traj_step, desc='Calculating frames', leave=False):
             fake_ag = FakeAtomGroup(complex_ag)
-            pool.add_task(frame.time, _interaction_ana_worker, fake_ag,
-                        alter_receptor_chain, self.args.alter_ligand_chain,
-                        self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only,
-                        alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm,
-                        alter_aname=self.alter_aname)
+            task_names.append(pool.add_task(frame.time, _interaction_ana_worker, fake_ag,
+                                            alter_receptor_chain, self.args.alter_ligand_chain,
+                                            self.args.method, self.args.mode, self.args.cutoff, self.args.hydrogen_atom_only,
+                                            alter_chain=self.alter_chain, alter_res=self.alter_res, alter_atm=self.alter_atm,
+                                            alter_aname=self.alter_aname))
             pool.wait_till_free(wait_each_loop=0.001, update_result_queue=False)
         # merge interactions
         interactions, df = {}, pd.DataFrame()
-        for k in list(pool.tasks.keys()):
+        for k in task_names:
             i = len(df)
             result = pool.query_task(k, True, 10)
             if not isinstance(result, dict):
