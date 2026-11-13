@@ -994,6 +994,8 @@ class RRCS(mmpbsa):
                           help='Step while reading trajectory. Default is %(default)s.')
         args.add_argument('--backend', type=str, default='numpy', choices=['numpy', 'torch', 'cuda'],
                           help='backend for RRCS calculation. Default is %(default)s.')
+        args.add_argument('-F', '--force', action='store_true',
+                          help='force recalculate RRCS. Default is %(default)s.')
         
     @staticmethod
     def plot_average_heatmap(scores: np.ndarray, top_path: Path):
@@ -1006,8 +1008,7 @@ class RRCS(mmpbsa):
         cbar.ax.set_ylabel('Average RRCS', fontsize=16, weight='bold')
         save_show(str(top_path.parent / f'{top_path.stem}_RRCS.png'), 600, show=False)
         plt.close()
-        
-        
+
     @staticmethod
     def plot_diag_vs_frame(scores: np.ndarray, top_path: Path):
         # determine the n
