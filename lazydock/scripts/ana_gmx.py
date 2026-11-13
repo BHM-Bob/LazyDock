@@ -936,12 +936,13 @@ class interaction(simple_analysis, mmpbsa):
                 interactions = opts_file(pkl_path, 'rb', way='pkl')
                 # ckeck whether to plot
                 if self.args.skip_plot:
-                    self.pool.task = {}
+                    self.pool.tasks = {}
                     bar.update(1)
                     continue
-            self.pool.add_task(str(top_path), _interaction_data_worker, interactions, self.args, top_path, suffix)
-            # other things
+            # clear last run's tasks named by frame, in case of race condition
             self.pool.clear()
+            # add plot task after clear to avoid to be cleared
+            self.pool.add_task(str(top_path), _interaction_data_worker, interactions, self.args, top_path, suffix)
             bar.update(1)
             
     def finish(self):
