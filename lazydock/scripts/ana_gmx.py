@@ -753,8 +753,9 @@ def _interaction_data_worker(interactions: Dict[str, pd.DataFrame], args: argpar
         fig, ax = plt.subplots(figsize=args.fig_size)
         sns.heatmap(plot_df, xticklabels=list(plot_df.columns),
                     cmap='viridis', cbar_kws={'label': 'Interaction frequency'}, ax=ax)
-        y_ticks = list(range(0, len(plot_df)+1, args.yticks_interval))
-        ax.set_yticks(y_ticks, list(map(str, y_ticks)))
+        y_ticks_pos = list(range(0, len(plot_df)+1, args.yticks_interval))
+        y_ticks_label = list(map(lambda x: f'{x/args.frames_per_ns:.1f}', y_ticks_pos))
+        ax.set_yticks(y_ticks_pos, y_ticks_label)
         ax.tick_params(labelsize=14, axis='both')
         plt.xlabel('Residues (aa)', fontsize=16, weight='bold')
         plt.ylabel('Time (ns)', fontsize=16, weight='bold')
@@ -816,6 +817,8 @@ class interaction(simple_analysis, mmpbsa):
                           help='First frame to start the analysis. Default is %(default)s.')
         args.add_argument('-step', '--traj-step', type=int, default=1,
                           help='Step while reading trajectory. Default is %(default)s.')
+        args.add_argument('--frames-per-ns', type=int, default=100,
+                          help='frames per ns, default is %(default)s.')
         args.add_argument('--plot-time-unit', type=int, default=100,
                           help='time unit for plot in X-Axis, default is %(default)s.')
         args.add_argument('--yticks-interval', type=int, default=10,
