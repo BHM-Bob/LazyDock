@@ -282,6 +282,16 @@ class simple_protein(Command):
             pool.wait_till_free()
         pool.wait_till_all_done()
         pool.close(1)
+        
+    def init_task_managers(self):
+        n_manager = len(self.args.gpus) if self.args.n_task_per_gpu >= 1 else int(len(self.args.gpus) * self.args.n_task_per_gpu)
+        self.pool = TaskPool('threads', n_manager, report_error=True).start()
+        self.task_queue = Queue()
+        self.gmx_lst = [Gromacs(gpu_ids=ids) for ids in split_list(self.args.gpus, len(self.args.gpus) // n_manager, False)]
+        [self.pool.add_task(None, self.device_holder_worker, gmx, self.args.n_task_per_gpu, self.task_queue) for gmx in self.gmx_lst]
+        print(f'init {n_manager} task managers, each with {self.args.n_task_per_gpu} tasks per gpu.')
+        for i, gmx in enumerate(self.gmx_lst):
+            print(f'manager {i} with {gmx.gpu_ids}')        
 
     def main_process(self):
         # do not use lazydock-cli iter_run_arg
@@ -305,14 +315,7 @@ class simple_protein(Command):
         # sleep until start time
         self.sleep_until_start_time()
         # init task managers
-        n_manager = len(self.args.gpus) if self.args.n_task_per_gpu >= 1 else int(len(self.args.gpus) * self.args.n_task_per_gpu)
-        pool = TaskPool('threads', n_manager, report_error=True).start()
-        task_queue = Queue()
-        gmx_lst = [Gromacs(gpu_ids=ids) for ids in split_list(self.args.gpus, len(self.args.gpus) // n_manager, False)]
-        [pool.add_task(None, self.device_holder_worker, gmx, self.args.n_task_per_gpu, task_queue) for gmx in gmx_lst]
-        print(f'init {n_manager} task managers, each with {self.args.n_task_per_gpu} tasks per gpu.')
-        for i, gmx in enumerate(gmx_lst):
-            print(f'manager {i} with {gmx.gpu_ids}')
+        self.init_task_managers()
         # process each complex
         for protein_path in tqdm(proteins_path, total=len(proteins_path)):
             protein_path = Path(protein_path).resolve()
@@ -321,11 +324,11 @@ class simple_protein(Command):
             if os.path.exists(protein_path.parent / 'md.gro'):
                 put_log(f'{protein_path} already done with md.gro, skip.')
                 continue
-            task_queue.put((protein_path, main_name))
-            pool.wait_till(lambda: task_queue.empty())
-        [task_queue.put(None) for _ in gmx_lst]
-        pool.wait_till_all_done()
-        pool.close(1)
+            self.task_queue.put((protein_path, main_name))
+            self.pool.wait_till(lambda: self.task_queue.empty())
+        [self.task_queue.put(None) for _ in self.gmx_lst]
+        self.pool.wait_till_all_done()
+        self.pool.close(1)
 
     
 class simple_complex(simple_protein):
