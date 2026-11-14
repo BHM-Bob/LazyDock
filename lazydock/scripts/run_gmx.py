@@ -107,8 +107,6 @@ class simple_protein(Command):
                           help='GPU devices used for batch run, default is %(default)s.')
         args.add_argument('--n-task-per-gpu', type=float, default=1,
                           help='number of tasks per gpu, 0.5 means 2 GPUs per task, 2 means 2 tasks per GPU, default is %(default)s.')
-        args.add_argument('--monopolize-em', action='store_true', default=False,
-                          help='only run enenrgy minimization once a time for entire batch, default is %(default)s.')
         return args
 
     def process_args(self):
@@ -208,11 +206,7 @@ class simple_protein(Command):
         gmx.run_gmx_with_expect('grompp', f=mdps['em'], c=f'{main_name}_solv_ions.gro',
                                     p='topol.top', o='em.tpr', maxwarn=self.args.maxwarn)
         # STEP 6: mdrun -v -deffnm em
-        if self.args.monopolize_em:
-            with self.mono_lock:
-                gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='em', gpu_id=GPU_IDS_STR)
-        else:
-            gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='em', gpu_id=GPU_IDS_STR)
+        gmx.run_gmx_with_expect(f'mdrun {self.args.mdrun_args}', deffnm='em', gpu_id=GPU_IDS_STR)
         # STEP 7: energy -f em.edr -o potential.xvg
         gmx.run_gmx_with_expect('energy', f='em.edr', o='potential.xvg',
                                     expect_actions=[{'line or a zero.': f'{self.args.potential_groups}\r'}])
