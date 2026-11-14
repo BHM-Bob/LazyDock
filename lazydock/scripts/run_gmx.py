@@ -191,6 +191,16 @@ class simple_protein(Command):
         gmx.run_gmx_with_expect(f'genion {self.args.genion_args}', s='ions.tpr', o=f'{main_name}_solv_ions.gro', p='topol.top',
                                     expect_actions=[{'Select a group:': f'{genion_groups}\r', 'No ions to add': '', '\\timeout': ''}],
                                     expect_settings={'start_timeout': 600})
+        ## check whether there are any ions added in the system.
+        ## if not, replace Water_and_ions into Water in nvt/npt/md mdp.
+        ## avoid error in grompp for no ion group reference in mdp.
+        if not 'Ion' in gmx.get_groups(f'{main_name}_solv_ions.gro'):
+            put_log(f'no ions detected in {main_name}_solv_ions.gro, replace Water_and_ions into Water in nvt/npt/md mdp', bg_color='blue')
+            for mdp in [self.args.nvt_mdp, self.args.npt_mdp, self.args.md_mdp]:
+                # modify mdp file of this run ONLY
+                mdp_file = str(protein_path.parent / os.path.basename(mdp))
+                opts_file(mdp_file, 'w', way='str',
+                          data=opts_file(mdp_file).replace('Water_and_ions', 'Water'))
         
     def energy_minimization(self, protein_path: Path, main_name: str, gmx: Gromacs, mdps: Dict[str, str]):
         GPU_IDS_STR = ','.join(map(str, gmx.gpu_ids))
