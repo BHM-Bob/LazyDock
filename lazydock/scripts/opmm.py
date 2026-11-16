@@ -102,8 +102,6 @@ class relax(Command):
                           help='Chains containing disulfide bonds to protect during relaxation '
                                '(SG-SG bond via CHARMM36 DISU patch or CustomBondForce), '
                                'e.g. --disulfide-chains P, default is %(default)s.')
-        args.add_argument('-nw', '--n-workers', type=int, default=1,
-                          help='Number of workers. default: 1.')
         args.add_argument('--gpus', type=int, nargs='+', default=None,
                           help='GPU device ids to use for parallel relaxation, e.g. --gpus 0 1, '
                                'default is %(default)s (use default device).')
@@ -118,6 +116,7 @@ class relax(Command):
     
     def process_args(self):
         self.args.batch_dir = self.process_batch_dir_lst(self.args.batch_dir)
+        self.args.gpus = [0] or self.args.gpus
     
     def main_process(self):
         # 处理多个目录
@@ -142,14 +141,14 @@ class relax(Command):
         # 而 multiprocessing.Pool 本身就是"绑定默认 context"的 BaseContext.Pool, 不接受 context
         # 参数(传了会 TypeError), 因此这里改为切换默认 start method.
         multiprocessing.set_start_method('spawn', force=True)
-        pool = TaskPool('process', self.args.n_workers, report_error=True).start()
+        pool = TaskPool('process', len(self.args.gpus) * self.args.n_task_per_gpu, report_error=True).start()
         
         # GPU 槽位: 把 --gpus 展开成 [g0 x n_task_per_gpu, g1 x n_task_per_gpu, ...],
         # 任务按 index 轮询分配, 保证单卡可承载多个并发任务
         gpu_slots = []
         if self.args.gpus:
             for g in self.args.gpus:
-                gpu_slots.extend([g] * max(1, self.args.n_task_per_gpu))
+                gpu_slots.extend([g] * self.args.n_task_per_gpu)
         
         # Process each PDB file
         for task_i, pdb_path in enumerate(tqdm(pdb_paths, desc='Relaxing structures')):
