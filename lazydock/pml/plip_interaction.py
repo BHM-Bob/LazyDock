@@ -48,7 +48,8 @@ def get_atom_level_interactions(interaction_sets: Dict[str, InteractionCatalog],
 
 def run_plip_analysis(complex_pdbstr: str, receptor_chain: Union[str, List[str]], ligand_chain: str,
                       mode: Union[str, List[str]] = 'all', cutoff: float = 4.):  
-    try:  
+    try:
+        mode = check_support_mode(mode)
         interactions, _, _ = _analyze_complex(complex_pdbstr, as_string=True)
         return get_atom_level_interactions(interactions, receptor_chain, ligand_chain, mode, cutoff)
     except Exception as e:
