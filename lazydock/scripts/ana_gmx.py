@@ -947,6 +947,7 @@ class interaction(simple_analysis, mmpbsa):
             self.pool.clear()
             # add plot task after clear to avoid to be cleared
             self.pool.add_task(str(top_path), _interaction_data_worker, interactions, self.args, top_path, suffix)
+            self.pool.wait_till_free(wait_each_loop=0.001, update_result_queue=False)
             bar.update(1)
             
     def finish(self):
