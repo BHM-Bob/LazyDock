@@ -39,7 +39,7 @@ def get_atom_level_interactions(interaction_sets: Dict[str, InteractionCatalog],
             has_lig_res = i.res_a_chain in ligand_chain or i.res_b_chain in ligand_chain
             if has_rec_res and has_lig_res and i.distance <= cutoff:
                 res_res = 'a' if i.res_a_chain in receptor_chain else 'b'
-                lig_res = 'a' if i.res_a_chain in ligand_chain else 'b'
+                lig_res = 'b' if res_res == 'a' else 'a'
                 result[_type].append(((getattr(i, f'res_{res_res}_num'), getattr(i, f'res_{res_res}_name'), getattr(i, f'res_{res_res}_chain')),
                                       (getattr(i, f'res_{lig_res}_num'), getattr(i, f'res_{lig_res}_name'), getattr(i, f'res_{lig_res}_chain')),
                                       i.distance))
