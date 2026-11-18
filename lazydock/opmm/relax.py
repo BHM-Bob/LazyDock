@@ -24,6 +24,11 @@ SULFUR_ATOM_NAMES = ('SG', 'SG3')
 ENERGY = unit.kilojoules_per_mole
 LENGTH = unit.nanometer  # pyright: ignore[reportAttributeAccessIssue]
 
+# backbone 闭合(头尾肽键)保护: CustomBondForce 的平衡键长与力常数.
+# 头尾肽键是标准酰胺 C-N, CHARMM36 无对应 patch 参数, 故用 CustomBondForce 兜底.
+BACKBONE_BOND_LEN = 0.134  # nm, 酰胺 C-N 平衡键长 (~1.34 A)
+BACKBONE_BOND_STIFFNESS = 3e5  # kJ/mol/nm^2
+
 # 常见离子元素 -> 离子力场模板名(charmm36.xml 不含离子, 需额外加载 ions.xml)
 from openmm.app.element import (calcium, chlorine, magnesium, potassium,
                                 sodium, zinc)
@@ -61,10 +66,8 @@ D_AMINO_ACID_L_TO_GMX = {
 class ForceFieldMinimizer(object):
 
     def __init__(self, stiffness=10.0, max_iterations=0, tolerance=10, platform='CUDA', constraints=openmm_app.HBonds,
-                 cyclic_chains: Optional[List[str]] = None,
-                 cyclic_bond_len: float = 0.134, cyclic_bond_stiffness: float = 3e5,
+                 backbone_chains: Optional[List[str]] = None,
                  disulfide_chains: Optional[List[str]] = None,
-                 ss_bond_len: float = 0.2029, ss_bond_stiffness: float = 144766,
                  ss_max_dist: float = 0.3,
                  device_index: Optional[int] = None,
                  custom_residue_xml: Optional[Union[str, List[str]]] = None):
@@ -75,18 +78,14 @@ class ForceFieldMinimizer(object):
         assert platform in ('CUDA', 'CPU')
         self.platform = platform
         self.constraints = constraints
-        # 环肽(碳骨架)支持: 对 cyclic_chains 中的链, 在 PDBFixer 补全后缝接首尾肽键,
-        # 并加 CustomBondForce 保护该环化键, 避免最小化时断链
-        self.cyclic_chains = list(cyclic_chains or [])
-        self.cyclic_bond_len = cyclic_bond_len  # nm, 环化键平衡长(酰胺 C-N ~1.34A)
-        self.cyclic_bond_stiffness = cyclic_bond_stiffness  # kJ/mol/nm^2
-        # 二硫键支持: 对 disulfide_chains 中的链, 补全 SG-SG 键.
-        # 当 ignoreExternalBonds=False 时 openmm 自动应用 CHARMM36 DISU patch
-        # (S-S 平衡键长 0.2029nm, k=144766 kJ/mol/nm^2), 无需手动键势;
-        # 当与 cyclic_chains 并存(forced ignoreExternalBonds=True)时, 用 CustomBondForce 手动保护.
+        # backbone 闭合(头尾肽键)支持: 对 backbone_chains 中的链, 在 PDBFixer 补全后缝接首尾肽键,
+        # 并加 CustomBondForce 保护该键, 避免最小化时断链
+        self.backbone_chains = list(backbone_chains or [])
+        # 二硫键支持: 对 disulfide_chains 中的链, 补全 SG-SG 拓扑键.
+        # createSystem 恒以 ignoreExternalBonds=False 建系, OpenMM 会自动应用
+        # CHARMM36 DISU patch(S-S 平衡键长 0.2029nm, k=144766 kJ/mol/nm^2),
+        # 无需手动加键势.
         self.disulfide_chains = list(disulfide_chains or [])
-        self.ss_bond_len = ss_bond_len  # nm, 二硫键 SG-SG 平衡长(CHARMM36: 2.029A)
-        self.ss_bond_stiffness = ss_bond_stiffness  # kJ/mol/nm^2
         self.ss_max_dist = ss_max_dist  # nm, SG-SG 距离阈值内判定为二硫键并补键(3.0A)
         # GPU 设备选择: 仅 CUDA 时生效. 向前兼容: None 表示用默认卡(不设置 DeviceIndex)
         self.device_index = device_index
@@ -170,7 +169,37 @@ class ForceFieldMinimizer(object):
                     atoms_[0].name = template
 
         # 直接返回拓扑+坐标(而非字符串), 避免 writeFile 把 4 字符残基名(DALA)截断成 3 字符
-        return fixer.topology, fixer.positions
+        return self._dedup_bonds(fixer.topology, fixer.positions)
+
+    @staticmethod
+    def _dedup_bonds(topology, positions):
+        """删除拓扑中的重复键(同一对原子被 addBond 多次).
+
+        根因: PDBFixer._addAtomsToTopology 在重建拓扑时先 createStandardBonds()
+        按 residues.xml 建立肽键(-C to N), 随后又遍历原拓扑把所有"至少一端为
+        非标准残基"的键再 addBond 一次, 该循环没有已存在检查. 因此凡是非标准
+        氨基酸与其相邻残基之间的肽键(以及 ncAA 端的环化键)都会变成 2 个 bond 对象,
+        PDBFile.writeFile 每遇到一个 bond 对象就写一个邻居 serial, 输出即出现
+        "CONECT 1 261 261", 按 PDB 约定被读成双键(N 表现为 4 连接或双键酰胺).
+
+        力场建系本身不受影响(createSystem 按模板匹配, 实测无重复键), 但写出的
+        PDB 拓扑语义错误, 下游按 CONECT 建系的工具会读错. 此处统一去重."""
+        seen = set()
+        kept = []
+        n_dup = 0
+        for bond in topology.bonds():
+            a1, a2 = bond
+            key = (a1.index, a2.index) if a1.index < a2.index else (a2.index, a1.index)
+            if key in seen:
+                n_dup += 1
+                continue
+            seen.add(key)
+            kept.append(bond)
+        if n_dup:
+            topology._bonds = kept
+            put_log(f'dedup: removed {n_dup} duplicate bond(s) from topology',
+                    bg_color='blue')
+        return topology, positions
 
     @staticmethod
     def _res_id(res):
@@ -235,13 +264,13 @@ class ForceFieldMinimizer(object):
                 n_cn += 1
         return modeller.topology, modeller.positions, n_oxt, n_cn
 
-    def _sew_cyclic_chains(self, topology, positions, cyclic_chains: List[str]):
-        """在 PDBFixer 补全后的 PDB 上缝接环化链首尾肽键:
+    def _sew_backbone_chains(self, topology, positions, backbone_chains: List[str]):
+        """在 PDBFixer 补全后的 PDB 上缝接 backbone 闭合链的首尾肽键:
         删除每条链尾残基的 OXT 与首残基 N 端多余 H(保留1个酰胺NH), 并 addBond(首N, 尾C).
         返回 (topology, positions, bonded_chain_ids)."""
         modeller = openmm_app.Modeller(topology, positions)
         bonded_chains = []
-        for chain_id in cyclic_chains:
+        for chain_id in backbone_chains:
             chain = next((c for c in modeller.topology.chains() if c.id == chain_id), None)
             if chain is None:
                 continue
@@ -253,7 +282,7 @@ class ForceFieldMinimizer(object):
             if 'N' not in names_f or 'C' not in names_l:
                 continue
             # 首删尾残基 OXT(线性C端残留) 与 首残基N端多余H.
-            # 环化后 N 的成键状态取决于首残基类型:
+            # 头尾成环后 N 的成键状态取决于首残基类型:
             #   PRO: N 是亚胺(N连CD+CA+前残基C), 无H -> 删全部端H
             #   其他: N 是酰胺(NH), 保留 1 个端H -> 删 2 个多余的
             to_delete = []
@@ -278,7 +307,12 @@ class ForceFieldMinimizer(object):
             names_f = {a.name: a for a in resis[0].atoms()}
             names_l = {a.name: a for a in resis[-1].atoms()}
             if 'N' in names_f and 'C' in names_l:
-                modeller.topology.addBond(names_f['N'], names_l['C'])
+                n_at, c_at = names_f['N'], names_l['C']
+                # 该键可能已由 PDBFixer 的异质原子键恢复循环带入(首/尾残基为 ncAA 时),
+                # 此处不再重复添加, 否则 CONECT 出现重复邻居(被读作双键).
+                if any({n_at, c_at} == set(b) for b in modeller.topology.bonds()):
+                    continue
+                modeller.topology.addBond(n_at, c_at)
         return modeller.topology, modeller.positions, bonded_chains
 
     def _remove_disulfide_hydrogens(self, modeller):
@@ -332,6 +366,68 @@ class ForceFieldMinimizer(object):
                         n_added += 1
         return n_added
 
+    def _ensure_backbone_conect(self, pdb_str, topology):
+        """补写头尾肽键(首残基 N - 尾残基 C)的 CONECT 记录.
+
+        PDBFile.writeFooter 只写"至少一端是非标准残基"的键以及 CYS SG-SG,
+        因此当环肽首尾都是标准残基时, 该键虽然存在于
+        内存拓扑且 relax 全程受 CustomBondForce 保护(键长 1.34A 正确), 但写出的
+        PDB 里没有任何 CONECT 记录, 下游按 CONECT 建系会读成线性肽.
+        此处按写出的 serial 手工补一条 CONECT(已有的按要求跳过, 不产生重复邻居).
+        返回 (pdb_str, 补写条数)."""
+        if not self.backbone_chains:
+            return pdb_str, 0
+        pairs = []
+        for chain_id in self.backbone_chains:
+            chain = next((c for c in topology.chains() if c.id == chain_id), None)
+            if chain is None:
+                continue
+            resis = list(chain.residues())
+            if len(resis) < 2:
+                continue
+            names_f = {a.name: a for a in resis[0].atoms()}
+            names_l = {a.name: a for a in resis[-1].atoms()}
+            if 'N' in names_f and 'C' in names_l:
+                pairs.append((names_f['N'], names_l['C']))
+        if not pairs:
+            return pdb_str, 0
+        # 从写出的文本反查 serial(keepIds=True 时残基 id 即拓扑 id)
+        serial = {}
+        existing = {}
+        for ln in pdb_str.splitlines():
+            if ln.startswith(('ATOM', 'HETATM')):
+                try:
+                    serial[(ln[21], ln[22:26].strip(), ln[12:16].strip())] = int(ln[6:11])
+                except ValueError:
+                    continue
+            elif ln.startswith('CONECT'):
+                nums = [int(ln[i:i+5]) for i in range(6, len(ln)-1, 5)
+                        if ln[i:i+5].strip()]
+                if nums:
+                    existing.setdefault(nums[0], set()).update(nums[1:])
+        new_lines = []
+        for n_at, c_at in pairs:
+            k1 = (n_at.residue.chain.id, str(n_at.residue.id).strip(), n_at.name)
+            k2 = (c_at.residue.chain.id, str(c_at.residue.id).strip(), c_at.name)
+            s1, s2 = serial.get(k1), serial.get(k2)
+            if s1 is None or s2 is None:
+                continue
+            # 已写出(任一端 CONECT 里有对方)则跳过
+            if s2 in existing.get(s1, set()) or s1 in existing.get(s2, set()):
+                continue
+            new_lines.append(f'CONECT{s1:5d}{s2:5d}')
+        if not new_lines:
+            return pdb_str, 0
+        # 插到 END 之前(END 可能不存在则直接追加)
+        lines = pdb_str.splitlines()
+        end_idx = len(lines)
+        for i in range(len(lines) - 1, -1, -1):
+            if lines[i].strip() == 'END':
+                end_idx = i
+                break
+        lines[end_idx:end_idx] = new_lines
+        return '\n'.join(lines) + '\n', len(new_lines)
+
     def _get_pdb_string(self, topology, positions):
         with io.StringIO() as f:
             openmm_app.PDBFile.writeFile(topology, positions, f, keepIds=True)
@@ -350,19 +446,24 @@ class ForceFieldMinimizer(object):
                     if key in d_res:
                         lines[i] = ln[:17] + d_res[key] + ln[21:]
             pdb_str = '\n'.join(lines)
+        # 头尾肽键(首N-尾C)可能因两端均为标准残基而未被 writeFooter 写入, 补写.
+        pdb_str, n_bb = self._ensure_backbone_conect(pdb_str, topology)
+        if n_bb:
+            put_log(f'backbone: wrote {n_bb} missing CONECT record(s) for '
+                    f'head-to-tail peptide bond(s)', bg_color='blue')
         return pdb_str
 
-    def _add_cyclic_bond_force(self, system, topology):
-        """对每条环化链的首N-尾C 加 CustomBondForce 键势, 保护环化键.
-        注意: 全局参数名用唯一前缀 k_cyc/r0_cyc, 避免与 restrain 的 CustomExternalForce
+    def _add_backbone_bond_force(self, system, topology):
+        """对每条 backbone 闭合链的首N-尾C 加 CustomBondForce 键势, 保护头尾肽键.
+        注意: 全局参数名用唯一前缀 k_bb/r0_bb, 避免与 restrain 的 CustomExternalForce
         中同名参数 k 的 default value 冲突(openmm 要求 system 内同名参数 default 一致)."""
-        if not (self.cyclic_chains and self.cyclic_bond_stiffness > 0):
+        if not self.backbone_chains:
             return
-        cbf = openmm.CustomBondForce('0.5*k_cyc*(r-r0_cyc)^2')
-        cbf.addGlobalParameter('k_cyc', self.cyclic_bond_stiffness)
-        cbf.addGlobalParameter('r0_cyc', self.cyclic_bond_len)
+        cbf = openmm.CustomBondForce('0.5*k_bb*(r-r0_bb)^2')
+        cbf.addGlobalParameter('k_bb', BACKBONE_BOND_STIFFNESS)
+        cbf.addGlobalParameter('r0_bb', BACKBONE_BOND_LEN)
         n_added = 0
-        for chain_id in self.cyclic_chains:
+        for chain_id in self.backbone_chains:
             chain = next((c for c in topology.chains() if c.id == chain_id), None)
             if chain is None:
                 continue
@@ -374,27 +475,6 @@ class ForceFieldMinimizer(object):
             if 'N' in names_f and 'C' in names_l:
                 cbf.addBond(names_f['N'].index, names_l['C'].index)
                 n_added += 1
-        if n_added:
-            system.addForce(cbf)
-
-    def _add_disulfide_bond_force(self, system, topology):
-        """对 disulfide_chains 链内所有 S-S(SG/SG3) 对加 CustomBondForce 保护.
-        仅在 ignoreExternalBonds=True(与 cyclic_chains 并存, DISU patch 无法自动应用)时调用."""
-        if not (self.disulfide_chains and self.ss_bond_stiffness > 0):
-            return
-        cbf = openmm.CustomBondForce('0.5*k_ss*(r-r0_ss)^2')
-        cbf.addGlobalParameter('k_ss', self.ss_bond_stiffness)
-        cbf.addGlobalParameter('r0_ss', self.ss_bond_len)
-        n_added = 0
-        for chain_id in self.disulfide_chains:
-            chain = next((c for c in topology.chains() if c.id == chain_id), None)
-            if chain is None:
-                continue
-            sulfurs = [a for r in chain.residues() for a in r.atoms() if a.name in SULFUR_ATOM_NAMES]
-            for i in range(len(sulfurs)):
-                for j in range(i+1, len(sulfurs)):
-                    cbf.addBond(sulfurs[i].index, sulfurs[j].index)
-                    n_added += 1
         if n_added:
             system.addForce(cbf)
 
@@ -412,19 +492,27 @@ class ForceFieldMinimizer(object):
         ff_files = (['charmm36.xml'] + [get_storage_path(f) for f in EXTRA_FF_FILES]
                     + self.custom_residues.xml_files)
         force_field = openmm_app.ForceField(*ff_files)  # referring to http://docs.openmm.org/latest/userguide/application/02_running_sims.html
-        # ignoreExternalBonds 判定:
-        #   - 仅二硫键: False -> openmm 自动应用 CHARMM36 DISU patch (S-S 有真实键/角/二面参数, 收敛2.03A)
-        #   - 仅碳骨架环: True -> 头尾跨残基键无标准 patch, 忽略后可手动加键势保护
-        #   - 两者并存: True -> DISU patch 不可用, 需手动 S-S CustomBondForce 保护
-        has_cyc, has_disu = bool(self.cyclic_chains), bool(self.disulfide_chains)
-        ignore_external = has_cyc or not has_disu
+        # ignoreExternalBonds 恒为 False. 该 flag 只影响"残基模板匹配"阶段(是否要求
+        # 模板声明的外部键与拓扑完全一致), 不会删除任何键 -- data.bonds 直接来自
+        # topology.bonds(), 普通肽键始终参与 HarmonicBond/Angle 建系.
+        # 实测(环肽 + 另一条链含 5 对二硫键, 共 251 条肽键):
+        #   True : 251/251 肽键有键势, 但 CYS 被静默匹配成 CYM 模板(SG 电荷 -0.80),
+        #          S-S 键在拓扑中存在却拿不到键参数(CHARMM36 无 SS-SS, 只有 SM-SM),
+        #          于是既无键势也无 1-2 排斥 -> 最小化时塌缩到 0.55A.
+        #   False: DISU patch 正常应用(SG -> SM, -0.08), 5/5 对 S-S 收敛到 2.03A.
+        # 三种 case 的结论:
+        #   - 仅二硫键: 必须 False, 否则 DISU patch 无法应用;
+        #   - 仅 backbone 闭合: False 与 True 等价(实测头尾键 1.336 vs 1.340A,
+        #     肽键 0/247 异常). 首/尾残基只有 1 个跨残基键, 签名与普通残基一致,
+        #     无需放宽匹配; 头尾键由下方 CustomBondForce 单独保护, 不依赖该 flag;
+        #   - 两者并存: 必须 False(二硫键需求压过 backbone).
+        # 因此硬编码 False, 不再按 has_bb/has_disu 推导.
         system = force_field.createSystem(pdb.topology, constraints=self.constraints,
-                                          ignoreExternalBonds=ignore_external)
-        # 环化键保护
-        self._add_cyclic_bond_force(system, pdb.topology)
-        # 二硫键保护(仅 ignoreExternalBonds=True 时需手动)
-        if has_disu and ignore_external:
-            self._add_disulfide_bond_force(system, pdb.topology)
+                                          ignoreExternalBonds=False)
+        # 头尾肽键保护(首 N - 尾 C), 该键无标准 patch 参数, 用 CustomBondForce 兜底
+        self._add_backbone_bond_force(system, pdb.topology)
+        # 二硫键无需手动加键势: ignoreExternalBonds=False 时 DISU patch 会自动
+        # 应用(SM-SM 有真实键/角/二面参数).
 
         # Add constraints to restrain_chain
         restrain_chain = restrain_chain or []
@@ -483,12 +571,12 @@ class ForceFieldMinimizer(object):
             pdb_fixed_topology, pdb_fixed_positions)
         if n_oxt or n_cn:
             put_log(f'caps: removed {n_oxt} OXT, added {n_cn} C-N bond(s) for C-terminal amide cap(NH2)')
-        # 统一走内存拓扑传递(环化/二硫键/D残基名均需完整保留, 避免字符串往返丢失)
-        if self.cyclic_chains or self.disulfide_chains:
-            # 缝接环化链/二硫键
-            if self.cyclic_chains:
-                topology, positions, _bonded = self._sew_cyclic_chains(
-                    pdb_fixed_topology, pdb_fixed_positions, self.cyclic_chains)
+        # 统一走内存拓扑传递(backbone 闭合/二硫键/D残基名均需完整保留, 避免字符串往返丢失)
+        if self.backbone_chains or self.disulfide_chains:
+            # 缝接 backbone 闭合链/二硫键
+            if self.backbone_chains:
+                topology, positions, _bonded = self._sew_backbone_chains(
+                    pdb_fixed_topology, pdb_fixed_positions, self.backbone_chains)
                 modeller = openmm_app.Modeller(topology, positions)
             else:
                 modeller = openmm_app.Modeller(pdb_fixed_topology, pdb_fixed_positions)
