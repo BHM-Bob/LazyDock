@@ -21,6 +21,9 @@ from lazydock.utils import get_storage_path
 #     fix_ncAA 规范化为 SG3, 故两处均需兼容
 SULFUR_ATOM_NAMES = ('SG', 'SG3')
 
+# 巯基氢原子名: 标准 CYS 为 HG, LE1(青霉胺) 为 HG3, 其余含硫修饰残基沿用 CHARMM 的 HG1.
+SULFUR_HYDROGEN_NAMES = ('HG', 'HG1', 'HG3')
+
 ENERGY = unit.kilojoules_per_mole
 LENGTH = unit.nanometer  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -64,6 +67,43 @@ D_AMINO_ACID_L_TO_GMX = {
 
 
 class ForceFieldMinimizer(object):
+    """PDBFixer + OpenMM 结构弛豫器(CHARMM36 力场).
+
+    典型用法::
+
+        minimizer = ForceFieldMinimizer(platform='CUDA',
+                                        backbone_chains=['P'],
+                                        disulfide_chains=['P'])
+        relaxed_pdb, info = minimizer(pdb_path, out_path,
+                                      restrain_chain=None, restrain_backbone=False,
+                                      return_info=True)
+
+    流程: ``_fix``(PDBFixer 补缺失原子/氢, 并保真 D-氨基酸名) -> ``_sew_caps_bonds``
+    (C 端 NH2 酰胺封端) -> 按需缝接 backbone 闭合键/二硫键 -> ``createSystem``
+    (恒 ``ignoreExternalBonds=False``, 以便 OpenMM 应用 DISU 等 patch) ->
+    LocalEnergyMinimizer 最小化 -> 写回 PDB(补回 writeFooter 丢弃的跨残基键).
+
+    特殊拓扑的处理职责划分:
+      - D-氨基酸: PDBFixer 会将其静默替换为 L 型, 这里改回 D 名(坐标不变, 手性靠坐标保持);
+      - 非标准氨基酸: 由 ``custom_residues`` 提供的模板注册给 PDBFixer 补氢, 并从模板补内部重原子键;
+      - 离子: ``charmm36.xml`` 无离子模板, 探测到时联合加载 ``ions.xml``;
+      - backbone 闭合(头尾肽键): 缝接首 N-尾 C 键, 并用 ``CustomBondForce`` 保护,
+        因为 CHARMM36 没有对应的 patch 参数;
+      - 二硫键: 分标准与非标两条路径, 但都不加额外键势(键势均来自力场 patch 参数):
+          * 标准 CYS(SG-SG): 由 PDBFixer 的 ``createDisulfideBonds`` 按 **硬编码 0.3 nm**
+            距离判定并补拓扑键, createSystem 时匹配 charmm36.xml 的 DISU patch
+            (SG->SM, CT1->CT2), 直接生效.
+            注意: PDBFixer 重建拓扑时会**丢弃**输入 CONECT 中两端均为标准残基的键,
+            因此 fix-cp 即便按更大的 ``--ss-max-dist`` 把 0.32 nm 的 SG-SG 写进 CONECT,
+            该键仍会在 ``_fix`` 中被丢弃(实测 0.29 nm 保留 / 0.32 nm 丢弃, 与 CONECT 有无无关).
+            若需要保留这种超出 0.3 nm 的 S-S, 由本类在 PDBFixer **之后**用
+            ``_sew_disulfide_bonds`` 按 ``self.ss_max_dist`` 重新补键(该参数默认 0.3 nm);
+          * 非标含硫残基(如 LE1 的 SG3)与 CYS 成键: OpenMM 不认识这种组合, 由本类分三步处理
+            -- ``_sew_disulfide_bonds`` 按 ``SULFUR_ATOM_NAMES`` 与 ss_max_dist 缝接 SG3-SG 拓扑键,
+            ``_remove_disulfide_hydrogens`` 删掉两侧巯基氢(``SULFUR_HYDROGEN_NAMES``: HG/HG1/HG3)
+            使其呈 CYX 式无氢状态, 最后靠 ``charmm36_nc_aa.xml`` 的 LE1SS patch 把 SG3/SG 都
+            改为 SM 原子类型并补 CG301-SM 等键参数(SM-SM 二硫键参数沿用官方 CHARMM36).
+    """
 
     def __init__(self, stiffness=10.0, max_iterations=0, tolerance=10, platform='CUDA', constraints=openmm_app.HBonds,
                  backbone_chains: Optional[List[str]] = None,
@@ -71,6 +111,31 @@ class ForceFieldMinimizer(object):
                  ss_max_dist: float = 0.3,
                  device_index: Optional[int] = None,
                  custom_residue_xml: Optional[Union[str, List[str]]] = None):
+        """初始化弛豫器.
+
+        Args:
+            stiffness (float): 位置约束(CustomExternalForce)的力常数, 单位 kJ/mol/nm^2,
+                仅在使用 ``restrain_chain`` 时生效. 默认 10.
+            max_iterations (int): 最小化最大迭代步数, 0 表示由 OpenMM 自行决定(收敛或达到内部上限).
+                默认 0.
+            tolerance (float): 最小化收敛判据, 单位 kJ/mol/nm. 默认 10.
+            platform (str): OpenMM 计算平台, ``'CUDA'`` 或 ``'CPU'``. 默认 ``'CUDA'``.
+            constraints (openmm.app.Constraint or None): 键长约束方式,
+                ``HBonds`` 约束含氢键长, ``AllBonds`` 全约束, ``None`` 不约束. 默认 ``HBonds``.
+            backbone_chains (List[str] | None): 需要保护 backbone 闭合(头尾肽键)的链 ID 列表.
+                对这些链缝接首 N - 尾 C 肽键, 并加 ``CustomBondForce`` 防止最小化时断链.
+                默认 None(不处理).
+            disulfide_chains (List[str] | None): 含二硫键、需要保护的链 ID 列表.
+                标准 CYS 的 S-S 由 OpenMM 的 DISU patch 处理; 非标含硫残基(如 LE1 的 SG3)
+                由本类手工缝接二硫键并删除巯基氢. 默认 None(不处理).
+            ss_max_dist (float): SG-SG 距离阈值(单位 nm), 阈值内且尚未成键的残基对判定为二硫键并补键.
+                默认 0.3(即 3.0 A).
+            device_index (int | None): CUDA 设备序号, 仅 ``platform='CUDA'`` 时生效.
+                None 表示不设置 ``DeviceIndex``(使用 OpenMM 默认卡). 默认 None.
+            custom_residue_xml (str | List[str] | None): 运行时外部非标准氨基酸模板的 XML 路径
+                (任意路径), 需与同名 YAML 配对使用. 用于在不修改代码的前提下支持新的 ncAA.
+                None 或空表示只用内建模板集. 默认 None.
+        """
         super().__init__()
         self.stiffness = stiffness * ENERGY/(LENGTH ** 2) # coefficient for restraints force, unit: kJ*mol^-1*nm^-2  # pyright: ignore[reportOperatorIssue]
         self.max_iterations = max_iterations
@@ -317,7 +382,8 @@ class ForceFieldMinimizer(object):
 
     def _remove_disulfide_hydrogens(self, modeller):
         """删除参与二硫键的巯基氢: 对 disulfide_chains 链内, 如果某硫原子(SG/SG3)
-        已与另一硫原子成键(二硫键), 则删除其上的巯基氢(HG3/HG1).
+        已与另一硫原子成键(二硫键), 则删除其上的巯基氢.
+        巯基氢命名因残基而异: 标准 CYS 为 HG, LE1 为 HG3, 其余含硫修饰残基可能为 HG1.
         必须在 _sew_disulfide_bonds 之后调用. 返回删除数."""
         n_removed = 0
         sulfur_hydrogens = {}
@@ -329,7 +395,7 @@ class ForceFieldMinimizer(object):
             for a in s_atoms:
                 sulfur_hydrogens[a] = [h for h in a.residue.atoms()
                                        if h.element == openmm_app.element.hydrogen
-                                       and h.name in ('HG3', 'HG1')]
+                                       and h.name in SULFUR_HYDROGEN_NAMES]
         # 找出已互相成键的硫原子对(二硫键)
         bonded_sg = set()
         for (b1, b2) in modeller.topology.bonds():
