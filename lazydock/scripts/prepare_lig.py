@@ -102,6 +102,12 @@ class cif2pdb(Command):
                           help='suffix of the output pdb, such as _transfer, default is %(default)s.')
         args.add_argument('--force', action='store_true',
                           help='force overwrite the output file, default is %(default)s.')
+        args.add_argument('--keep-duplicate-conect', action='store_true',
+                          help='keep duplicated CONECT neighbours from PyMOL as-is. By default '
+                               'cif2pdb rewrites the CONECT block to drop repeated neighbours '
+                               '(PyMOL writes a bond twice on both sides of a non-standard '
+                               'residue) and to keep a single trailing END record, '
+                               'default is %(default)s.')
 
     def process_args(self):
         self.args.batch_dir = process_batch_dir_lst(self.args.batch_dir)
@@ -123,7 +129,49 @@ class cif2pdb(Command):
     @staticmethod
     def new_name(cif_path: Path, new_name: str, *args, **kwargs):
         return cif_path.with_name(f'{new_name}').with_suffix('.pdb')
-        
+
+    @staticmethod
+    def _dedup_conect(pdb_path: Path) -> int:
+        """重写 PDB 的 CONECT 块: 去掉重复邻居、合并同一原子的多行、只保留尾部一个 END.
+
+        PyMOL 在 connect_mode=4 + pdb_conect_all=on 下, 对跨非标准残基的肽键
+        会双向各写两次(如 `CONECT 1052 1051 1053 1054 1054` 与
+        `CONECT 1054 1052 1055 1052`), 该键其实只有一根, 不是双键;
+        另外当输入 PDB 已带 END 时会写出两个 CONECT 块(中间夹一个 END).
+        这些都不影响 OpenMM(读入时按 `(a, b)` 对去重), 但会让下游按
+        CONECT 计数/解析人困惑, 且严格解析器(如部分 GROMACS 工具链)可能报错.
+
+        返回被去除的重复邻居条目数; 0 表示原文件本身干净.
+        """
+        lines = pdb_path.read_text().splitlines()
+        conect: Dict[int, List[int]] = {}
+        order: List[int] = []
+        for line in lines:
+            if not line.startswith('CONECT'):
+                continue
+            nums = [int(line[i:i + 5]) for i in range(6, len(line.rstrip()), 5)]
+            if not nums:
+                continue
+            if nums[0] not in conect:
+                conect[nums[0]] = []
+                order.append(nums[0])
+            conect[nums[0]].extend(nums[1:])
+        if not conect:
+            return 0
+        removed = sum(len(v) - len(dict.fromkeys(v)) for v in conect.values())
+
+        body = [ln for ln in lines if not ln.startswith('CONECT')]
+        while body and body[-1].strip() in ('END', ''):
+            body.pop()
+        for serial in order:
+            neighbours = list(dict.fromkeys(conect[serial]))
+            for i in range(0, len(neighbours), 4):
+                body.append(f'CONECT{serial:5d}'
+                            + ''.join(f'{n:5d}' for n in neighbours[i:i + 4]))
+        body.append('END')
+        pdb_path.write_text('\n'.join(body) + '\n')
+        return removed
+
     def main_process(self):
         # get complex paths
         cif_paths = get_paths_with_extension(self.args.batch_dir, ['.cif'],
@@ -135,12 +183,19 @@ class cif2pdb(Command):
             if self.args.force and self.new_name_fn(cif_path, _args=self.args).exists():
                 put_log(f'skip: {self.new_name_fn(cif_path, _args=self.args)}')
                 continue
+            out_path = Path(self.new_name_fn(cif_path, suffix=self.args.suffix,
+                                             new_name=self.args.new_name))
             try:
                 cmd.reinitialize()
                 cmd.set('connect_mode', 4)
                 cmd.set('pdb_conect_all', 'on')
                 cmd.load(str(cif_path))
-                cmd.save(str(self.new_name_fn(cif_path, suffix=self.args.suffix, new_name=self.args.new_name)))
+                cmd.save(str(out_path))
+                if not self.args.keep_duplicate_conect:
+                    n_removed = self._dedup_conect(out_path)
+                    if n_removed:
+                        put_log(f'{out_path.name}: removed {n_removed} duplicated CONECT '
+                                f'neighbour(s) written by PyMOL')
             except:
                 put_err(f'error with {cif_path}')
                 traceback.print_exc()
