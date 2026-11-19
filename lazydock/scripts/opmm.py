@@ -116,7 +116,7 @@ class relax(Command):
     
     def process_args(self):
         self.args.batch_dir = self.process_batch_dir_lst(self.args.batch_dir)
-        self.args.gpus = [0] or self.args.gpus
+        self.args.gpus = self.args.gpus or [0]
     
     def main_process(self):
         # 处理多个目录
