@@ -9,8 +9,9 @@ import argparse
 import multiprocessing
 import traceback
 from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple, TypedDict
 
 from mbapy_lite.base import put_err, put_log
 from mbapy_lite.file import get_paths_with_extension
@@ -201,12 +202,17 @@ class cif2pdb(Command):
                 traceback.print_exc()
 
 
-def _fix_cp_relax_one(fix_path: Path, cyclic_chains: List[str], disulfide_chains: List[str],
-                      restrain_chains: List[str], restrain_backbone: bool,
+def _fix_cp_relax_one(fix_path: Path, backbone_chains: List[str], disulfide_chains: List[str],
+                      restrain_chains: Optional[List[str]], restrain_backbone: bool,
                       constraints: str, max_iter: int, tolerance: float,
                       platform: str, gpu_index: int,
-                      custom_residue_xml: Optional[List[str]] = None):
-    """对修复后的 PDB 做 OpenMM 弛豫, 保护环化键/二硫键"""
+                      custom_residue_xml: Optional[List[str]] = None,
+                      ss_max_dist: float = 0.3) -> None:
+    """对修复后的 PDB 做 OpenMM 弛豫, 保护头尾肽键(backbone 闭合)/二硫键.
+
+    ss_max_dist: SG-SG 距离阈值, 单位 nm(与 ForceFieldMinimizer 一致),
+        决定 PDBFixer 之后是否由 _sew_disulfide_bonds 重补 S-S 拓扑键.
+        调用方需把 fix-cp 的 --ss-max-dist(单位 A)换算后传入."""
     from openmm import app as openmm_app
 
     from lazydock.opmm.relax import ForceFieldMinimizer
@@ -222,8 +228,9 @@ def _fix_cp_relax_one(fix_path: Path, cyclic_chains: List[str], disulfide_chains
         tolerance=tolerance,
         platform=platform,
         constraints=constraints_obj,
-        cyclic_chains=cyclic_chains,
+        backbone_chains=backbone_chains,
         disulfide_chains=disulfide_chains,
+        ss_max_dist=ss_max_dist,
         device_index=gpu_index,
         custom_residue_xml=custom_residue_xml,
     )
@@ -235,8 +242,47 @@ def _fix_cp_relax_one(fix_path: Path, cyclic_chains: List[str], disulfide_chains
     put_log(f'relaxed: {fix_path.name} (efinal={ret["efinal"]:.1f} kJ/mol)')
 
 
+class BackboneSite(TypedDict):
+    """头尾闭合(backbone 环化)候选位点. sOXT 为 None 表示链尾无 OXT(上游已无线性 C 端)."""
+    chain: str
+    first_resi: int
+    last_resi: int
+    sN: int
+    sC: int
+    sOXT: Optional[int]
+    d_cn: float
+
+
+class DisulfideSite(TypedDict):
+    """二硫键候选位点. has_bond 表示输入 CONECT 中两 SG 已直接相连."""
+    chain: str
+    res1: int
+    res2: int
+    sS1: int
+    sS2: int
+    d_ss: float
+    has_bond: bool
+
+
+@dataclass
+class FixResult:
+    """单个 PDB 的修复结果, 由 _fix_one 返回给 main_process 调度 relax.
+
+    backbone_chains:  存在头尾肽键闭合(backbone 环化)的链, 需要 relax 用 CustomBondForce 保护首尾键.
+    disulfide_chains: 存在 S-S 闭合的链, 需要 relax 走 CHARMM36 DISU patch / 手动缝接 S-S.
+    一条链只会有其一(-c disulfide 模式下 backbone_chains 为空).
+    """
+    lines: List[str]
+    backbone_chains: List[str] = field(default_factory=list)
+    disulfide_chains: List[str] = field(default_factory=list)
+
+
 class fix_cp(Command):
-    HELP = """Fix cyclic peptide (头尾碳骨架环肽) topology.
+    HELP = """Fix cyclic peptide topology.
+
+两种环化(two cyclization modes):
+  - backbone: 头尾闭合, C 端羰基 C 与 N 端氨基 N 成肽键.
+  - disulfide: 侧链闭合, 两个 Cys 的 SG-SG 成二硫键.
 
 case=backbone: 检测并修复首尾大环肽的拓扑错误.
     AlphaFold3 预测环肽时, 会在环化位点(C端残基羰基C与N端残基氨基N之间)留下线性C端羧基氧 OXT,
@@ -245,7 +291,9 @@ case=backbone: 检测并修复首尾大环肽的拓扑错误.
       2. 将 C端羰基C 与 N端氨基N 之间的 CONECT 肽键连接补上
     (仅编辑拓扑连接, 不做任何坐标移动)
 
-future cases: e.g. disulfide bond, side-chain cyclization."""
+case=disulfide: 检测并补全链内 SG-SG 的 CONECT 二硫键.
+
+case=auto: 前置检测两类位点后分流; 同一结构可同时含受体二硫键与配体头尾闭合."""
     def __init__(self, args, printf=print):
         super().__init__(args, printf, ['batch_dir'])
         
@@ -266,11 +314,18 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         args.add_argument('-rb', '--restrain-backbone', action='store_true',
                           help='restrain backbone for given restrain chains in relaxation, default is %(default)s.')
         args.add_argument('--min-cn', type=float, default=2.0,
-                          help='max C-N distance for treating as cyclic peptide closure site (Angstrom), '
+                          help='max C-N distance for treating as a backbone closure site (Angstrom), '
                                'default is %(default)s.')
-        args.add_argument('--ss-max-dist', type=float, default=3.5,
-                          help='max SG-SG distance for treating as disulfide bond (Angstrom), '
-                               'default is %(default)s.')
+        args.add_argument('--ss-max-dist', type=float, default=None,
+                          help='max SG-SG distance for treating as a disulfide bond (Angstrom). '
+                               'default is %(default)s: disabled, i.e. only SG-SG pairs already '
+                               'carrying a CONECT record are treated as disulfides, and distance-based '
+                               'pairing is left to OpenMM/PDBFixer (0.3 nm threshold). '
+                               'Pass an explicit value (e.g. 3.5) only when the structure contains '
+                               'non-standard sulfur residues (SG3, e.g. LE1) not recognized by OpenMM, '
+                               'or when the S-S distance exceeds OpenMM 0.3 nm but the bond should '
+                               'still be restored. When set, the same value is also forwarded to '
+                               'relax (converted to nm) so that PDBFixer will not drop such S-S bonds.')
         args.add_argument('--remove-outlier-atoms', type=str, nargs='+', default=None,
                           help='remove atoms too far from their residue centroid (chains to process), '
                                'e.g. --remove-outlier-atoms A P, default is %(default)s (disabled).')
@@ -282,7 +337,8 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                           help='suffix of the output pdb file name, default is %(default)s.')
         args.add_argument('-relax', '--relax', action='store_true',
                           help='after fixing topology, run OpenMM relaxation with cyclic chain protection '
-                               '(sew head-tail peptide bond + CustomBondForce), default is %(default)s.')
+                               '(backbone: sew head-tail bond + CustomBondForce; '
+                               'disulfide: CHARMM36 DISU patch), default is %(default)s.')
         args.add_argument('-it', '--max-iter', type=int, default=1000,
                           help='max iterations for relaxation, default is %(default)s.')
         args.add_argument('-t', '--tolerance', type=float, default=10,
@@ -311,7 +367,8 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         self.args.batch_dir = self.process_batch_dir_lst(self.args.batch_dir)
     
     @staticmethod
-    def _parse_pdb(pdb_path: str):
+    def _parse_pdb(pdb_path: str) -> Tuple[Dict[int, Tuple[str, int, str, float, float, float]],
+                                           List[str], Dict[int, List[int]]]:
         """解析 PDB, 返回 atoms(按serial), 原始原子行, 以及 CONECT 邻接表"""
         atoms = {}  # serial -> (chain, resi, name, px, py, pz)
         atom_lines = []  # 原始行
@@ -333,14 +390,18 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
         return atoms, atom_lines, serial2conect
     
     @staticmethod
-    def _has_cyclic_mark(sN, sC, sOXT, serial2conect):
-        """判断链是否带环化标记: 头尾 N-C 间已有 CONECT 键, 或链尾残基有 OXT(线性C端残留)"""
+    def _has_backbone_mark(sN: int, sC: int, sOXT: Optional[int],
+                           serial2conect: Dict[int, List[int]]) -> bool:
+        """判断链是否带 backbone 闭合标记: 头尾 N-C 间已有 CONECT 键, 或链尾残基有 OXT(线性C端残留)"""
         if sOXT:
             return True
         return (sC in serial2conect.get(sN, [])) or (sN in serial2conect.get(sC, []))
 
-    def _detect_cyclic_sites(self, atoms, serial2conect, only_chains=None):
-        """检测候选环化位点: 链的 C端残基 C(=O) 与 N端残基 N 距离 < min_cn.
+    def _detect_backbone_sites(self, atoms: Dict[int, Tuple[str, int, str, float, float, float]],
+                               serial2conect: Dict[int, List[int]],
+                               only_chains: Optional[List[str]] = None) -> List[BackboneSite]:
+        """检测候选 backbone 闭合位点(仅头尾肽键, 不含二硫键):
+        链的 C端残基 C(=O) 与 N端残基 N 距离 < min_cn.
         OXT 非必需(上游输出可能已无 OXT 且已带头尾 CONECT), 但记录是否存在供后续删除.
         only_chains: None 检测所有链; 有值时仅检测对应链, 链不存在时报告并跳过."""
         from collections import defaultdict
@@ -377,16 +438,25 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                     'sN': sN, 'sC': sC, 'sOXT': sOXT,
                     'd_cn': d,
                 })
-            elif self._has_cyclic_mark(sN, sC, sOXT, serial2conect):
-                # 有环化标记(头尾 CONECT/OXT)但空间未闭合: 构象问题而非拓扑问题, 报告并跳过
-                put_log(f'chain {chain}: cyclic mark found but C-N dist={d:.1f}A >= min_cn, '
+            elif self._has_backbone_mark(sN, sC, sOXT, serial2conect):
+                # 有 backbone 闭合标记(头尾 CONECT/OXT)但空间未闭合: 构象问题而非拓扑问题, 报告并跳过
+                put_log(f'chain {chain}: backbone closure mark found but C-N dist={d:.1f}A >= min_cn, '
                         f'peptide is NOT spatially closed, skip (cannot fix topology on an open conformation)')
         return sites
 
-    def _detect_disulfide_sites(self, atoms, serial2conect, only_chains=None):
-        """检测候选二硫键位点: 链内恰 2 个 CYS, 且 SG-SG 有 CONECT 或距离 < ss_max_dist.
-        返回 sites 列表(dict: chain/res1/res2/sS1/sS2/d_ss).
-        only_chains: None 检测所有链; 有值时仅检测对应链, 链不存在时报告并跳过."""
+    def _detect_disulfide_sites(self, atoms: Dict[int, Tuple[str, int, str, float, float, float]],
+                                serial2conect: Dict[int, List[int]],
+                                only_chains: Optional[List[str]] = None) -> List[DisulfideSite]:
+        """检测候选二硫键位点: 同链内有 SG-SG 的 CONECT 记录, 或距离 < ss_max_dist.
+        判据只看原子名 SG(不校验残基是否为 CYS/是否标准), 因此非标准含硫残基
+        (如 LE1 青霉胺的 SG3)也能被检出. 注意: 上游 PDB 里 LE1 的硫原子名为 SG,
+        在 fix-cp 之后才被 fix_ncAA 规范化为 SG3, 所以本函数看到的是 SG.
+        only_chains: None 检测所有链; 有值时仅检测对应链, 链不存在时报告并跳过.
+        逐对判断: 同一链内任意两个含 SG 的残基, 距离 < ss_max_dist 或已成键
+        即视为一对二硫键, 每个 SG 只归入一对, 支持一条链上多对.
+        ss_max_dist 为 None 时只按 CONECT 判定, 距离配对交给
+        OpenMM/PDBFixer(固定 0.3 nm), 避免本函数与 OpenMM 阈值不一致.
+        """
         chain_residues = defaultdict(dict)  # chain -> {resi: {name: serial}}
         for serial, (chain, resi, name, *_coords) in atoms.items():
             chain_residues[chain].setdefault(resi, {})[name] = serial
@@ -396,22 +466,36 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                 if c not in chain_residues:
                     put_log(f'chain {c} not found in this complex, skip.')
 
+        def sq_dist(s1, s2):
+            x1 = atoms[s1][3:6]
+            x2 = atoms[s2][3:6]
+            return sum((a - b) ** 2 for a, b in zip(x1, x2)) ** 0.5
+
         sites = []
         for chain, residues in sorted(chain_residues.items()):
             if only_chains and chain not in only_chains:
                 continue
-            # 恰 2 个 CYS(含 SG 的残基)
             cys_resis = [r for r, d in residues.items() if 'SG' in d]
-            if len(cys_resis) != 2:
+            if len(cys_resis) < 2:
                 continue
-            r1, r2 = cys_resis
-            sS1, sS2 = residues[r1].get('SG'), residues[r2].get('SG')
-            if not (sS1 and sS2):
-                continue
-            x1 = atoms[sS1][3:6]; x2 = atoms[sS2][3:6]
-            d_ss = ((x1[0]-x2[0])**2 + (x1[1]-x2[1])**2 + (x1[2]-x2[2])**2) ** 0.5
-            has_bond = (sS2 in serial2conect.get(sS1, [])) or (sS1 in serial2conect.get(sS2, []))
-            if has_bond or d_ss < self.args.ss_max_dist:
+            # 逐对配对: 只保留距离阈值内或已成键的组合, 每个 SG 只归入一对.
+            # ss_max_dist 为 None 时不做距离判定, 只认 CONECT.
+            ss_max_dist = self.args.ss_max_dist
+            pairs = []
+            for i in range(len(cys_resis)):
+                for j in range(i + 1, len(cys_resis)):
+                    r1, r2 = cys_resis[i], cys_resis[j]
+                    sS1, sS2 = residues[r1]['SG'], residues[r2]['SG']
+                    d_ss = sq_dist(sS1, sS2)
+                    has_bond = ((sS2 in serial2conect.get(sS1, []))
+                                or (sS1 in serial2conect.get(sS2, [])))
+                    if has_bond or (ss_max_dist is not None and d_ss < ss_max_dist):
+                        pairs.append((d_ss, r1, r2, sS1, sS2, has_bond))
+            used = set()
+            for d_ss, r1, r2, sS1, sS2, has_bond in sorted(pairs):
+                if sS1 in used or sS2 in used:
+                    continue
+                used.update((sS1, sS2))
                 sites.append({
                     'chain': chain,
                     'res1': r1, 'res2': r2,
@@ -421,14 +505,15 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                 })
         return sites
     
-    def _fix_backbone(self, pdb_path: Path):
+    def _fix_backbone(self, pdb_path: Path) -> Optional[FixResult]:
+        """backbone case: 删 OXT + 补头尾肽键 CONECT, 不动坐标. 无位点返回 None."""
         atoms, atom_lines, serial2conect = self._parse_pdb(str(pdb_path))
-        sites = self._detect_cyclic_sites(atoms, serial2conect, self.args.only_chains)
+        sites = self._detect_backbone_sites(atoms, serial2conect, self.args.only_chains)
 
         if not sites:
-            put_log(f'{pdb_path.name}: no cyclic peptide closure site found, skip.')
+            put_log(f'{pdb_path.name}: no backbone closure site found, skip.')
             return None
-        self._last_fixed_chains = [s['chain'] for s in sites]
+        backbone_chains = list(dict.fromkeys(s['chain'] for s in sites))
         
         oxt_serials = {s['sOXT'] for s in sites}
         # 1. 构造新的 CONECT: 删除 OXT 的键, 在 C端C 与 N端N 之间建立肽键
@@ -469,18 +554,18 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                 conect_out.append(row)
         lines.extend(conect_out)
         lines.append('END\n')
-        return lines
+        return FixResult(lines=lines, backbone_chains=backbone_chains)
 
-    def _fix_disulfide(self, pdb_path: Path):
+    def _fix_disulfide(self, pdb_path: Path) -> Optional[FixResult]:
         """修复二硫键环: 保留全部原子(不删 OXT), 仅确保 SG-SG 间存在 CONECT 键.
-        返回 (lines, sites)."""
+        无位点返回 None."""
         atoms, atom_lines, serial2conect = self._parse_pdb(str(pdb_path))
         sites = self._detect_disulfide_sites(atoms, serial2conect, self.args.only_chains)
 
         if not sites:
             put_log(f'{pdb_path.name}: no disulfide site found, skip.')
             return None
-        self._last_fixed_chains = [s['chain'] for s in sites]
+        disulfide_chains = list(dict.fromkeys(s['chain'] for s in sites))
 
         # 1. 更新 CONECT: 确保 SG-SG 键存在(不删任何原子行)
         new_conect = {serial: set(nbrs) for serial, nbrs in serial2conect.items()}
@@ -525,7 +610,7 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                 conect_out.append(f'CONECT{serial:5d}' + ''.join(f'{n:5d}' for n in nbrs[i:i+4]) + '\n')
         lines.extend(conect_out)
         lines.append('END\n')
-        return lines
+        return FixResult(lines=lines, disulfide_chains=disulfide_chains)
 
     def _remove_outlier_atoms_from_lines(self, lines: List[str], pdb_path: Path) -> List[str]:
         """在所有 case 修复逻辑之后、relax 之前执行(可选):
@@ -636,38 +721,36 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
                 continue
             
             try:
-                out_lines = self._fix_one(pdb_path)
+                result = self._fix_one(pdb_path)
             except Exception:
                 traceback.print_exc()
                 continue
-            if out_lines is None:
+            if result is None:
                 continue
             # 所有 case 修复逻辑之后、relax 之前: 删除离群原子(可选)
-            out_lines = self._remove_outlier_atoms_from_lines(out_lines, pdb_path)
+            out_lines = self._remove_outlier_atoms_from_lines(result.lines, pdb_path)
             # 非标准氨基酸(ncAA)原子名规范化(如 LE1: SG->SG3, C8->CG1, C9->CG2),
             # 统一为 CHARMM36/GROMACS 约定, 供后续 OpenMM 模板匹配与 GROMACS pdb2gmx 识别
-            from lazydock.opmm.fix_ncAA import fix_ncAA_pdb
             from lazydock.opmm.custom_residues import CustomResidues
+            from lazydock.opmm.fix_ncAA import fix_ncAA_pdb
             custom = CustomResidues(self.args.ncaa_xml)
             out_lines = fix_ncAA_pdb(out_lines, pdb_path, custom=custom)
             with open(out_path, 'w') as f:
                 f.writelines(out_lines)
             self.printf(f'fixed: {pdb_path.name} -> {out_path.name}')
-            if self.args.relax and self._last_fixed_chains:
-                if self._last_fixed_case == 'disulfide':
-                    task_name = pool.add_task(None, _fix_cp_relax_one, out_path, [], self._last_fixed_chains,
-                                              restrain_chains=self.args.restrain_chain, restrain_backbone=self.args.restrain_backbone,
-                                              constraints=self.args.constraints, max_iter=self.args.max_iter,
-                                              tolerance=self.args.tolerance, platform=self.args.platform,
-                                              gpu_index=gpu_slots[task_i % len(gpu_slots)],
-                                              custom_residue_xml=self.args.ncaa_xml)
-                else:
-                    task_name = pool.add_task(None, _fix_cp_relax_one, out_path, self._last_fixed_chains, [],
-                                              restrain_chains=self.args.restrain_chain, restrain_backbone=self.args.restrain_backbone,
-                                              constraints=self.args.constraints, max_iter=self.args.max_iter,
-                                              tolerance=self.args.tolerance, platform=self.args.platform,
-                                              gpu_index=gpu_slots[task_i % len(gpu_slots)],
-                                              custom_residue_xml=self.args.ncaa_xml)
+            if self.args.relax and (result.backbone_chains or result.disulfide_chains):
+                # 两类环化可并存(不同链): disulfide 让 relax 启用 CHARMM36 DISU patch,
+                # backbone 用 CustomBondForce 保护首尾肽键.
+                task_name = pool.add_task(None, _fix_cp_relax_one, out_path,
+                                          result.backbone_chains, result.disulfide_chains,
+                                          restrain_chains=self.args.restrain_chain, restrain_backbone=self.args.restrain_backbone,
+                                          constraints=self.args.constraints, max_iter=self.args.max_iter,
+                                          tolerance=self.args.tolerance, platform=self.args.platform,
+                                          gpu_index=gpu_slots[task_i % len(gpu_slots)],
+                                          custom_residue_xml=self.args.ncaa_xml,
+                                          # --ss-max-dist 单位 A, relax 侧单位 nm; 未传(None)时用 relax 默认 0.3nm
+                                          ss_max_dist=(self.args.ss_max_dist / 10.0
+                                                       if self.args.ss_max_dist is not None else 0.3))
                 relax_tasks[task_name] = out_path
             pool.wait_till_free()
         pool.wait_till_all_done()
@@ -687,28 +770,35 @@ future cases: e.g. disulfide bond, side-chain cyclization."""
             put_err(f'{len(failed)}/{len(relax_tasks)} relax task(s) failed, '
                     f'outputs are NOT relaxed', warning_level=3, _exit=1)
 
-    def _fix_one(self, pdb_path: Path):
-        """按 case 分发单个文件修复: backbone / disulfide / auto."""
+    def _fix_one(self, pdb_path: Path) -> Optional[FixResult]:
+        """按 case 分发单个文件修复: backbone / disulfide / auto. 无命中返回 None."""
         if self.args.case == 'disulfide':
-            self._last_fixed_case = 'disulfide'
             return self._fix_disulfide(pdb_path)
         if self.args.case == 'backbone':
-            self._last_fixed_case = 'backbone'
             return self._fix_backbone(pdb_path)
-        # auto: 前置检测分流
+        # auto: 前置检测分流.
+        # 二硫键本身不需要 fix-cp 写 CONECT: OpenMM/PDBFixer 按 `distance < 0.3 nm`
+        # 自动成键(标准 CYS), 非标准含硫残基则由 relax 的 disulfide_chains 缝接.
+        # 因此检出二硫键的真正价值是把链名报给 relax, 而非改拓扑.
         atoms, _, serial2conect = self._parse_pdb(str(pdb_path))
         disu_sites = self._detect_disulfide_sites(atoms, serial2conect, self.args.only_chains)
-        if disu_sites:
-            put_log(f'{pdb_path.name}: auto -> disulfide')
-            self._last_fixed_case = 'disulfide'
+        bb_sites = self._detect_backbone_sites(atoms, serial2conect, self.args.only_chains)
+        disu_chains = list(dict.fromkeys(s['chain'] for s in disu_sites))
+        if bb_sites:
+            # 头尾闭合必须在 fix-cp 阶段补 CONECT(OpenMM 不会推断), 因此优先走 backbone:
+            # OXT 需删除、首尾肽键需补上, 这两件事只有 _fix_backbone 做.
+            put_log(f'{pdb_path.name}: auto -> backbone'
+                    + (f' + disulfide {disu_chains}' if disu_chains else ''))
+            result = self._fix_backbone(pdb_path)
+            if result is not None:
+                result.disulfide_chains = disu_chains
+            return result
+        elif disu_sites:
+            put_log(f'{pdb_path.name}: auto -> disulfide {disu_chains}')
             return self._fix_disulfide(pdb_path)
-        cyc_sites = self._detect_cyclic_sites(atoms, serial2conect, self.args.only_chains)
-        if cyc_sites:
-            put_log(f'{pdb_path.name}: auto -> backbone')
-            self._last_fixed_case = 'backbone'
-            return self._fix_backbone(pdb_path)
-        put_log(f'{pdb_path.name}: auto: neither disulfide nor backbone closure detected, skip.')
-        return None
+        else:
+            put_log(f'{pdb_path.name}: auto: neither disulfide nor backbone closure detected, skip.')
+            return None
 
 
 _str2func = {
@@ -719,7 +809,7 @@ _str2func = {
 }
 
 
-def main(sys_args: List[str] = None):
+def main(sys_args: Optional[List[str]] = None) -> None:
     args_paser = argparse.ArgumentParser(description='Prepare ligand files for docking')
     subparsers = args_paser.add_subparsers(title='subcommands', dest='sub_command')
     
