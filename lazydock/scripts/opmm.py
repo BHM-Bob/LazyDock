@@ -24,7 +24,7 @@ from openmm import app as openmm_app
 
 def _relax_worker(pdb_path: str, output_path: str, chain: str, stiffness: float, 
                  max_iter: int, tolerance: int, platform: str, constraints: str, 
-                 restrain_backbone: bool, cyclic_chains: list = None, device_index=None,
+                 restrain_backbone: bool, backbone_chains: list = None, device_index=None,
                  disulfide_chains: list = None, custom_residue_xml: list = None):
     # 映射constraints字符串到OpenMM对象
     if constraints == 'hbond':
@@ -42,7 +42,7 @@ def _relax_worker(pdb_path: str, output_path: str, chain: str, stiffness: float,
         tolerance=tolerance,
         platform=platform,
         constraints=constraints_obj,  # pyright: ignore[reportArgumentType]
-        cyclic_chains=cyclic_chains,
+        backbone_chains=backbone_chains,
         disulfide_chains=disulfide_chains,
         device_index=device_index,
         custom_residue_xml=custom_residue_xml,
@@ -95,9 +95,9 @@ class relax(Command):
                           help='Restrain backbone atoms. default: False.')
         args.add_argument('-o', '--output-suffix', type=str, default='_relaxed',
                           help='Output PDB file suffix. default: _relaxed.')
-        args.add_argument('--cyclic-chains', type=str, nargs='+', default=None,
-                          help='Cyclic peptide chains to keep the head-tail peptide bond during relaxation, '
-                               'e.g. --cyclic-chains P, default is %(default)s.')
+        args.add_argument('--backbone-chains', type=str, nargs='+', default=None,
+                          help='Backbone-closed peptide chains to keep the head-tail peptide bond '
+                               'during relaxation, e.g. --backbone-chains P, default is %(default)s.')
         args.add_argument('--disulfide-chains', type=str, nargs='+', default=None,
                           help='Chains containing disulfide bonds to protect during relaxation '
                                '(SG-SG bond via CHARMM36 DISU patch or CustomBondForce), '
@@ -164,7 +164,7 @@ class relax(Command):
                                                     self.args.max_iter, self.args.tolerance,
                                                     self.args.platform, self.args.constraints,
                                                     self.args.restrain_backbone,
-                                                    self.args.cyclic_chains,
+                                                    self.args.backbone_chains,
                                                     device_index,
                                                     self.args.disulfide_chains,
                                                     self.args.ncaa_xml)
